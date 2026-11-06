@@ -1,0 +1,21 @@
+import { defineSecret, defineString } from "firebase-functions/params";
+
+export const ANTHROPIC_API_KEY = defineSecret("ANTHROPIC_API_KEY");
+export const HL_CLIENT_ID = defineSecret("HL_CLIENT_ID");
+export const HL_CLIENT_SECRET = defineSecret("HL_CLIENT_SECRET");
+export const PREVIEW_TOKEN_SECRET = defineSecret("PREVIEW_TOKEN_SECRET");
+
+export const ANTHROPIC_MODEL = defineString("ANTHROPIC_MODEL");
+export const ANTHROPIC_SUMMARY_MODEL = defineString("ANTHROPIC_SUMMARY_MODEL", { default: "claude-haiku-5-5" });
+export const HL_REDIRECT_URI = defineString("HL_REDIRECT_URI");
+export const APP_URL = defineString("APP_URL");
+
+export const HL_API_BASE = "https://services.leadconnectorhq.com";
+export const HL_SCOPES = [
+  "contacts.readonly",
+  "conversations.readonly",
+  "conversations/message.readonly",
+  "calendars.readonly",
+  "calendars/events.readonly",
+  "locations.readonly",
+].join(" ");

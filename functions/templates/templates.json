@@ -1,0 +1,46 @@
+{
+  "apps": [
+    {
+      "slug": "customer-360",
+      "name": "Customer 360",
+      "description": "Search a contact and see their details, conversations and appointments in one view.",
+      "category": "insights",
+      "icon": "users"
+    },
+    {
+      "slug": "daily-briefing",
+      "name": "Daily Briefing",
+      "description": "Today's appointments, unread messages and new leads on one page.",
+      "category": "insights",
+      "icon": "sun"
+    },
+    {
+      "slug": "appointment-prep",
+      "name": "Appointment Prep Sheet",
+      "description": "Pick an upcoming appointment and review the contact before the call.",
+      "category": "scheduling",
+      "icon": "clipboard"
+    },
+    {
+      "slug": "no-contact-radar",
+      "name": "No-Contact Radar",
+      "description": "Contacts with no recent conversation, as a follow-up list.",
+      "category": "sales",
+      "icon": "radar"
+    },
+    {
+      "slug": "lead-followup",
+      "name": "Lead Follow-up Board",
+      "description": "New leads with no message yet, plus leads with an upcoming appointment.",
+      "category": "sales",
+      "icon": "kanban"
+    },
+    {
+      "slug": "activity-timeline",
+      "name": "Activity Timeline",
+      "description": "A merged feed of messages and appointments for one contact.",
+      "category": "service",
+      "icon": "history"
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+# Dependencies and build output
+node_modules/
+functions/lib/
+frontend/dist/
+coverage/
+
+# Secrets and local config — never commit. Templates (*.example) are the only env files tracked.
+.env
+.env.*
+!.env.example
+*.local
+.secret.local
+*.pem
+*.key
+*.p12
+service-account*.json
+*-service-account*.json
+firebase-adminsdk*.json
+
+# Firebase local state, emulator exports and debug logs (logs can contain request data)
+.firebase/
+*-debug.log
+*.log
+emulator-data/
+.emulator-data/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.claude/settings.local.json
