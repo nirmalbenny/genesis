@@ -48,6 +48,8 @@ Describe an app in plain English. Genesis streams the code from Claude into a li
 ├── frontend/                  Vue 3 SPA — see frontend/README.md
 │   ├── src/                   views · components (ui/ = shadcn-vue) · composables · lib
 │   └── scripts/dev.mjs        `npm run dev`: Cloudflare tunnel + Vite
+├── .github/workflows/        deploy.yml: CI on every push/PR, deploy to Firebase on main
+├── scripts/                   setup-github-deploy.sh: one-time Workload Identity setup for CI
 ├── docs/
 │   ├── ARCHITECTURE.md        goals, system diagram, data model, API, flows, security
 │   └── screenshots/
@@ -172,7 +174,19 @@ firebase deploy                                      # Firestore rules and index
 - **Bucket race on `generate`:** the first deploy can fail one function with a 409 ("Could not create bucket gcf-v2-sources-…") while all the functions race to create the source bucket. The CLI retries it; otherwise run `firebase deploy --only functions:generate`.
 - **Cleanup-policy error:** if the CLI says it "could not set up cleanup policy", run `firebase functions:artifacts:setpolicy --location us-central1 --days 1`. Then run `firebase deploy --only hosting` if Hosting wasn't released.
 
-There's no CI/CD; deploys are manual with the Firebase CLI.
+### Continuous deployment (GitHub Actions)
+[`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) runs on every push and pull request:
+
+- **Check:** functions tests, then the frontend type-check and production build. Pull requests stop here.
+- **Deploy** (pushes to `main` only, after the check passes): `firebase deploy` of rules, functions and hosting. Pushes that change only Markdown, `docs/` or `.env.example` don't trigger a run.
+
+It authenticates with **Workload Identity Federation**, so there are no keys. Config comes from GitHub **repository variables**: `FIREBASE_PROJECT_ID`, `VITE_FIREBASE_*`, `ANTHROPIC_MODEL`, `ANTHROPIC_SUMMARY_MODEL`, `WIF_PROVIDER` and `DEPLOY_SERVICE_ACCOUNT`. The secrets stay in Secret Manager.
+
+One-time setup, which needs `gcloud` signed in as a project owner and `gh`:
+```bash
+./scripts/setup-github-deploy.sh genesisaibuilder nirmalbenny/genesis
+```
+The script creates a `github-deployer` service account with deploy-only roles. It sets up a workload identity provider that trusts only this repo's `main` branch, and stores `WIF_PROVIDER` and `DEPLOY_SERVICE_ACCOUNT` as repo variables. Until it has run, the deploy job is skipped. To require a manual approval before each deploy, add reviewers to the `production` environment in GitHub settings.
 
 ## Troubleshooting
 | Symptom | Fix |
