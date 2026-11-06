@@ -14,7 +14,7 @@ Take-home assignment (HighLevel, Senior Engineer). Source of truth: `GENESIS_ASS
 - **Never hard-code a HighLevel location id** anywhere (code, templates, generated apps). Apps follow the currently connected sub-account.
 
 ## Stack (fixed)
-- **Backend:** Firebase Auth (email/password), Firestore, Cloud Functions **2nd gen**, Node 20, TypeScript.
+- **Backend:** Firebase Auth (email/password), Firestore, Cloud Functions **2nd gen**, Node 24 runtime (Node 20 was decommissioned 2026-10-30), TypeScript.
 - **LLM:** Claude via `@anthropic-ai/sdk`, **streaming mandatory**. `ANTHROPIC_MODEL` for generation; `ANTHROPIC_SUMMARY_MODEL` (default `claude-haiku-5-5`) for one-line snapshot summaries.
 - **Frontend:** Vue 3 + TypeScript + Vite, **shadcn-vue** (Tailwind v4, reka-ui) for ALL UI primitives, `@lucide/vue`, `vue-router`, `@guolao/vue-monaco-editor`, `@codesandbox/sandpack-client`.
 - **Hosting:** Firebase Hosting (frontend), Firebase Functions (backend).
@@ -42,11 +42,11 @@ Take-home assignment (HighLevel, Senior Engineer). Source of truth: `GENESIS_ASS
 - [x] SSE client: all events, tokens into editor, disconnects handled.
 - [x] Snapshot history in a shadcn Sheet with timestamps + Restore.
 
-### 4. Deployment — **NOT DONE**
-- [ ] Frontend on Firebase Hosting; all functions deployed.
-- [ ] Deployed OAuth callback URL registered as redirect URI in the HL marketplace app.
-- [ ] Secrets in Secret Manager (`.env.example` files exist).
-- [ ] README live URLs + Loom link (README otherwise written).
+### 4. Deployment
+- [x] Frontend on Firebase Hosting (https://genesisaibuilder.web.app); all 5 functions deployed (Node 24, us-central1).
+- [x] Deployed OAuth callback URL registered as redirect URI in the HL marketplace app.
+- [x] Secrets in Secret Manager; `.env.example` files list every variable; prod params in `functions/.env.genesisaibuilder`, `frontend/.env.production` (both git-ignored).
+- [x] README live URLs. - [ ] Loom link.
 - [x] Public GitHub repo: https://github.com/nirmalbenny/genesis (secrets, `.env*` except `*.example`, and debug logs are git-ignored).
 
 ### Constraints
@@ -93,7 +93,7 @@ cd frontend && npm run dev        # Cloudflare tunnel → functions emulator, th
 - Sandbox data: the "AutoCar Inc" sub-account (Kochi, dealership + workshop) holds seeded demo data tagged `genesis-demo` (seed scripts live outside the repo).
 
 ## Next steps
-1. Deploy (Blaze plan, secrets, prod `HL_REDIRECT_URI`/`APP_URL`, register redirect URI), smoke test the definition-of-done flow.
+1. Run the definition-of-done flow on https://genesisaibuilder.web.app (signed-in browser test).
 2. Fill README live URLs; record the Loom.
 3. Optional: regenerate the five single-page ready-made apps to follow the pagination rule; Cancel button; diff view.
 

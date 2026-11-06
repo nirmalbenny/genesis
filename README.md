@@ -11,8 +11,8 @@ Describe an app in plain English. Genesis streams the code from Claude into a li
 Full design, data model and flows: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 
 ## Live URLs
-- **App (Firebase Hosting):** _TBD after deploy_
-- **Cloud Functions base:** `https://us-central1-<project-id>.cloudfunctions.net` _(TBD)_
+- **App (Firebase Hosting):** https://genesisaibuilder.web.app
+- **Cloud Functions base:** `https://us-central1-genesisaibuilder.cloudfunctions.net` (functions: `api`, `generate`, `hlProxy`, `hlAuthStart`, `hlAuthCallback`)
 - **Loom walkthrough:** _TBD_
 
 ## HighLevel setup
@@ -25,7 +25,7 @@ Full design, data model and flows: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md
 4. **Create a sandbox sub-account** from the developer dashboard and add some contacts, conversations and appointments, so the preview has real data to show.
 
 ## Local setup (Firebase emulators)
-Prerequisites: Node 20+, Java 11+ (for the Firestore emulator), and `npm i -g firebase-tools`.
+Prerequisites: Node 24 (the Cloud Functions runtime; Node 20 was decommissioned on 30 Oct 2026), Java 11+ (for the Firestore emulator), and `npm i -g firebase-tools`.
 
 ```bash
 # Functions config: non-secret values in functions/.env, secrets in functions/.secret.local

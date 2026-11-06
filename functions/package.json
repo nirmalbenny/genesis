@@ -2,7 +2,7 @@
   "name": "genesis-functions",
   "private": true,
   "main": "lib/index.js",
-  "engines": { "node": "20" },
+  "engines": { "node": "24" },
   "scripts": {
     "build": "tsc && cp src/llm/hlReference.md lib/llm/hlReference.md",
     "typecheck": "tsc --noEmit",
