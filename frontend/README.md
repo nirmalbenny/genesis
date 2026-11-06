@@ -1,5 +1,28 @@
-# Vue 3 + TypeScript + Vite
+# Genesis — frontend
 
-This template should help get you started developing with Vue 3 and TypeScript in Vite. The template uses Vue 3 `<script setup>` SFCs, check out the [script setup docs](https://v3.vuejs.org/api/sfc-script-setup.html#sfc-script-setup) to learn more.
+Vue 3 + TypeScript + Vite single-page app. UI is built with **shadcn-vue** (Tailwind v4) and `@lucide/vue` icons; Monaco for the editor and Sandpack for the live preview. See the [root README](../README.md) for setup and [docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md) for how it fits together.
 
-Learn more about the recommended Project Setup and IDE Support in the [Vue Docs TypeScript Guide](https://vuejs.org/guide/typescript/overview.html#project-setup).
+## Scripts
+| Command | What it does |
+|---|---|
+| `npm run dev` | Opens a Cloudflare tunnel to the functions emulator, then starts Vite on `http://localhost:5173` pointed at it ([`scripts/dev.mjs`](scripts/dev.mjs)). Needs `cloudflared`. |
+| `npm run dev:local` | Plain Vite, no tunnel (the live preview can't reach local functions in Chrome). |
+| `npm run build` | Type-checks (`vue-tsc`) and builds to `dist/` using `.env.production`. |
+| `npm run preview` | Serves the production build locally. |
+
+## Layout
+```
+src/
+  main.ts · router.ts · firebase.ts (emulators when VITE_USE_EMULATORS=true) · style.css (design tokens)
+  lib/          api.ts (authed fetch) · sse.ts (SSE reader) · catalog.ts (categories, icons, suggestions)
+  composables/  useAuth · useHl (connection) · useApps (live app list) · useCreateApp · useProject
+                useGeneration (SSE client) · useLaunchApp · useConnectPrompt
+  views/        Dashboard (/) · AppsView (/apps) · Workspace (/p/:id) · RunView (/run/:id) · SignIn/SignUp/AuthForm
+  components/   TopBar · SideNav · AppCard · ChatPanel · EditorPanel · FileTree · PreviewPanel · BuildingOverlay
+                SnapshotSheet · dialogs (AppDetails, CopyApp, ConnectRequired) · ui/ (generated shadcn-vue)
+```
+
+## Conventions
+- All UI primitives come from `src/components/ui` (shadcn-vue). Add new ones with `npx shadcn-vue@latest add <name>`.
+- State lives in composables (`ref`/`reactive`); no Pinia.
+- The browser reads Firestore directly (owner-only rules) and writes only through the `api` / `generate` functions.
