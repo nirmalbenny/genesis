@@ -29,7 +29,8 @@ Prerequisites: Node 20+, Java 11+ (for the Firestore emulator), and `npm i -g fi
 
 ```bash
 # Functions config: non-secret values in functions/.env, secrets in functions/.secret.local
-cp functions/.env.example functions/.env        # ANTHROPIC_MODEL, ANTHROPIC_SUMMARY_MODEL, HL_REDIRECT_URI, APP_URL
+cp functions/.env.example functions/.env        # ANTHROPIC_MODEL, ANTHROPIC_SUMMARY_MODEL
+#   functions/.env.local: HL_REDIRECT_URI (127.0.0.1 callback), APP_URL=http://localhost:5173  — emulator only
 #   functions/.secret.local: ANTHROPIC_API_KEY, HL_CLIENT_ID, HL_CLIENT_SECRET, PREVIEW_TOKEN_SECRET (any long random string)
 cp frontend/.env.example frontend/.env.local    # VITE_FIREBASE_* (public web config), VITE_FUNCTIONS_BASE_URL, VITE_USE_EMULATORS=true
 
@@ -69,8 +70,8 @@ cd frontend && npm run dev                      # opens a Cloudflare tunnel, the
 ```bash
 firebase use <project-id>
 firebase functions:secrets:set ANTHROPIC_API_KEY      # and HL_CLIENT_ID, HL_CLIENT_SECRET, PREVIEW_TOKEN_SECRET
-# functions/.env (or .env.<project-id>): ANTHROPIC_MODEL, ANTHROPIC_SUMMARY_MODEL,
-#   HL_REDIRECT_URI=https://us-central1-<project-id>.cloudfunctions.net/hlAuthCallback, APP_URL=https://<project-id>.web.app
+# functions/.env.<project-id>: HL_REDIRECT_URI=https://us-central1-<project-id>.cloudfunctions.net/hlAuthCallback,
+#   APP_URL=https://<project-id>.web.app   (overrides functions/.env on deploy; .env.local stays emulator-only)
 # frontend/.env.production: VITE_FUNCTIONS_BASE_URL=https://us-central1-<project-id>.cloudfunctions.net, VITE_USE_EMULATORS=false
 (cd frontend && npm run build)
 firebase deploy                                         # hosting, functions, firestore rules and indexes
