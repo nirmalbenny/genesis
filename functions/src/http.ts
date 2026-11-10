@@ -8,22 +8,24 @@ export function httpError(status: number, code: string, message: string): HttpEr
   return Object.assign(new Error(message), { status, code });
 }
 
-/** Verifies the Firebase ID token in the Authorization header. */
-export async function verifyUser(req: Request): Promise<{ uid: string; emailVerified: boolean }> {
+/**
+ * Verifies the Firebase ID token in the Authorization header and returns the uid. Accounts whose email is not
+ * verified yet are refused: the app is unusable until then.
+ */
+export async function requireVerifiedUser(req: Request): Promise<string> {
   const header = req.get("authorization") ?? "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : "";
   if (!token) throw httpError(401, "unauthenticated", "Missing bearer token");
+  let decoded;
   try {
-    const decoded = await auth.verifyIdToken(token);
-    return { uid: decoded.uid, emailVerified: decoded.email_verified === true };
+    decoded = await auth.verifyIdToken(token);
   } catch {
     throw httpError(401, "unauthenticated", "Invalid or expired token");
   }
-}
-
-/** Verifies the Firebase ID token and returns the uid. */
-export async function requireUser(req: Request): Promise<string> {
-  return (await verifyUser(req)).uid;
+  if (decoded.email_verified !== true) {
+    throw httpError(403, "email_not_verified", "Verify your email address to start using Genesis.");
+  }
+  return decoded.uid;
 }
 
 export function sendError(res: Response, err: unknown): void {

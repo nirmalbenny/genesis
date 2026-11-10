@@ -4,7 +4,7 @@ import { onRequest, type Request } from "firebase-functions/v2/https";
 import { ANTHROPIC_API_KEY, ANTHROPIC_MODEL, ANTHROPIC_SUMMARY_MODEL } from "./config";
 import { chargeable, creditsFor, holdCredits, settleCredits, toTokenUsage, type TokenUsage } from "./credits";
 import { applyOps, createSnapshot, projectRef, readFiles } from "./files";
-import { httpError, sendError, verifyUser } from "./http";
+import { httpError, requireVerifiedUser, sendError } from "./http";
 import { createParser } from "./llm/parser";
 import { summarizeChange } from "./llm/summary";
 import { buildSystemPrompt, RECENT_MESSAGES, renderFiles } from "./llm/prompt";
@@ -26,10 +26,7 @@ const DECLINED_MESSAGE =
 
 async function precheck(req: Request) {
   if (req.method !== "POST") throw httpError(405, "method_not_allowed", "POST only");
-  const { uid, emailVerified } = await verifyUser(req);
-  if (!emailVerified) {
-    throw httpError(403, "email_not_verified", "Verify your email address to unlock your AI credits, then try again.");
-  }
+  const uid = await requireVerifiedUser(req);
   const pid = String(req.body?.projectId ?? "");
   const prompt = String(req.body?.prompt ?? "").trim();
   if (!prompt || prompt.length > MAX_PROMPT_CHARS) {

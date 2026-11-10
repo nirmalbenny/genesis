@@ -4,7 +4,7 @@ import { auth, db } from "../admin";
 import {
   APP_URL, HL_API_BASE, HL_CLIENT_ID, HL_CLIENT_SECRET, HL_REDIRECT_URI, HL_SCOPES,
 } from "../config";
-import { requireUser, sendError } from "../http";
+import { requireVerifiedUser, sendError } from "../http";
 import { requestToken } from "./token";
 
 const STATE_TTL_MS = 10 * 60 * 1000;
@@ -13,7 +13,7 @@ export const hlAuthStart = onRequest(
   { cors: true, secrets: [HL_CLIENT_ID] },
   async (req, res) => {
     try {
-      const uid = await requireUser(req);
+      const uid = await requireVerifiedUser(req);
       const state = randomUUID();
       await db.doc(`oauthStates/${state}`).set({ uid, createdAt: Date.now() });
       const url = new URL("https://marketplace.gohighlevel.com/oauth/chooselocation");

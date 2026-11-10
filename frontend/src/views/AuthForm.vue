@@ -17,11 +17,14 @@ const props = defineProps<{
   altLink: string
   altLabel: string
   action: (email: string, password: string) => Promise<unknown>
+  /** Sign up: ask for the password twice. */
+  confirmPassword?: boolean
 }>()
 
 const router = useRouter()
 const email = ref('')
 const password = ref('')
+const password2 = ref('')
 const showPassword = ref(false)
 const error = ref('')
 const busy = ref(false)
@@ -42,6 +45,10 @@ const messages: Record<string, string> = {
 
 async function submit() {
   error.value = ''
+  if (props.confirmPassword && password.value !== password2.value) {
+    error.value = "Passwords don't match."
+    return
+  }
   busy.value = true
   try {
     await props.action(email.value, password.value)
@@ -148,6 +155,19 @@ async function submit() {
                 <EyeOff v-if="showPassword" class="size-4" /><Eye v-else class="size-4" />
               </Button>
             </div>
+          </div>
+          <div v-if="confirmPassword" class="grid gap-2">
+            <Label for="password2">Confirm password</Label>
+            <Input
+              id="password2"
+              v-model="password2"
+              :type="showPassword ? 'text' : 'password'"
+              placeholder="Re-enter your password"
+              autocomplete="new-password"
+              minlength="6"
+              class="h-11 rounded-lg px-3.5 text-[15px] focus-visible:border-primary focus-visible:ring-primary/20"
+              required
+            />
           </div>
           <Button type="submit" class="mt-1 h-11 w-full rounded-lg text-[15px] font-semibold" :disabled="busy">{{ busy ? 'Please wait…' : submitLabel }}</Button>
         </form>

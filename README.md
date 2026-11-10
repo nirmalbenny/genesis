@@ -50,7 +50,7 @@ Describe an app in plain English. Genesis streams the code from Claude into a li
 │   ├── src/                   views · components (ui/ = shadcn-vue) · composables · lib
 │   └── scripts/dev.mjs        `npm run dev`: Cloudflare tunnel + Vite
 ├── .github/workflows/        deploy.yml: CI on every push/PR, deploy to Firebase on main
-├── scripts/                   setup-github-deploy.sh: one-time Workload Identity setup for CI
+├── scripts/                   one-time setup: setup-github-deploy.sh (CI), setup-bot-protection.sh (reCAPTCHA)
 ├── docs/
 │   ├── ARCHITECTURE.md        goals, system diagram, data model, API, flows, security
 │   └── screenshots/
@@ -85,7 +85,7 @@ Describe an app in plain English. Genesis streams the code from Claude into a li
    firebase emulators:start           # auth :9099 · firestore :8080 · functions :5001 · UI :4000
    cd frontend && npm run dev         # tunnel to :5001, then Vite on http://localhost:5173
    ```
-4. **Use it:** open http://localhost:5173, sign up, choose **Connect HighLevel** (pick your sandbox sub-account), then describe an app.
+4. **Use it:** open http://localhost:5173 and sign up. Click the verification link from the Auth emulator (Emulator UI, port 4000, or the emulator log), then choose **Connect HighLevel** (pick your sandbox sub-account), then describe an app.
 
 **Why `npm run dev` opens a tunnel:** Chrome's Local Network Access protection blocks the Sandpack preview, which runs on a public origin, from calling `127.0.0.1`. [`frontend/scripts/dev.mjs`](frontend/scripts/dev.mjs) handles it:
 - it opens a Cloudflare quick tunnel to the functions emulator;
@@ -150,7 +150,7 @@ Secrets go in `functions/.secret.local` for the emulator and in **Secret Manager
 ## Deployment notes
 **Firebase project setup** (one time):
 - **Blaze plan,** required for 2nd-gen functions and Secret Manager. Set a budget alert.
-- **Authentication:** enable Email/Password.
+- **Authentication:** enable Email/Password, then turn on bot protection with `./scripts/setup-bot-protection.sh <project-id>`. It upgrades Auth to Identity Platform (free up to 50k monthly users; the upgrade can't be undone) and has Firebase score every email/password sign-up and sign-in with reCAPTCHA Enterprise, blocking scores ≤ 0.3. Run it with `AUDIT` as the second argument to score without blocking, or `OFF` to turn it off.
 - **Firestore:** Standard edition, Native mode.
 - **Hosting:** serves `frontend/dist`. `firebase.json` rewrites every path to `index.html`.
 

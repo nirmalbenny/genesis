@@ -110,11 +110,11 @@ projects/{pid}
 
 ## 4. Backend API
 
-All routes are on the `api` function and need `Authorization: Bearer <Firebase ID token>`. Errors are returned as `{ error: { code, message } }`.
+All routes are on the `api` function and need `Authorization: Bearer <Firebase ID token>` for an account whose email is verified (otherwise `403 email_not_verified`; the same applies to `generate` and `hlAuthStart`). Errors are returned as `{ error: { code, message } }`.
 
 | Method & path | Purpose |
 |---|---|
-| `POST /bootstrap` | Gives the user the current set of ready-made apps, and the 2,500 signup credits once their email is verified. Safe to repeat. |
+| `POST /bootstrap` | Gives the user the current set of ready-made apps and the 2,500 signup credits. Safe to repeat. |
 | `POST /hl/disconnect` | Deletes the user's HighLevel tokens and pending OAuth states, and clears `users.hl`. |
 | `POST /projects` | Creates an app. `name` and `description` are required, `category` is optional. |
 | `GET /projects/:id` | Returns the app's details. |
@@ -129,7 +129,7 @@ All routes are on the `api` function and need `Authorization: Bearer <Firebase I
 | `POST /projects/:id/snapshots/:sid/restore` | Restores a snapshot, which itself records a new `restore` snapshot. Not allowed on ready-made apps. |
 | `POST /projects/:id/preview-token` | Issues a 15-minute preview token for the connected location. |
 
-The **`generate`** function takes `POST { projectId, prompt }` (prompt ≤ 4,000 characters). Before streaming, it can refuse with JSON: `403 email_not_verified`, or `402 insufficient_credits` when the available balance can't cover the build's worst case. Otherwise it replies with `text/event-stream`, and `done` and `error` carry `credits: { charged, balance }`:
+The **`generate`** function takes `POST { projectId, prompt }` (prompt ≤ 4,000 characters). Before streaming, it can refuse with JSON, for example `402 insufficient_credits` when the available balance can't cover the build's worst case. Otherwise it replies with `text/event-stream`, and `done` and `error` carry `credits: { charged, balance }`:
 
 ```
 event: start      data: {generationId}
@@ -150,14 +150,17 @@ sequenceDiagram
   participant SPA
   participant A as Firebase Auth
   participant API as api
-  U->>SPA: Sign up (email, password)
-  SPA->>A: createUserWithEmailAndPassword
+  U->>SPA: Sign up (email, password, confirm password)
+  SPA->>A: createUserWithEmailAndPassword + sendEmailVerification
+  Note over SPA: /verify until the link is clicked (Resend email, I've verified)
+  U->>A: clicks the verification link
+  SPA->>A: reload user, refresh ID token (email_verified)
   SPA->>API: POST /bootstrap
-  API->>API: seed ready-made apps (idempotent, content-hashed)
+  API->>API: seed ready-made apps (idempotent, content-hashed) + signup credits
   SPA->>SPA: live Firestore listener on the user's projects
   Note over SPA: Not connected: "Make your HighLevel data work harder" + Connect HighLevel
 ```
-Firebase's built-in persistence keeps the session across page reloads. The router sends signed-out users to `/signin` and signed-in users away from the auth pages.
+Firebase's built-in persistence keeps the session across page reloads. The router sends signed-out users to `/signin`, signed-in users with an unverified email to `/verify` (the only page they can open), and everyone else away from the auth pages. The server enforces the same rule, so skipping the page doesn't help. On load and whenever the tab regains focus, the app re-checks verification and refreshes the ID token if its `email_verified` claim is stale.
 
 ### 5.2 Connect, reconnect and disconnect HighLevel
 ```mermaid
@@ -268,7 +271,7 @@ The chat shows the notice for that session only, so a declined request never aff
 ## 6a. AI credits
 
 - **Value:** 1 credit = $0.001 of Claude list price. The versioned rate card in [`credits.ts`](../functions/src/credits.ts) gives credits per million input, output, cache-write and cache-read tokens for each model. Any model not on the card is billed at the highest known rate, never for free. Users never pick a model: a build uses the generation model, plus Haiku for the snapshot summary, and pays for both.
-- **Signup grant:** 2,500 credits, granted by `POST /bootstrap` once the ID token says `email_verified`. The ledger entry ID `signup` makes the grant idempotent. Sign-up sends Firebase's verification email, and the dashboard offers **Resend email** and **I've verified**.
+- **Signup grant:** 2,500 credits, granted by `POST /bootstrap` once the ID token says `email_verified`. The ledger entry ID `signup` makes the grant idempotent. Sign-up sends Firebase's verification email, and the `/verify` page offers **Resend email** and **I've verified**.
 - **Hold:** before streaming, `generate` counts the input tokens exactly (`messages.countTokens`). It prices the input plus the full 16K output cap plus a summary allowance, and reserves that amount in a Firestore transaction (`balance − reserved` must cover it). Otherwise it returns 402 and makes no Claude call.
 - **Charge:** after the build, the real usage (`final.usage`, plus the summary's usage) is converted to credits and rounded up once per build. The hold is released, the charge is applied in one transaction, and the result is recorded on the generation.
   - **Cut-off streams** are charged for the input plus the output actually streamed.
@@ -333,6 +336,7 @@ sequenceDiagram
 - **Least privilege:** the HighLevel scopes are read-only, and the proxy only allows the GET paths above.
 - **No token exposure:** HighLevel tokens never leave Cloud Functions. Generated apps hold only a short-lived preview token tied to one user, project and location.
 - **Server-side writes only:** Firestore security rules reject every client write.
+- **Bot sign-ups:** Firebase Auth (Identity Platform) scores every email/password sign-up and sign-in with reCAPTCHA Enterprise and rejects low scores or missing tokens. The check happens in Auth itself, so calling the public sign-up API directly doesn't skip it; the web SDK attaches the token without any app code. Accounts that get through still can't use anything until their email is verified (§5.1). Setup: [`scripts/setup-bot-protection.sh`](../scripts/setup-bot-protection.sh).
 - **Prompt-injection resistance:** the system prompt treats user text as a request to evaluate, never as instructions. Requests that are off-topic or try to override the rules are declined and never stored.
 - **Generated code is sandboxed:** it runs in the Sandpack iframe on another origin, with a fixed dependency set.
 
@@ -360,6 +364,7 @@ src/
   | `/p/:id` | Workspace |
   | `/run/:id` | Full-screen app |
   | `/signin`, `/signup` | Authentication |
+  | `/verify` | Verify email (the only page until the email is verified) |
 
 ## 11. Testing
 

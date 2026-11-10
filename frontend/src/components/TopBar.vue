@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronDown, LogOut, MailCheck, Menu, Plug, RefreshCw, Sparkles, Unplug } from '@lucide/vue'
+import { ChevronDown, LogOut, Menu, Plug, RefreshCw, Sparkles, Unplug } from '@lucide/vue'
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import AppLogo from '@/components/AppLogo.vue'
@@ -20,7 +20,7 @@ import { useHl } from '@/composables/useHl'
 defineProps<{ crumb?: string }>()
 
 const router = useRouter()
-const { user, emailVerified, signOut } = useAuth()
+const { user, signOut } = useAuth()
 const { credits, available } = useCredits()
 const { hl, loaded, busy, connect, disconnect } = useHl()
 const confirmDisconnect = ref(false)
@@ -49,17 +49,9 @@ async function confirmed() {
     <div class="flex-1" />
     <slot name="actions" />
 
-    <!-- AI credits: unlocked by verifying the email address -->
-    <Button
-      v-if="user && !emailVerified"
-      variant="ghost"
-      class="h-10 gap-2 rounded-lg border border-warn-500/50 bg-white/[0.08] px-3 text-sm text-white hover:bg-white/15 hover:text-white"
-      @click="router.push('/')"
-    >
-      <MailCheck class="size-4 text-warn-500" /><span class="hidden sm:inline">Verify email to unlock credits</span><span class="sm:hidden">Verify</span>
-    </Button>
+    <!-- AI credits -->
     <div
-      v-else-if="credits"
+      v-if="credits"
       class="flex h-10 items-center gap-2 rounded-lg border bg-white/[0.08] px-3 text-white"
       :class="available < LOW_CREDITS ? 'border-warn-500/50' : 'border-white/15'"
       :title="`${available.toLocaleString()} AI credits available · ${credits.used.toLocaleString()} used`"

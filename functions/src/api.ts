@@ -6,13 +6,13 @@ import {
   applyOps, createSnapshot, fileId, projectRef, readFiles, restoreSnapshot, SEED_FILES, writeFileDoc,
 } from "./files";
 import { grantSignupCredits } from "./credits";
-import { httpError, sendError, verifyUser } from "./http";
+import { httpError, requireVerifiedUser, sendError } from "./http";
 import { checkPath, MAX_FILE_BYTES } from "./llm/validate";
 import { signPreviewToken } from "./previewToken";
 import { assertEditable, getOwnedProject, getUserHl, toCategory, useConnectedLocation } from "./projects";
 import { seedTemplates } from "./templates";
 
-type Handler = (uid: string, req: Request, m: string[], emailVerified: boolean) => Promise<unknown>;
+type Handler = (uid: string, req: Request, m: string[]) => Promise<unknown>;
 
 const text = (v: unknown, max: number): string => (typeof v === "string" ? v.trim().slice(0, max) : "");
 
@@ -182,11 +182,10 @@ const disconnectHl: Handler = async (uid) => {
   return { ok: true };
 };
 
-/** First-visit setup: ready-made apps, and the signup credits once the email is verified. */
-const bootstrap: Handler = async (uid, _req, _m, emailVerified) => {
+/** First-visit setup (after email verification): ready-made apps and the signup credits. */
+const bootstrap: Handler = async (uid) => {
   const seeded = await seedTemplates(uid);
-  const creditsGranted = emailVerified ? await grantSignupCredits(uid) : false;
-  return { ...seeded, emailVerified, creditsGranted };
+  return { ...seeded, creditsGranted: await grantSignupCredits(uid) };
 };
 
 const routes: Array<[string, RegExp, Handler]> = [
@@ -208,11 +207,11 @@ const routes: Array<[string, RegExp, Handler]> = [
 
 export const api = onRequest({ cors: true, secrets: [PREVIEW_TOKEN_SECRET] }, async (req, res) => {
   try {
-    const { uid, emailVerified } = await verifyUser(req);
+    const uid = await requireVerifiedUser(req);
     for (const [method, pattern, handler] of routes) {
       const m = pattern.exec(req.path.replace(/\/$/, "") || "/");
       if (m && req.method === method) {
-        res.json(await handler(uid, req, m.slice(1), emailVerified));
+        res.json(await handler(uid, req, m.slice(1)));
         return;
       }
     }

@@ -19,7 +19,7 @@ export function useApps() {
 
   if (!bootstrapped) {
     bootstrapped = true
-    // The server makes this a no-op once the user has the current set of ready-made apps.
+    // Seeds the ready-made apps and grants the signup credits; the server makes it a no-op once both are done.
     api('POST', '/bootstrap').catch(() => {
       bootstrapped = false
       error.value = 'Could not load the ready-made apps.'

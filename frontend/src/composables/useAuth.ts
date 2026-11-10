@@ -4,21 +4,22 @@ import {
 } from 'firebase/auth'
 import { ref } from 'vue'
 import { auth } from '@/firebase'
-import { api } from '@/lib/api'
 
 const user = ref<User | null>(null)
 /** Mirrors user.emailVerified; refreshed after the user clicks the link in the verification email. */
 const emailVerified = ref(false)
 
-// Resolves once Firebase has restored (or not) the persisted session.
+// Resolves once Firebase has restored (or not) the persisted session and its verification status is current.
 const ready = new Promise<void>((resolve) => {
   onAuthStateChanged(auth, (u) => {
     user.value = u
     emailVerified.value = u?.emailVerified ?? false
-    resolve()
+    if (!u) return resolve()
     // After the user clicks the email link (often in a new tab) the restored session can lag behind: the
     // account may still read "unverified", or read verified while the cached ID token does not. Sync both.
-    if (u) refreshVerification().catch((e) => console.warn('Email verification re-check failed', e))
+    refreshVerification()
+      .catch((e) => console.warn('Email verification re-check failed', e))
+      .finally(resolve)
   })
 })
 
@@ -40,8 +41,8 @@ async function signUp(email: string, password: string) {
 
 /**
  * Brings the session up to date after the user clicked the verification link, and returns true when verified.
- * The server grants the signup credits from the ID token's email_verified claim, which can lag behind the account
- * itself; when it does, the token is refreshed and the credits are claimed (POST /bootstrap is idempotent).
+ * The server only serves accounts whose ID token says email_verified, and that claim can lag behind the account
+ * itself; when it does, the token is refreshed before the app is used.
  */
 async function refreshVerification(): Promise<boolean> {
   const u = auth.currentUser
@@ -49,10 +50,7 @@ async function refreshVerification(): Promise<boolean> {
   if (!u.emailVerified) await u.reload()
   emailVerified.value = u.emailVerified
   if (!u.emailVerified) return false
-  if ((await u.getIdTokenResult()).claims.email_verified !== true) {
-    await u.getIdToken(true)
-    await api('POST', '/bootstrap')
-  }
+  if ((await u.getIdTokenResult()).claims.email_verified !== true) await u.getIdToken(true)
   return true
 }
 
