@@ -3,6 +3,7 @@ import { HL_API_BASE, HL_CLIENT_ID, HL_CLIENT_SECRET, PREVIEW_TOKEN_SECRET } fro
 import { httpError, sendError } from "./http";
 import { getValidHlToken } from "./hl/token";
 import { verifyPreviewToken } from "./previewToken";
+import { getOwnedProject } from "./projects";
 
 // GET-only allowlist of HighLevel paths generated apps may call.
 const ALLOWED = [
@@ -23,6 +24,24 @@ const NO_LOCATION_PARAM = [/^\/calendars\/[\w-]+\/free-slots$/];
 
 const apiError = (code: string, message: string) => ({ error: { code, message } });
 
+// A preview token is bound to one app: it only works while that app exists, is not deleted, and belongs to
+// the token's user. Successful checks are remembered briefly per instance so paging apps don't read Firestore
+// on every call; a deleted app's previews stop working within PROJECT_CHECK_TTL_MS.
+const PROJECT_CHECK_TTL_MS = 60_000;
+const verifiedProjects = new Map<string, number>(); // "uid/projectId" -> verified until (ms)
+
+async function assertPreviewProject(uid: string, projectId: string): Promise<void> {
+  const key = `${uid}/${projectId}`;
+  if ((verifiedProjects.get(key) ?? 0) > Date.now()) return;
+  try {
+    await getOwnedProject(uid, projectId);
+  } catch {
+    verifiedProjects.delete(key);
+    throw httpError(403, "project_not_allowed", "This preview token isn't valid for this app. Reload the preview.");
+  }
+  verifiedProjects.set(key, Date.now() + PROJECT_CHECK_TTL_MS);
+}
+
 export const hlProxy = onRequest(
   { cors: true, secrets: [PREVIEW_TOKEN_SECRET, HL_CLIENT_ID, HL_CLIENT_SECRET] },
   async (req, res) => {
@@ -33,6 +52,7 @@ export const hlProxy = onRequest(
 
       const path = req.path;
       if (!ALLOWED.some((re) => re.test(path))) throw httpError(403, "path_not_allowed", `Path not allowed: ${path}`);
+      await assertPreviewProject(claims.uid, claims.projectId);
 
       const { accessToken, locationId } = await getValidHlToken(claims.uid);
       if (locationId !== claims.locationId) {

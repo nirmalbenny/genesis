@@ -24,7 +24,7 @@ src/
   index.ts            exports the five functions
   api.ts              REST router (projects, files, snapshots, bootstrap, pin, preview token, disconnect)
   generate.ts         SSE generation pipeline
-  hlProxy.ts          HighLevel proxy (GET allowlist, forced location, error mapping)
+  hlProxy.ts          HighLevel proxy (GET allowlist, project check, forced location, error mapping)
   hl/oauth.ts         OAuth start + callback      hl/token.ts   token refresh (single-flight, rotation-safe)
   llm/                prompt.ts · hlReference.md (API + pagination reference given to the model)
                       parser.ts (incremental output parser) · validate.ts · summary.ts (Haiku summaries)

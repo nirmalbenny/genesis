@@ -299,7 +299,7 @@ sequenceDiagram
   API-->>P: HMAC token {uid, projectId, locationId, exp=15 min}
   P->>SB: files + injected src/hl.config.js (HL_PROXY, PREVIEW_TOKEN, LOCATION_ID) + fixed package.json
   SB->>PX: GET /contacts/?… (Bearer preview token)
-  PX->>PX: verify token, allowlist path, force locationId
+  PX->>PX: verify token, allowlist path, check project, force locationId
   PX->>HL: GET with the real access token (refreshed if needed)
   HL-->>SB: JSON (errors mapped to {error:{code,message}})
 ```
@@ -307,6 +307,7 @@ sequenceDiagram
   - `/contacts/`, `/contacts/{id}` and `/contacts/{id}/appointments`
   - `/conversations/search`, `/conversations/{id}` and `/conversations/{id}/messages`
   - `/calendars/`, `/calendars/events` and `/calendars/{id}/free-slots` (open booking slots)
+- **Project check:** the token works only while its `projectId` exists, isn't deleted and belongs to the token's user. Otherwise the proxy returns `403 project_not_allowed`. Successful checks are cached for 60 seconds per server instance, so a deleted app's previews stop working within a minute.
 - **API version header:** calendar requests use `Version: 2021-04-15`, and everything else uses `2021-07-28`.
 - **Token refresh:**
   - Access tokens are refreshed 60 seconds before they expire.
