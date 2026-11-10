@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 import { FUNCTIONS_BASE } from '@/firebase'
-import { authHeader } from '@/lib/api'
+import { api, authHeader } from '@/lib/api'
 import { readSse } from '@/lib/sse'
 
 type Handlers = {
@@ -23,7 +23,10 @@ export function useGeneration(h: Handlers) {
   const building = ref<{ path: string; done: boolean }[]>([])
   /** AI credits charged for the last build and the balance after it (from the server's done/error event). */
   const lastCredits = ref<BuildCredits | null>(null)
+  /** True between pressing Stop and the server confirming the build stopped. */
+  const stopping = ref(false)
   let abort: AbortController | null = null
+  let running: { projectId: string; generationId: string | null } | null = null
 
   async function start(projectId: string, prompt: string) {
     streaming.value = true
@@ -32,7 +35,9 @@ export function useGeneration(h: Handlers) {
     building.value = []
     plan.value = ''
     lastCredits.value = null
+    stopping.value = false
     abort = new AbortController()
+    running = { projectId, generationId: null }
     let finished = false
     let started = false
 
@@ -58,7 +63,7 @@ export function useGeneration(h: Handlers) {
           if (path) h.onToken(path, d.text as string)
           else plan.value += d.text as string
         } else if (event === 'start') {
-          // generation id is not needed client-side
+          if (running) running.generationId = d.generationId as string
         } else if (event === 'file_start') {
           building.value.push({ path: d.path as string, done: false })
           h.onFileStart(d.path as string)
@@ -66,6 +71,10 @@ export function useGeneration(h: Handlers) {
           const f = building.value.find((b) => b.path === d.path)
           if (f) f.done = true
         } else if (event === 'done') {
+          finished = true
+          lastCredits.value = (d.credits as BuildCredits | undefined) ?? null
+        } else if (event === 'cancelled') {
+          // Stopped on request: the server kept the finished files and wrote a chat message saying which.
           finished = true
           lastCredits.value = (d.credits as BuildCredits | undefined) ?? null
         } else if (event === 'error') {
@@ -87,12 +96,30 @@ export function useGeneration(h: Handlers) {
       }
     } finally {
       streaming.value = false
+      stopping.value = false
       abort = null
+      running = null
       // After a dropped connection the server may still be saving partial results.
       if (!finished) await new Promise((r) => setTimeout(r, 2000))
       await h.onFinished()
     }
   }
 
-  return { streaming, error, plan, declined, building, lastCredits, start, abortLocal: () => abort?.abort() }
+  /**
+   * Stops the running build. The server stops the model, keeps the finished files and ends the stream with a
+   * `cancelled` event. If the request can't be sent, dropping the connection stops the build all the same.
+   */
+  async function stop() {
+    if (!running || stopping.value) return
+    stopping.value = true
+    const { projectId, generationId } = running
+    if (!generationId) return abort?.abort() // nothing started on the server yet
+    try {
+      await api('POST', `/projects/${projectId}/generations/${generationId}/cancel`)
+    } catch {
+      abort?.abort()
+    }
+  }
+
+  return { streaming, stopping, error, plan, declined, building, lastCredits, start, stop }
 }

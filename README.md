@@ -19,6 +19,7 @@ Describe an app in plain English. Genesis streams the code from Claude into a li
 - **Prompt-first workspace.** You describe an app and name it, then Claude's output streams into Monaco, read-only while it streams. The preview shows a "Building your app" overlay meanwhile.
 - **Live preview** in a Sandpack iframe. Apps call HighLevel through a secure proxy and never see your token.
 - **Generated apps paginate:** contacts, conversations and messages load 20 at a time behind Load more. Calendar apps can show events and open booking slots.
+- **Stop a build** mid-stream with Stop or Esc. Finished files are kept, the half-written one is discarded, and only the tokens used are charged.
 - **Edit code by hand** or refine with follow-up prompts. Every build is a **snapshot** with an AI-written summary, and you can restore any of them from the History sheet.
 - **Six ready-made apps** for every user: Customer 360, Daily Briefing, Appointment Prep Sheet, No-Contact Radar, Lead Follow-up Board and Activity Timeline. They're locked, but you can launch them, copy them and pin them to the sidebar.
 - **App catalog:** search, type and category filters, ordering, pinning, and full-screen launch at `/run/:id`.
@@ -141,7 +142,7 @@ Secrets go in `functions/.secret.local` for the emulator and in **Secret Manager
 10. **Off-topic or harmful prompts are declined, and never stored.** They're detected through a `<refuse>` reply or the API's refusal stop reason, so a declined prompt can't influence later prompts.
 
 ## What I would improve
-1. **Cancel button and diff view:** let users stop a build mid-stream, and show what each generation changed compared with the previous snapshot.
+1. **Diff view:** show what each generation changed compared with the previous snapshot.
 2. **HighLevel webhooks:** add a receiver with Ed25519 signature checks, so apps such as a speed-to-lead monitor or a live inbox update in real time. Also use the `AppUninstall` event to delete stored tokens as soon as Genesis is uninstalled.
 3. **Rate limiting** per user on `generate` and `hlProxy`, plus caching in the proxy to stay within HighLevel's limit of about 100 requests per 10 seconds.
 4. **Static checks on generated code** before saving, rejecting `v-html`, `eval`, `document.cookie`, script tags, and network calls that bypass the proxy.

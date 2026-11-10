@@ -11,6 +11,9 @@ export type ParseEvent =
 const FILE_CLOSE = "</file>";
 const TAG = /^<(?:\/?plan>|\/?refuse>|file\s+path="([^"]*)"\s*>|delete\s+path="([^"]*)"\s*\/>)/;
 const MAX_TAG_LEN = 300;
+const TAG_STARTS = ["<plan>", "</plan>", "<refuse>", "</refuse>", '<file path="', '<delete path="'];
+/** True for the held-back start of a tag ("<fi", '<file path="src/A'): a cut-off tag, not text. */
+const isPartialTag = (s: string) => TAG_STARTS.some((t) => t.startsWith(s) || s.startsWith(t));
 // The model occasionally leaks a tool-call closing tag as the last line of a file; it is never valid source.
 const STRAY_TRAILER = /\r?\n?<\/parameter>\s*$/;
 
@@ -103,7 +106,7 @@ export function createParser(emit: (e: ParseEvent) => void) {
         buf = "";
         return filePath;
       }
-      if (buf) outsideText(buf);
+      if (buf && !isPartialTag(buf)) outsideText(buf); // a stream cut off mid-tag leaves half a tag behind
       buf = "";
       if (refuseText !== null) emit({ type: "refuse", reason: refuseText.trim() });
       return null;

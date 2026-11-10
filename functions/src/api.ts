@@ -107,6 +107,17 @@ const deleteProject: Handler = async (uid, _req, [pid]) => {
   return { ok: true };
 };
 
+/** Asks a running build to stop. The generate function watches the generation doc and stops the model. */
+const cancelGeneration: Handler = async (uid, _req, [pid, gid]) => {
+  await getOwnedProject(uid, pid);
+  const ref = projectRef(pid).collection("generations").doc(gid);
+  const snap = await ref.get();
+  if (!snap.exists) throw httpError(404, "not_found", "Generation not found");
+  if (snap.get("status") !== "streaming") return { requested: false }; // already finished
+  await ref.update({ cancelRequested: true });
+  return { requested: true };
+};
+
 const listFiles: Handler = async (uid, req, [pid]) => {
   await getOwnedProject(uid, pid);
   const files = await readFiles(pid);
@@ -200,6 +211,7 @@ const routes: Array<[string, RegExp, Handler]> = [
   ["GET", /^\/projects\/([^/]+)\/files$/, listFiles],
   ["PUT", /^\/projects\/([^/]+)\/files$/, saveFile],
   ["GET", /^\/projects\/([^/]+)\/file$/, readFile],
+  ["POST", /^\/projects\/([^/]+)\/generations\/([^/]+)\/cancel$/, cancelGeneration],
   ["GET", /^\/projects\/([^/]+)\/snapshots$/, listSnapshots],
   ["POST", /^\/projects\/([^/]+)\/snapshots\/([^/]+)\/restore$/, restore],
   ["POST", /^\/projects\/([^/]+)\/preview-token$/, previewToken],

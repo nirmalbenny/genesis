@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { CircleAlert, Copy, History, Sparkles } from '@lucide/vue'
-import { computed, nextTick, ref, watch } from 'vue'
+import { CircleAlert, Copy, History, Sparkles, Square } from '@lucide/vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import FileTag from '@/components/FileTag.vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -20,13 +20,15 @@ const props = defineProps<{
   notices: Notice[]
   pendingPrompt: string | null
   streaming: boolean
+  /** Stop was pressed and the server is wrapping up. */
+  stopping?: boolean
   plan: string
   error: string
   building: { path: string; done: boolean }[]
   /** AI credits the last build used, and the balance after it. */
   lastCredits?: { charged: number; balance: number | null } | null
 }>()
-const emit = defineEmits<{ send: [prompt: string]; 'open-file': [path: string]; history: []; copy: [] }>()
+const emit = defineEmits<{ send: [prompt: string]; stop: []; 'open-file': [path: string]; history: []; copy: [] }>()
 
 const draft = ref(props.initialDraft ?? '')
 const bottom = ref<HTMLElement | null>(null)
@@ -37,6 +39,13 @@ function submit() {
   emit('send', prompt)
   draft.value = ''
 }
+
+// Esc stops a running build, unless a dialog is open (Esc closes that instead).
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape' && props.streaming && !document.querySelector('[role="dialog"]')) emit('stop')
+}
+onMounted(() => window.addEventListener('keydown', onKeydown))
+onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 type Item = { key: string; role: 'user' | 'assistant' | 'notice'; content: string; files: string[] }
 
@@ -146,7 +155,8 @@ watch(() => [items.value.length, props.plan, props.building.length], async () =>
     </div>
     <form v-else class="shrink-0 border-t border-border p-3" @submit.prevent="submit">
       <div v-if="streaming" class="mb-2 rounded-md bg-signal-100 px-3 py-1.5 text-xs text-signal-600">
-        Building<template v-if="current"> · {{ current }}</template>
+        <template v-if="stopping">Stopping… finished files will be kept</template>
+        <template v-else>Building<template v-if="current"> · {{ current }}</template> · Esc to stop</template>
       </div>
       <div class="rounded-xl border bg-card px-2.5 pb-2 pt-1.5" :class="streaming ? 'border-signal-500' : 'border-input'">
         <Textarea
@@ -159,10 +169,13 @@ watch(() => [items.value.length, props.plan, props.building.length], async () =>
           @keydown.ctrl.enter.prevent="submit"
         />
         <div class="mt-1 flex items-center justify-between gap-2">
-          <div class="flex gap-1">
+          <div class="flex min-w-0 gap-1 overflow-hidden">
             <Badge v-for="a in ['Contacts', 'Conversations', 'Calendars']" :key="a" variant="secondary" class="h-5 border-transparent bg-data-100 px-1.5 text-[11px] text-data-500">{{ a }}</Badge>
           </div>
-          <Button type="submit" size="sm" :disabled="streaming || blocked || !draft.trim()">
+          <Button v-if="streaming" type="button" size="sm" variant="outline" class="shrink-0" :disabled="stopping" @click="emit('stop')">
+            <Square class="size-3 fill-current" />{{ stopping ? 'Stopping…' : 'Stop' }}
+          </Button>
+          <Button v-else type="submit" size="sm" class="shrink-0" :disabled="blocked || !draft.trim()">
             Build <span class="font-mono text-[11px] opacity-70">⌘↵</span>
           </Button>
         </div>

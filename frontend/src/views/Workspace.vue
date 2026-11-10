@@ -110,7 +110,8 @@ function edit(path: string, content: string) {
 }
 
 const paths = computed(() => Object.keys(project.files))
-const currentFile = computed(() => gen.building.value.find((b) => !b.done)?.path ?? null)
+// Only while streaming: a stopped or interrupted build leaves its cut-off file unfinished in `building`.
+const currentFile = computed(() => (gen.streaming.value ? gen.building.value.find((b) => !b.done)?.path ?? null : null))
 
 onMounted(async () => {
   await project.init()
@@ -168,12 +169,14 @@ onMounted(async () => {
           :notices="notices"
           :pending-prompt="pendingPrompt"
           :streaming="gen.streaming.value"
+          :stopping="gen.stopping.value"
           :plan="gen.plan.value"
           :error="gen.error.value"
           :building="gen.building.value"
           :last-credits="gen.lastCredits.value"
           :locked="locked"
           @send="send"
+          @stop="gen.stop()"
           @copy="copyOpen = true"
           @open-file="open"
           @history="snapshotsOpen = true"

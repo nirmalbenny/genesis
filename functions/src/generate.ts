@@ -19,7 +19,7 @@ const SUMMARY_ALLOWANCE: TokenUsage = { inputTokens: 1000, outputTokens: 60, cac
 // Rough chars-per-token, used only when token counting is unavailable or a stream is cut off.
 const CHARS_PER_TOKEN = 3.5;
 
-type Status = "done" | "partial" | "error";
+type Status = "done" | "partial" | "error" | "cancelled";
 
 const DECLINED_MESSAGE =
   "I can't fulfill this request. Genesis only builds and edits apps that show your HighLevel data, and it can't help with harmful or unrelated requests. Describe a change to your app and I'll take it from there.";
@@ -126,6 +126,13 @@ export const generate = onRequest(
     res.on("close", () => {
       if (!res.writableFinished) { clientGone = true; stream.abort(); }
     });
+    // Stop requests (POST .../generations/:gid/cancel) arrive as a flag on the generation doc, so they reach
+    // this instance whichever instance served them. Once the model has finished, a late stop is ignored.
+    let cancelled = false;
+    let streamEnded = false;
+    const stopWatching = genRef.onSnapshot((s) => {
+      if (s.get("cancelRequested") && !streamEnded && !cancelled) { cancelled = true; stream.abort(); }
+    }, () => {});
     stream.on("text", (t) => {
       streamedChars += t.length;
       parser.push(t);
@@ -143,13 +150,17 @@ export const generate = onRequest(
         failure = { code: "truncated", message: "The model hit its output limit; the last file was cut off." };
       }
     } catch (err) {
-      failure = clientGone
+      failure = cancelled
+        ? { code: "cancelled", message: "Stopped." }
+        : clientGone
         ? { code: "disconnected", message: "Connection to the client was lost." }
         : { code: "llm_error", message: err instanceof Error ? err.message : "The model request failed." };
       // A cut-off stream has no final usage: take what the stream reported and estimate output from the text received.
       buildUsage = toTokenUsage(stream.currentMessage?.usage);
       buildUsage.outputTokens = Math.max(buildUsage.outputTokens, Math.ceil(streamedChars / CHARS_PER_TOKEN));
     }
+    streamEnded = true;
+    stopWatching();
 
     /** Releases the hold, charges what this build used, and reports both to the client. */
     const settle = async (usage: TokenUsage) => {
@@ -190,9 +201,10 @@ export const generate = onRequest(
       if (result.valid.length) {
         await applyOps(pid, result.valid);
         applied = result.valid.map((o) => o.path);
-        const summarized = await summarizeChange(client, summaryModel, {
-          prompt, plan: planParts.join("").trim(), files: applied,
-        });
+        // A stopped build gets a fixed label instead of a model-written summary: no extra wait or cost.
+        const summarized = cancelled
+          ? { summary: "Stopped before finishing", usage: null }
+          : await summarizeChange(client, summaryModel, { prompt, plan: planParts.join("").trim(), files: applied });
         if (summarized.usage) summaryUsage = toTokenUsage(summarized.usage);
         snapshotId = await createSnapshot(pid, generationId, "generation", summarized.summary);
       }
@@ -205,13 +217,16 @@ export const generate = onRequest(
       } else if (!failure && !applied.length && !planParts.join("").trim()) {
         failure = { code: "malformed_output", message: "The model returned no valid file changes." };
       }
-      status = !failure ? "done" : applied.length ? "partial" : "error";
+      status = cancelled ? "cancelled" : !failure ? "done" : applied.length ? "partial" : "error";
 
       await proj.collection("messages").add({
         role: "user", content: prompt, generationId, createdAt: FieldValue.serverTimestamp(),
       });
-      const plan = planParts.join("").trim();
-      const summary = applied.length ? `${plan}\n\nFiles: ${applied.join(", ")}` : plan || failure?.message || "";
+      const stopped = !cancelled ? ""
+        : !applied.length ? "Stopped before any files were written."
+        : `Stopped. Kept the files below${unclosed ? `; ${unclosed} was not finished` : ""}.`;
+      const prose = [planParts.join("").trim(), stopped].filter(Boolean).join("\n\n");
+      const summary = applied.length ? `${prose}\n\nFiles: ${applied.join(", ")}` : prose || failure?.message || "";
       await proj.collection("messages").add({
         role: "assistant", content: summary, generationId, createdAt: FieldValue.serverTimestamp(),
       });
@@ -219,7 +234,7 @@ export const generate = onRequest(
         prompt,
         status,
         snapshotId,
-        ...(failure ? { error: failure.message } : {}),
+        ...(failure && !cancelled ? { error: failure.message } : {}),
       });
       if (applied.length) await proj.update({ updatedAt: FieldValue.serverTimestamp() });
     } catch (err) {
@@ -230,7 +245,9 @@ export const generate = onRequest(
 
     const credits = await settle(buildUsage);
     console.info("generate: persisted", { generationId, status, applied: applied.length, credits: credits.charged });
-    if (failure) send("error", { ...failure, partial: applied.length > 0, credits });
+    if (status === "cancelled") {
+      send("cancelled", { generationId, snapshotId, files: applied, unfinished: unclosed, credits });
+    } else if (failure) send("error", { ...failure, partial: applied.length > 0, credits });
     else send("done", { generationId, snapshotId, files: applied, credits });
     clearInterval(heartbeat);
     if (!clientGone) res.end();

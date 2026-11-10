@@ -66,3 +66,14 @@ test("a stray </parameter> trailer is stripped from file content", () => {
   const end = events.find((e) => e.type === "file_end");
   assert.equal(end?.type === "file_end" && end.content, "<template><p>x</p></template>");
 });
+
+test("a stream cut off mid-tag doesn't leak the half tag into the plan", () => {
+  for (const tail of ['<file path="src/components/Contact', "<fi", "<"]) {
+    const events: ParseEvent[] = [];
+    const p = createParser((e) => events.push(e));
+    p.push(`<plan>Build it.</plan>\n${tail}`);
+    assert.equal(p.end(), null);
+    const plan = events.filter((e) => e.type === "token" && e.path === null).map((e) => (e as { text: string }).text).join("");
+    assert.equal(plan.trim(), "Build it.");
+  }
+});

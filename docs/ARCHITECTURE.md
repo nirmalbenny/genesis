@@ -80,7 +80,7 @@ flowchart LR
 
 ```
 users/{uid}
-  email
+  email               (recorded when HighLevel is connected)
   hl: { locationId, locationName, companyId, location{email,phone,timezone}, connectedAt } | null   ← the active connection
   templatesVersion                                                  ← content hash of the ready-made app set the user has
   credits: { balance, reserved, granted, used }                     ← AI credits (1 credit = $0.001 of Claude list price)
@@ -100,7 +100,9 @@ projects/{pid}
 
   files/{fileId}        path, content, updatedAt       (one document per file; fileId = encoded path)
   messages/{mid}        role: user|assistant, content, generationId, createdAt
-  generations/{gid}     prompt, status: streaming|done|partial|error|declined, error?, snapshotId?, createdAt
+  generations/{gid}     prompt, status: streaming|done|partial|error|declined|cancelled, error?, snapshotId?, createdAt,
+                        cancelRequested?   (set by the Stop button; the running build watches for it)
+                        credits, usage{model, tokens}, summaryUsage?   (declined: no prompt, which is never stored)
   snapshots/{sid}       generationId|null, reason: generation|restore|template|copy, summary, fileCount, createdAt
     files/{fileId}      path, content
 ```
@@ -126,10 +128,11 @@ All routes are on the `api` function and need `Authorization: Bearer <Firebase I
 | `GET /projects/:id/file?path=` | Reads one file. |
 | `PUT /projects/:id/files` | Saves a manual edit after validating the path and size. Not allowed on ready-made apps. |
 | `GET /projects/:id/snapshots` | Lists the 50 most recent snapshots, with summaries. |
+| `POST /projects/:id/generations/:gid/cancel` | Stops a running build (sets `cancelRequested`). Returns `{ requested: false }` if the build already finished. |
 | `POST /projects/:id/snapshots/:sid/restore` | Restores a snapshot, which itself records a new `restore` snapshot. Not allowed on ready-made apps. |
 | `POST /projects/:id/preview-token` | Issues a 15-minute preview token for the connected location. |
 
-The **`generate`** function takes `POST { projectId, prompt }` (prompt ≤ 4,000 characters). Before streaming, it can refuse with JSON, for example `402 insufficient_credits` when the available balance can't cover the build's worst case. Otherwise it replies with `text/event-stream`, and `done` and `error` carry `credits: { charged, balance }`:
+The **`generate`** function takes `POST { projectId, prompt }` (prompt ≤ 4,000 characters). Before streaming, it can refuse with JSON, for example `402 insufficient_credits` when the available balance can't cover the build's worst case. Otherwise it replies with `text/event-stream`, and `done`, `cancelled` and `error` carry `credits: { charged, balance }`:
 
 ```
 event: start      data: {generationId}
@@ -137,6 +140,7 @@ event: token      data: {text, path|null}          path null = plan text outside
 event: file_start data: {path}
 event: file_end   data: {path, bytes}
 event: done       data: {generationId, snapshotId, files:[path]}
+event: cancelled  data: {generationId, snapshotId|null, files:[path], unfinished:path|null}   stopped on request
 event: error      data: {code, message, partial}   e.g. declined, truncated, llm_error, disconnected, invalid_output
 : ping                                              heartbeat every 15 s
 ```
@@ -265,8 +269,10 @@ The chat shows the notice for that session only, so a declined request never aff
 5. **Saving:** write the files, ask Haiku for a one-line change summary, create a snapshot, save the user and assistant messages, and set the generation status:
    - `done`: everything was applied;
    - `partial`: some files were applied, and the error explains the rest;
-   - `error`: nothing was applied.
+   - `error`: nothing was applied;
+   - `cancelled`: the user pressed Stop (see 7).
 6. **Interruptions:** if the client disconnects mid-stream, the server aborts the Anthropic stream and keeps the files that completed, so the generation ends as `partial`. A heartbeat comment every 15 seconds keeps proxies from closing the connection.
+7. **Stop (cancellation):** **Stop** (or Esc) calls `POST /projects/:id/generations/:gid/cancel`, which sets `cancelRequested` on the generation. The running build watches that document, so the request works whichever instance serves it, and stops the Anthropic stream within about a second. Files the model had finished are kept; the file it was writing is discarded, never saved half-written. The build is saved with status `cancelled`, a fixed snapshot label ("Stopped before finishing") instead of a Haiku summary, and a chat message naming the kept and unfinished files. It is charged only for the tokens used. The stream ends with a `cancelled` event, so the client shows the outcome and credits rather than an error. A late stop, after the model has finished, is ignored. If the stop request can't be sent, the client drops the connection, which is handled as an interruption (6).
 
 ## 6a. AI credits
 
