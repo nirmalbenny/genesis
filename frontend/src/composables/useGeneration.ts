@@ -10,7 +10,8 @@ type Handlers = {
   onFinished: () => Promise<void>
 }
 
-type ErrorData = { code: string; message: string; partial: boolean }
+type BuildCredits = { charged: number; balance: number | null }
+type ErrorData = { code: string; message: string; partial: boolean; credits?: BuildCredits }
 
 export function useGeneration(h: Handlers) {
   const streaming = ref(false)
@@ -20,6 +21,8 @@ export function useGeneration(h: Handlers) {
   const declined = ref('')
   /** Files in the current build, in order. `done` flips on file_end. */
   const building = ref<{ path: string; done: boolean }[]>([])
+  /** AI credits charged for the last build and the balance after it (from the server's done/error event). */
+  const lastCredits = ref<BuildCredits | null>(null)
   let abort: AbortController | null = null
 
   async function start(projectId: string, prompt: string) {
@@ -28,8 +31,10 @@ export function useGeneration(h: Handlers) {
     declined.value = ''
     building.value = []
     plan.value = ''
+    lastCredits.value = null
     abort = new AbortController()
     let finished = false
+    let started = false
 
     try {
       const res = await fetch(`${FUNCTIONS_BASE}/generate`, {
@@ -39,9 +44,13 @@ export function useGeneration(h: Handlers) {
         signal: abort.signal,
       })
       if (!res.ok) {
+        // Refused before streaming (e.g. email not verified, not enough credits): nothing was built or charged.
         const json = await res.json().catch(() => null)
-        throw new Error(json?.error?.message ?? `Generation failed (${res.status})`)
+        error.value = json?.error?.message ?? `Generation failed (${res.status})`
+        finished = true
+        return
       }
+      started = true
       await readSse(res, ({ event, data }) => {
         const d = data as Record<string, unknown>
         if (event === 'token') {
@@ -58,9 +67,11 @@ export function useGeneration(h: Handlers) {
           if (f) f.done = true
         } else if (event === 'done') {
           finished = true
+          lastCredits.value = (d.credits as BuildCredits | undefined) ?? null
         } else if (event === 'error') {
           finished = true
           const e = d as unknown as ErrorData
+          lastCredits.value = e.credits ?? null
           if (e.code === 'declined') declined.value = e.message
           else error.value = e.partial ? `${e.message} Completed files were kept.` : e.message
         }
@@ -70,7 +81,9 @@ export function useGeneration(h: Handlers) {
       if (!finished) {
         error.value = (e as Error).name === 'AbortError'
           ? 'Generation interrupted. Completed files were kept.'
-          : `${(e as Error).message}. Completed files were kept if any.`
+          : started
+            ? `${(e as Error).message}. Completed files were kept if any.`
+            : (e as Error).message
       }
     } finally {
       streaming.value = false
@@ -81,5 +94,5 @@ export function useGeneration(h: Handlers) {
     }
   }
 
-  return { streaming, error, plan, declined, building, start, abortLocal: () => abort?.abort() }
+  return { streaming, error, plan, declined, building, lastCredits, start, abortLocal: () => abort?.abort() }
 }

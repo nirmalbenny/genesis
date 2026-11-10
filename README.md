@@ -22,6 +22,7 @@ Describe an app in plain English. Genesis streams the code from Claude into a li
 - **Edit code by hand** or refine with follow-up prompts. Every build is a **snapshot** with an AI-written summary, and you can restore any of them from the History sheet.
 - **Six ready-made apps** for every user: Customer 360, Daily Briefing, Appointment Prep Sheet, No-Contact Radar, Lead Follow-up Board and Activity Timeline. They're locked, but you can launch them, copy them and pin them to the sidebar.
 - **App catalog:** search, type and category filters, ordering, pinning, and full-screen launch at `/run/:id`.
+- **AI credits:** every user gets **2,500 credits** once they verify their email (1 credit = $0.001 of Claude list price). Each build holds its worst-case cost up front, then is charged what it actually used. The balance is shown live in the top bar, and every grant, hold and charge is recorded in a ledger.
 - **Graceful failure:** handles malformed model output, interrupted streams, failed HighLevel calls, declined off-topic or harmful prompts, and a missing connection, each with a clear message.
 
 ## Live URLs

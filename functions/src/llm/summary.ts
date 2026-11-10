@@ -1,4 +1,5 @@
 import type Anthropic from "@anthropic-ai/sdk";
+import type { Usage } from "@anthropic-ai/sdk/resources/messages/messages";
 
 const SYSTEM =
   "You write one-line changelog entries for snapshots of a small Vue app. Reply with ONLY a summary of what changed, " +
@@ -14,7 +15,7 @@ export async function summarizeChange(
   client: Anthropic,
   model: string,
   input: { prompt: string; plan: string; files: string[] },
-): Promise<string | null> {
+): Promise<{ summary: string | null; usage: Usage | null }> {
   try {
     const msg = await client.messages.create({
       model,
@@ -27,9 +28,9 @@ export async function summarizeChange(
     });
     const block = msg.content[0];
     const text = block?.type === "text" ? block.text.trim().replace(/^["']|["']$/g, "").slice(0, 120) : "";
-    return text || fallback(input.plan);
+    return { summary: text || fallback(input.plan), usage: msg.usage };
   } catch (err) {
     console.warn("summarizeChange failed, using fallback", err instanceof Error ? err.message : err);
-    return fallback(input.plan);
+    return { summary: fallback(input.plan), usage: null };
   }
 }

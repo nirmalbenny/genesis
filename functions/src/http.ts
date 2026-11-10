@@ -8,16 +8,22 @@ export function httpError(status: number, code: string, message: string): HttpEr
   return Object.assign(new Error(message), { status, code });
 }
 
-/** Verifies the Firebase ID token in the Authorization header and returns the uid. */
-export async function requireUser(req: Request): Promise<string> {
+/** Verifies the Firebase ID token in the Authorization header. */
+export async function verifyUser(req: Request): Promise<{ uid: string; emailVerified: boolean }> {
   const header = req.get("authorization") ?? "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : "";
   if (!token) throw httpError(401, "unauthenticated", "Missing bearer token");
   try {
-    return (await auth.verifyIdToken(token)).uid;
+    const decoded = await auth.verifyIdToken(token);
+    return { uid: decoded.uid, emailVerified: decoded.email_verified === true };
   } catch {
     throw httpError(401, "unauthenticated", "Invalid or expired token");
   }
+}
+
+/** Verifies the Firebase ID token and returns the uid. */
+export async function requireUser(req: Request): Promise<string> {
+  return (await verifyUser(req)).uid;
 }
 
 export function sendError(res: Response, err: unknown): void {

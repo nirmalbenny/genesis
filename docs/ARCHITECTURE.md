@@ -83,6 +83,8 @@ users/{uid}
   email
   hl: { locationId, locationName, companyId, location{email,phone,timezone}, connectedAt } | null   ← the active connection
   templatesVersion                                                  ← content hash of the ready-made app set the user has
+  credits: { balance, reserved, granted, used }                     ← AI credits (1 credit = $0.001 of Claude list price)
+  creditLedger/{entryId}  type: grant|hold|charge, credits, generationId?, model?, usage?, rateCardVersion   (append-only)
 
 hlTokens/{uid}        accessToken, refreshToken, expiresAt, locationId, scope        (no client access)
 oauthStates/{state}   uid, createdAt                                                   (no client access)
@@ -112,7 +114,7 @@ All routes are on the `api` function and need `Authorization: Bearer <Firebase I
 
 | Method & path | Purpose |
 |---|---|
-| `POST /bootstrap` | Gives the user the current set of ready-made apps. Does nothing if they already have it. |
+| `POST /bootstrap` | Gives the user the current set of ready-made apps, and the 2,500 signup credits once their email is verified. Safe to repeat. |
 | `POST /hl/disconnect` | Deletes the user's HighLevel tokens and pending OAuth states, and clears `users.hl`. |
 | `POST /projects` | Creates an app. `name` and `description` are required, `category` is optional. |
 | `GET /projects/:id` | Returns the app's details. |
@@ -127,7 +129,7 @@ All routes are on the `api` function and need `Authorization: Bearer <Firebase I
 | `POST /projects/:id/snapshots/:sid/restore` | Restores a snapshot, which itself records a new `restore` snapshot. Not allowed on ready-made apps. |
 | `POST /projects/:id/preview-token` | Issues a 15-minute preview token for the connected location. |
 
-The **`generate`** function takes `POST { projectId, prompt }` (prompt ≤ 4,000 characters) and replies with `text/event-stream`:
+The **`generate`** function takes `POST { projectId, prompt }` (prompt ≤ 4,000 characters). Before streaming, it can refuse with JSON: `403 email_not_verified`, or `402 insufficient_credits` when the available balance can't cover the build's worst case. Otherwise it replies with `text/event-stream`, and `done` and `error` carry `credits: { charged, balance }`:
 
 ```
 event: start      data: {generationId}
@@ -262,6 +264,17 @@ The chat shows the notice for that session only, so a declined request never aff
    - `partial`: some files were applied, and the error explains the rest;
    - `error`: nothing was applied.
 6. **Interruptions:** if the client disconnects mid-stream, the server aborts the Anthropic stream and keeps the files that completed, so the generation ends as `partial`. A heartbeat comment every 15 seconds keeps proxies from closing the connection.
+
+## 6a. AI credits
+
+- **Value:** 1 credit = $0.001 of Claude list price. The versioned rate card in [`credits.ts`](../functions/src/credits.ts) gives credits per million input, output, cache-write and cache-read tokens for each model. Any model not on the card is billed at the highest known rate, never for free. Users never pick a model: a build uses the generation model, plus Haiku for the snapshot summary, and pays for both.
+- **Signup grant:** 2,500 credits, granted by `POST /bootstrap` once the ID token says `email_verified`. The ledger entry ID `signup` makes the grant idempotent. Sign-up sends Firebase's verification email, and the dashboard offers **Resend email** and **I've verified**.
+- **Hold:** before streaming, `generate` counts the input tokens exactly (`messages.countTokens`). It prices the input plus the full 16K output cap plus a summary allowance, and reserves that amount in a Firestore transaction (`balance − reserved` must cover it). Otherwise it returns 402 and makes no Claude call.
+- **Charge:** after the build, the real usage (`final.usage`, plus the summary's usage) is converted to credits and rounded up once per build. The hold is released, the charge is applied in one transaction, and the result is recorded on the generation.
+  - **Cut-off streams** are charged for the input plus the output actually streamed.
+  - **Declined requests** pay for input only.
+  - **Requests that fail before tokens are used** are charged nothing.
+- **Security:** balances and the ledger are readable by their owner, and only Cloud Functions write them.
 
 ## 7. Ready-made apps
 

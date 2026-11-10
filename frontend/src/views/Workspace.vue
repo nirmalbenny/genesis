@@ -171,6 +171,7 @@ onMounted(async () => {
           :plan="gen.plan.value"
           :error="gen.error.value"
           :building="gen.building.value"
+          :last-credits="gen.lastCredits.value"
           :locked="locked"
           @send="send"
           @copy="copyOpen = true"

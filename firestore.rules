@@ -4,6 +4,12 @@ service cloud.firestore {
     match /users/{uid} {
       allow read: if request.auth != null && request.auth.uid == uid;
       allow write: if false;
+
+      // AI credit ledger: readable by its owner, written only by Cloud Functions.
+      match /creditLedger/{entry} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+        allow write: if false;
+      }
     }
     match /hlTokens/{uid} { allow read, write: if false; }
     match /oauthStates/{state} { allow read, write: if false; }

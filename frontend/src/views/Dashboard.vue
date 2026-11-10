@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ArrowRight, CalendarDays, Check, Contact, CornerDownLeft, MessageSquare, Plug, Sparkles } from '@lucide/vue'
-import { computed, nextTick, ref } from 'vue'
+import { ArrowRight, CalendarDays, Check, Contact, CornerDownLeft, MailCheck, MessageSquare, Plug, Sparkles } from '@lucide/vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppCard from '@/components/AppCard.vue'
 import AppDetailsDialog from '@/components/AppDetailsDialog.vue'
@@ -10,6 +10,8 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { useApps, type App } from '@/composables/useApps'
+import { useAuth } from '@/composables/useAuth'
+import { SIGNUP_CREDITS } from '@/composables/useCredits'
 import { useCreateApp } from '@/composables/useCreateApp'
 import { useHl } from '@/composables/useHl'
 
@@ -42,9 +44,47 @@ async function useStarter(text: string) {
   composer.value?.querySelector('textarea')?.focus()
 }
 
+// ---- Email verification unlocks the signup AI credits ----
+const { user, emailVerified, resendVerification, refreshVerification } = useAuth()
+const verifyState = ref<'idle' | 'checking' | 'not-yet' | 'sending' | 'sent'>('idle')
+const verifyError = ref('')
+
+async function checkVerified(silent = false) {
+  if (emailVerified.value) return
+  if (!silent) verifyState.value = 'checking'
+  try {
+    const ok = await refreshVerification()
+    if (!silent) verifyState.value = ok ? 'idle' : 'not-yet'
+  } catch (e) {
+    if (!silent) { verifyState.value = 'idle'; verifyError.value = (e as Error).message }
+  }
+}
+async function resend() {
+  verifyState.value = 'sending'
+  verifyError.value = ''
+  try {
+    await resendVerification()
+    verifyState.value = 'sent'
+  } catch (e) {
+    verifyState.value = 'idle'
+    verifyError.value = (e as { code?: string }).code === 'auth/too-many-requests'
+      ? 'Too many emails sent. Wait a few minutes, then try again.'
+      : (e as Error).message
+  }
+}
+// Coming back to the tab after clicking the email link: pick up the verification without a manual refresh.
+const onVisible = () => { if (document.visibilityState === 'visible') checkVerified(true) }
+onMounted(() => document.addEventListener('visibilitychange', onVisible))
+onUnmounted(() => document.removeEventListener('visibilitychange', onVisible))
+
 function startBuild() {
   const text = prompt.value.trim()
-  if (text) creator.fromPrompt(text)
+  if (!text) return
+  if (!emailVerified.value) {
+    verifyError.value = 'Verify your email first to unlock your AI credits, then build.'
+    return
+  }
+  creator.fromPrompt(text)
 }
 </script>
 
@@ -53,6 +93,32 @@ function startBuild() {
     <TopBar />
 
     <main class="mx-auto w-full max-w-[1040px] px-4 pb-16 pt-10 sm:px-6 sm:pt-14">
+      <!-- Email verification: unlocks the signup credits -->
+      <section
+        v-if="user && !emailVerified"
+        class="mx-auto mb-6 flex max-w-[760px] flex-col gap-4 rounded-xl border border-warn-500/30 bg-warn-100 p-4 sm:flex-row sm:items-center"
+        aria-labelledby="verify-heading"
+      >
+        <span class="grid size-10 shrink-0 place-items-center rounded-lg bg-card text-warn-500"><MailCheck class="size-5" /></span>
+        <div class="min-w-0 flex-1">
+          <h2 id="verify-heading" class="text-sm font-semibold">Verify your email to unlock {{ SIGNUP_CREDITS.toLocaleString() }} free AI credits</h2>
+          <p class="mt-0.5 text-[13px] leading-5 text-ink-200">
+            We sent a link to <span class="font-medium text-foreground">{{ user.email }}</span>. Click it, then come back here.
+            <template v-if="verifyState === 'not-yet'"> We couldn't see the verification yet. Check your inbox and spam folder.</template>
+            <template v-if="verifyState === 'sent'"> A new link is on its way.</template>
+          </p>
+          <p v-if="verifyError" class="mt-1 text-[13px] text-destructive">{{ verifyError }}</p>
+        </div>
+        <div class="flex shrink-0 gap-2">
+          <Button variant="outline" size="sm" :disabled="verifyState === 'sending'" @click="resend">
+            {{ verifyState === 'sending' ? 'Sending…' : 'Resend email' }}
+          </Button>
+          <Button size="sm" :disabled="verifyState === 'checking'" @click="checkVerified()">
+            {{ verifyState === 'checking' ? 'Checking…' : "I've verified" }}
+          </Button>
+        </div>
+      </section>
+
       <div class="mx-auto mb-6 grid max-w-[760px] gap-2 empty:hidden">
         <Alert v-if="route.query.hl === 'connected' && !error" class="border-0 bg-ok-100">
           <Check class="size-4 text-ok-500" /><AlertDescription class="text-foreground">HighLevel connected. You're ready to build.</AlertDescription>

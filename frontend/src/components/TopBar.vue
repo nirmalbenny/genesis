@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronDown, LogOut, Menu, Plug, RefreshCw, Unplug } from '@lucide/vue'
+import { ChevronDown, LogOut, MailCheck, Menu, Plug, RefreshCw, Sparkles, Unplug } from '@lucide/vue'
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import AppLogo from '@/components/AppLogo.vue'
@@ -14,12 +14,14 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { useAuth } from '@/composables/useAuth'
+import { LOW_CREDITS, useCredits } from '@/composables/useCredits'
 import { useHl } from '@/composables/useHl'
 
-defineProps<{ crumb?: string; plain?: boolean }>()
+defineProps<{ crumb?: string }>()
 
 const router = useRouter()
-const { user, signOut } = useAuth()
+const { user, emailVerified, signOut } = useAuth()
+const { credits, available } = useCredits()
 const { hl, loaded, busy, connect, disconnect } = useHl()
 const confirmDisconnect = ref(false)
 const navOpen = ref(false)
@@ -36,18 +38,38 @@ async function confirmed() {
     <Button variant="ghost" size="icon" class="-ml-1 text-white hover:bg-white/10 hover:text-white" aria-label="Open navigation" @click="navOpen = true">
       <Menu class="size-5" />
     </Button>
-    <template v-if="!plain">
-      <AppLogo inverted />
-      <template v-if="crumb">
-        <span class="text-white/50">/</span>
-        <RouterLink to="/" class="text-[13px] text-white/70 hover:text-white">Projects</RouterLink>
-        <span class="text-white/50">/</span>
-        <span class="max-w-60 truncate text-[13px] font-semibold">{{ crumb }}</span>
-      </template>
+    <AppLogo inverted />
+    <template v-if="crumb">
+      <span class="text-white/50">/</span>
+      <RouterLink to="/" class="text-[13px] text-white/70 hover:text-white">Projects</RouterLink>
+      <span class="text-white/50">/</span>
+      <span class="max-w-60 truncate text-[13px] font-semibold">{{ crumb }}</span>
     </template>
     <slot name="status" />
     <div class="flex-1" />
     <slot name="actions" />
+
+    <!-- AI credits: unlocked by verifying the email address -->
+    <Button
+      v-if="user && !emailVerified"
+      variant="ghost"
+      class="h-10 gap-2 rounded-lg border border-warn-500/50 bg-white/[0.08] px-3 text-sm text-white hover:bg-white/15 hover:text-white"
+      @click="router.push('/')"
+    >
+      <MailCheck class="size-4 text-warn-500" /><span class="hidden sm:inline">Verify email to unlock credits</span><span class="sm:hidden">Verify</span>
+    </Button>
+    <div
+      v-else-if="credits"
+      class="flex h-10 items-center gap-2 rounded-lg border bg-white/[0.08] px-3 text-white"
+      :class="available < LOW_CREDITS ? 'border-warn-500/50' : 'border-white/15'"
+      :title="`${available.toLocaleString()} AI credits available · ${credits.used.toLocaleString()} used`"
+    >
+      <Sparkles class="size-4" :class="available < LOW_CREDITS ? 'text-warn-500' : 'text-primary'" aria-hidden="true" />
+      <span class="grid leading-tight">
+        <span class="hidden text-[10px] font-medium uppercase tracking-wider text-white/60 sm:block">AI credits</span>
+        <span class="text-sm font-semibold tabular-nums">{{ available.toLocaleString() }}</span>
+      </span>
+    </div>
 
     <!-- Connection pill: always visible, reads the shared store -->
     <DropdownMenu v-if="loaded && hl">

@@ -23,6 +23,8 @@ const props = defineProps<{
   plan: string
   error: string
   building: { path: string; done: boolean }[]
+  /** AI credits the last build used, and the balance after it. */
+  lastCredits?: { charged: number; balance: number | null } | null
 }>()
 const emit = defineEmits<{ send: [prompt: string]; 'open-file': [path: string]; history: []; copy: [] }>()
 
@@ -131,6 +133,10 @@ watch(() => [items.value.length, props.plan, props.building.length], async () =>
         <div v-if="error" class="flex gap-2 rounded-md bg-warn-100 px-3 py-2 text-[13px] leading-5">
           <CircleAlert class="mt-0.5 size-4 shrink-0 text-warn-500" /><p>{{ error }}</p>
         </div>
+        <p v-if="!streaming && lastCredits" class="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Sparkles class="size-3.5 text-primary" aria-hidden="true" />
+          Used {{ lastCredits.charged.toLocaleString() }} AI credits<template v-if="lastCredits.balance !== null"> · {{ lastCredits.balance.toLocaleString() }} left</template>
+        </p>
         <div ref="bottom" />
       </div>
     </ScrollArea>
