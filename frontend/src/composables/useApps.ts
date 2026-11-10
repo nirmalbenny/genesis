@@ -1,5 +1,5 @@
 import { collection, onSnapshot, query, where } from 'firebase/firestore'
-import { onUnmounted, ref } from 'vue'
+import { computed, onUnmounted, ref, type Ref } from 'vue'
 import type { CatalogApp } from '@/components/AppCard.vue'
 import { useAuth } from '@/composables/useAuth'
 import { db } from '@/firebase'
@@ -8,7 +8,25 @@ import type { Category } from '@/lib/catalog'
 
 export type App = CatalogApp & { category: Category }
 
-let bootstrapped = false
+// Account setup (ready-made apps + signup credits) runs once per signed-in user, shared by every component.
+let setupUid: string | null = null
+const setupRunning = ref(false)
+/** Whether the user had no ready-made apps when the list first loaded: a first sign-in, still being set up. */
+const firstSetup = ref<boolean | null>(null)
+
+function runSetup(uid: string, error: Ref<string>) {
+  if (setupUid === uid) return
+  setupUid = uid
+  firstSetup.value = null
+  setupRunning.value = true
+  // The server makes this a no-op once the user has the current ready-made apps and the signup credits.
+  api('POST', '/bootstrap')
+    .catch(() => {
+      setupUid = null // the next page that needs the apps tries again
+      error.value = 'Could not load the ready-made apps.'
+    })
+    .finally(() => (setupRunning.value = false))
+}
 
 /** Live list of the user's apps (ready-made and their own). Seeds ready-made apps once per session. */
 export function useApps() {
@@ -16,15 +34,10 @@ export function useApps() {
   const apps = ref<App[]>([])
   const loaded = ref(false)
   const error = ref('')
+  /** True while a first-time setup is adding the ready-made apps; show a placeholder, not a partial list. */
+  const settingUp = computed(() => setupRunning.value && firstSetup.value === true)
 
-  if (!bootstrapped) {
-    bootstrapped = true
-    // Seeds the ready-made apps and grants the signup credits; the server makes it a no-op once both are done.
-    api('POST', '/bootstrap').catch(() => {
-      bootstrapped = false
-      error.value = 'Could not load the ready-made apps.'
-    })
-  }
+  runSetup(user.value!.uid, error)
 
   const stop = onSnapshot(
     query(collection(db, 'projects'), where('ownerId', '==', user.value!.uid), where('deletedAt', '==', null)),
@@ -40,11 +53,12 @@ export function useApps() {
         pinnedAt: d.get('pinnedAt', { serverTimestamps: 'estimate' })?.toMillis() ?? null,
         prebuilt: d.get('kind') === 'prebuilt',
       }))
+      firstSetup.value ??= !apps.value.some((a) => a.prebuilt)
       loaded.value = true
     },
     () => { error.value = 'Could not load apps.' },
   )
   onUnmounted(stop)
 
-  return { apps, loaded, error }
+  return { apps, loaded, error, settingUp }
 }

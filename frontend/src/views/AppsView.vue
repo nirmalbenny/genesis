@@ -30,7 +30,7 @@ type Order = (typeof ORDERS)[number]['key']
 
 const router = useRouter()
 const { hl } = useHl()
-const { apps, loaded, error: loadError } = useApps()
+const { apps, loaded, error: loadError, settingUp } = useApps()
 const creator = useCreateApp()
 const error = ref('')
 
@@ -172,7 +172,7 @@ async function confirmDelete() {
         <p v-if="!userApps.length && scope === 'mine'" class="text-sm text-muted-foreground">
           You haven't built an app yet. <RouterLink to="/" class="font-medium text-primary hover:underline">Describe one</RouterLink>, or open a ready-made app and make a copy.
         </p>
-        <div v-if="shown.length" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        <div v-if="shown.length && !settingUp" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           <AppCard
             v-for="a in shown"
             :key="a.id"
@@ -183,11 +183,12 @@ async function confirmDelete() {
             @details="detailsError = ''; detailsTarget = a"
           />
         </div>
-        <div v-else-if="filtersActive" class="grid justify-items-center gap-2 rounded-2xl border border-dashed border-border py-12 text-center">
+        <div v-else-if="filtersActive && !settingUp" class="grid justify-items-center gap-2 rounded-2xl border border-dashed border-border py-12 text-center">
           <p class="text-sm font-semibold">No apps match these filters</p>
           <Button variant="outline" size="sm" @click="resetFilters">Clear filters</Button>
         </div>
         <p v-if="!loaded" class="text-sm text-muted-foreground">Loading apps…</p>
+        <p v-else-if="settingUp" role="status" class="text-sm text-muted-foreground">Setting up your account. Your ready-made apps will appear here in a moment.</p>
       </main>
     </div>
 

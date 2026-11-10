@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowRight, CalendarDays, Check, Contact, CornerDownLeft, MessageSquare, Plug, Sparkles } from '@lucide/vue'
+import { ArrowRight, CalendarDays, Check, Contact, CornerDownLeft, LoaderCircle, MessageSquare, Plug, Sparkles } from '@lucide/vue'
 import { computed, nextTick, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppCard from '@/components/AppCard.vue'
@@ -26,7 +26,7 @@ const steps = ['Connect your HighLevel location', 'Describe what you want to bui
 const route = useRoute()
 const router = useRouter()
 const { hl, loaded, busy, error: hlError, connect } = useHl()
-const { apps, error: appsError } = useApps()
+const { apps, error: appsError, settingUp } = useApps()
 const creator = useCreateApp()
 
 const prompt = ref('')
@@ -137,7 +137,7 @@ function startBuild() {
       </section>
 
       <!-- Ready-made apps -->
-      <section v-if="loaded && readyMade.length" class="mt-12 border-t border-border pt-8">
+      <section v-if="loaded && (settingUp || readyMade.length)" class="mt-12 border-t border-border pt-8">
         <div class="mb-5 flex flex-wrap items-end justify-between gap-3">
           <div>
             <h2 class="text-lg font-semibold tracking-tight">Ready-made apps</h2>
@@ -147,7 +147,19 @@ function startBuild() {
             View all apps<ArrowRight class="size-4" />
           </Button>
         </div>
-        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <!-- First sign-in: the apps are still being added. Show them together once ready, not one by one. -->
+        <div v-if="settingUp" role="status" aria-live="polite">
+          <p class="mb-4 flex items-center gap-2 text-sm text-muted-foreground">
+            <LoaderCircle class="size-4 animate-spin text-primary" aria-hidden="true" />Setting up your account. Your ready-made apps will appear here in a moment.
+          </p>
+          <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" aria-hidden="true">
+            <div v-for="i in 6" :key="i" class="h-[186px] animate-pulse rounded-xl border border-border bg-card p-4">
+              <div class="flex gap-3"><div class="size-10 rounded-lg bg-muted" /><div class="grid flex-1 content-start gap-2 pt-1"><div class="h-3.5 w-2/3 rounded bg-muted" /><div class="h-3 w-1/3 rounded bg-muted" /></div></div>
+              <div class="mt-5 grid gap-2"><div class="h-3 rounded bg-muted" /><div class="h-3 w-4/5 rounded bg-muted" /></div>
+            </div>
+          </div>
+        </div>
+        <div v-else class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <AppCard
             v-for="a in readyMade"
             :key="a.id"

@@ -48,10 +48,10 @@ async function refreshVerification(): Promise<boolean> {
   const u = auth.currentUser
   if (!u) return false
   if (!u.emailVerified) await u.reload()
+  // Refresh the token before flipping the flag: the flag lets the user into the app, whose first calls need it.
+  if (u.emailVerified && (await u.getIdTokenResult()).claims.email_verified !== true) await u.getIdToken(true)
   emailVerified.value = u.emailVerified
-  if (!u.emailVerified) return false
-  if ((await u.getIdTokenResult()).claims.email_verified !== true) await u.getIdToken(true)
-  return true
+  return u.emailVerified
 }
 
 export function useAuth() {

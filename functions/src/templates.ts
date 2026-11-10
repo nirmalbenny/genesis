@@ -51,12 +51,12 @@ export async function seedTemplates(uid: string): Promise<{ seeded: number }> {
   if ((await userRef.get()).get("templatesVersion") === version) return { seeded: 0 };
 
   const hl = await getUserHl(uid);
-  let seeded = 0;
-  for (const t of apps) {
+  // All apps in parallel: a first sign-in waits for the slowest app, not the sum of all of them.
+  const results = await Promise.all(apps.map(async (t) => {
     const pid = prebuiltId(uid, t.slug);
     const ref = projectRef(pid);
     const snap = await ref.get();
-    if (snap.exists && (snap.get("deletedAt") || snap.get("templateVersion") === t.version)) continue;
+    if (snap.exists && (snap.get("deletedAt") || snap.get("templateVersion") === t.version)) return false;
 
     if (!snap.exists) {
       try {
@@ -75,7 +75,7 @@ export async function seedTemplates(uid: string): Promise<{ seeded: number }> {
           deletedAt: null,
         });
       } catch (err) {
-        if ((err as { code?: number }).code === 6) continue; // ALREADY_EXISTS: a parallel request won
+        if ((err as { code?: number }).code === 6) return false; // ALREADY_EXISTS: a parallel request won
         throw err;
       }
     } else {
@@ -83,8 +83,8 @@ export async function seedTemplates(uid: string): Promise<{ seeded: number }> {
     }
     await replaceFiles(pid, t.files);
     await createSnapshot(pid, null, "template", snap.exists ? `Updated ${t.name} to the latest version` : `Ready-made ${t.name}`);
-    seeded++;
-  }
+    return true;
+  }));
   await userRef.set({ templatesVersion: version }, { merge: true });
-  return { seeded };
+  return { seeded: results.filter(Boolean).length };
 }
