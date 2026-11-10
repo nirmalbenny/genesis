@@ -12,7 +12,7 @@ Describe an app in plain English. Genesis streams the code from Claude into a li
 | ![Building overlay while code streams](docs/screenshots/building.png) | ![Activity Timeline ready-made app on live data](docs/screenshots/ready-made-app.png) |
 
 ## Contents
-[Features](#features) · [Live URLs](#live-urls) · [Tech stack](#tech-stack) · [Repository layout](#repository-layout) · [Local setup](#local-setup-firebase-emulators) · [Configuration](#configuration-reference) · [Scripts & tests](#scripts--tests) · [HighLevel setup](#highlevel-setup) · [Architecture decisions](#architecture-decisions) · [What I would improve](#what-i-would-improve) · [Deployment notes](#deployment-notes) · [Troubleshooting](#troubleshooting)
+[Features](#features) · [Live URLs](#live-urls) · [Tech stack](#tech-stack) · [Repository layout](#repository-layout) · [Local setup](#local-setup-firebase-emulators) · [Configuration](#configuration-reference) · [Scripts & tests](#scripts--tests) · [HighLevel setup](#highlevel-setup) · [Architecture decisions](#architecture-decisions) · [Rate limits](#rate-limits) · [What I would improve](#what-i-would-improve) · [Deployment notes](#deployment-notes) · [Troubleshooting](#troubleshooting)
 
 ## Features
 - **Sign in, then connect a HighLevel sub-account** with OAuth 2.0 (read-only scopes). Tokens stay on the server and refresh automatically.
@@ -24,6 +24,7 @@ Describe an app in plain English. Genesis streams the code from Claude into a li
 - **Six ready-made apps** for every user: Customer 360, Daily Briefing, Appointment Prep Sheet, No-Contact Radar, Lead Follow-up Board and Activity Timeline. They're locked, but you can launch them, copy them and pin them to the sidebar.
 - **App catalog:** search, type and category filters, ordering, pinning, and full-screen launch at `/run/:id`.
 - **AI credits:** every user gets **2,500 credits** once they verify their email (1 credit = $0.001 of Claude list price). Each build holds its worst-case cost up front, then is charged what it actually used. The balance is shown live in the top bar, and every grant, hold and charge is recorded in a ledger.
+- **Rate limiting:** builds are limited exactly (1 at a time per app, 2 per user, 10 starts per 10 minutes) before any credits are held or Claude is called. The proxy, API and failed sign-ins are throttled per user or IP, the proxy caches repeated reads and backs off when HighLevel returns 429. See [Rate limits](#rate-limits).
 - **Graceful failure:** handles malformed model output, interrupted streams, failed HighLevel calls, declined off-topic or harmful prompts, and a missing connection, each with a clear message.
 
 ## Live URLs
@@ -141,10 +142,26 @@ Secrets go in `functions/.secret.local` for the emulator and in **Secret Manager
 9. **Ready-made apps are content-hashed templates seeded on first visit.** Seeding is safe to repeat, the apps are locked on the server and edited through copies, and template changes upgrade users' locked copies automatically.
 10. **Off-topic or harmful prompts are declined, and never stored.** They're detected through a `<refuse>` reply or the API's refusal stop reason, so a declined prompt can't influence later prompts.
 
+## Rate limits
+Limits are set by what abuse would cost. Builds spend real money on Claude, so they're limited **exactly**: Firestore transactions, in the same place as the credit hold. Everything else uses fast **in-memory token buckets** on each function instance. Full design: [ARCHITECTURE §6b](docs/ARCHITECTURE.md#6b-rate-limiting).
+
+| Where | Limit | Counted per | How |
+|---|---|---|---|
+| Builds (`generate`) | 1 running per app, 2 per user | user | Build slots with a 10-minute expiry, released when the build settles |
+| Builds (`generate`) | 10 starts per 10 minutes | user | Sliding-window log, exact wait time |
+| Generated apps → HighLevel (`hlProxy`) | 20 requests/s, bursts of 40 | user | Token bucket |
+| `hlProxy` | Repeated reads served from cache for 10 s; paused while HighLevel says to back off | sub-account | Cache + pause on HighLevel's 429 |
+| `api`, connect HighLevel | 60 changes/min, 300 reads/min | user | Token bucket |
+| Any function | 60 rejected sign-in tokens/min | IP address | Token bucket (valid tokens are never limited) |
+
+**How a request is evaluated:** checks run cheapest first: token, then validation, then the limit, then the expensive work. A refused build never counts tokens, holds credits or calls Claude. A refused request gets `429` with a `Retry-After` header and `{ "error": { "code": "rate_limited", "message", "retryAfter" } }`. HighLevel's own limit is reported as `hl_rate_limited`. The workspace shows the message, autosave retries once after the wait, and generated apps are told to wait, retry once, then show the message.
+
+**Exact and approximate:** the build limits are exact across all instances. The token buckets are per instance, so they're approximate (looser, never stricter) when traffic spreads over several instances; HighLevel's own 429, which the proxy honours, is the backstop. No Redis: nothing besides builds needs a shared counter at this scale. Limits are tuned in one place, `LIMITS` in [`rateLimits.ts`](functions/src/rateLimits.ts).
+
 ## What I would improve
 1. **Diff view:** show what each generation changed compared with the previous snapshot.
 2. **HighLevel webhooks:** add a receiver with Ed25519 signature checks, so apps such as a speed-to-lead monitor or a live inbox update in real time. Also use the `AppUninstall` event to delete stored tokens as soon as Genesis is uninstalled.
-3. **Rate limiting** per user on `generate` and `hlProxy`, plus caching in the proxy to stay within HighLevel's limit of about 100 requests per 10 seconds.
+3. **Shared rate limiting at scale:** move the in-memory token buckets to a shared store (Memorystore or Upstash Redis) for exact limits across instances, and add Cloud Armor or an API gateway for IP limits at the edge, plus Firebase App Check.
 4. **Static checks on generated code** before saving, rejecting `v-html`, `eval`, `document.cookie`, script tags, and network calls that bypass the proxy.
 5. **Opt-in write scopes,** for example sending messages or booking appointments, behind explicit per-app consent.
 

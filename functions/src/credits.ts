@@ -1,7 +1,8 @@
 import type { Usage } from "@anthropic-ai/sdk/resources/messages/messages";
 import { FieldValue } from "firebase-admin/firestore";
 import { db } from "./admin";
-import { httpError } from "./http";
+import { httpError, rateLimited } from "./http";
+import { decideBuildStart, type BuildState } from "./rateLimits";
 
 /**
  * AI credits: 1 credit = $0.001 of Claude list price. Every user gets SIGNUP_CREDITS once their email is
@@ -58,6 +59,27 @@ export async function grantSignupCredits(uid: string): Promise<boolean> {
   });
 }
 
+/**
+ * Rate limit for builds: takes a build slot (at most 1 running per app and 2 per user) and records the start
+ * (at most 10 per 10 minutes), or refuses with 429. Runs before any Claude call or credit hold. A limiter
+ * error refuses the build too: this is the limit that protects real spend. Released by settleCredits.
+ */
+export async function reserveBuildSlot(uid: string, projectId: string, generationId: string): Promise<void> {
+  await db.runTransaction(async (tx) => {
+    const d = (await tx.get(userRef(uid))).data();
+    const state: BuildState = { activeBuilds: d?.activeBuilds ?? {}, buildStarts: d?.buildStarts ?? [] };
+    const decision = decideBuildStart(state, projectId, generationId, Date.now());
+    if (!decision.ok) throw rateLimited(decision.retryAfter, decision.message, { limit: "build", uid, projectId });
+    // activeBuilds is replaced whole (not merged) so expired slots are dropped.
+    tx.set(userRef(uid), { activeBuilds: decision.next.activeBuilds, buildStarts: decision.next.buildStarts }, { mergeFields: ["activeBuilds", "buildStarts"] });
+  });
+}
+
+/** Frees a build slot when the build fails before it starts streaming (settleCredits frees it otherwise). */
+export async function releaseBuildSlot(uid: string, generationId: string): Promise<void> {
+  await userRef(uid).update({ [`activeBuilds.${generationId}`]: FieldValue.delete() });
+}
+
 /** Holds `credits` for a build, or refuses with 402 when the available balance can't cover it. */
 export async function holdCredits(uid: string, generationId: string, credits: number): Promise<void> {
   await db.runTransaction(async (tx) => {
@@ -94,7 +116,8 @@ export async function settleCredits(
       type: "charge", credits: charged, released: held, generationId, rateCardVersion: RATE_CARD_VERSION, ...detail,
       createdAt: FieldValue.serverTimestamp(),
     });
-    tx.set(userRef(uid), { credits: next }, { merge: true });
+    // Settling also frees the build's slot (rateLimits): every build, however it ended, settles exactly once.
+    tx.set(userRef(uid), { credits: next, activeBuilds: { [generationId]: FieldValue.delete() } }, { merge: true });
     return next.balance;
   });
 }

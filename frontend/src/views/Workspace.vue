@@ -99,8 +99,14 @@ function edit(path: string, content: string) {
   project.files[path] = content
   clearTimeout(timers.get(path))
   timers.set(path, setTimeout(async () => {
+    const save = () => api('PUT', `/projects/${projectId}/files`, { path, content })
     try {
-      await api('PUT', `/projects/${projectId}/files`, { path, content })
+      // Rate limited (429): wait as told and retry once before showing an error.
+      await save().catch(async (e: { retryAfter?: number }) => {
+        if (!e.retryAfter) throw e
+        await new Promise((r) => setTimeout(r, e.retryAfter! * 1000))
+        return save()
+      })
       saveError.value = ''
       await preview.value?.refresh()
     } catch (e) {

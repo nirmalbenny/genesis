@@ -6,7 +6,8 @@ import {
   applyOps, createSnapshot, fileId, projectRef, readFiles, restoreSnapshot, SEED_FILES, writeFileDoc,
 } from "./files";
 import { grantSignupCredits } from "./credits";
-import { httpError, requireVerifiedUser, sendError } from "./http";
+import { httpError, rateLimited, requireVerifiedUser, sendError } from "./http";
+import { createLimiter, LIMITS } from "./rateLimits";
 import { checkPath, MAX_FILE_BYTES } from "./llm/validate";
 import { signPreviewToken } from "./previewToken";
 import { assertEditable, getOwnedProject, getUserHl, toCategory, useConnectedLocation } from "./projects";
@@ -217,9 +218,20 @@ const routes: Array<[string, RegExp, Handler]> = [
   ["POST", /^\/projects\/([^/]+)\/preview-token$/, previewToken],
 ];
 
+// Per-user rate limits (in memory, per instance): changes are limited more tightly than reads.
+const writes = createLimiter(LIMITS.apiWrites);
+const reads = createLimiter(LIMITS.apiReads);
+
 export const api = onRequest({ cors: true, secrets: [PREVIEW_TOKEN_SECRET] }, async (req, res) => {
   try {
     const uid = await requireVerifiedUser(req);
+    const isWrite = req.method !== "GET";
+    const wait = (isWrite ? writes : reads).take(uid);
+    if (wait) {
+      throw rateLimited(wait, "Too many requests. Wait a moment and try again.", {
+        limit: isWrite ? "apiWrites" : "apiReads", uid, method: req.method, path: req.path,
+      });
+    }
     for (const [method, pattern, handler] of routes) {
       const m = pattern.exec(req.path.replace(/\/$/, "") || "/");
       if (m && req.method === method) {

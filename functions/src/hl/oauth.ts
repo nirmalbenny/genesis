@@ -4,16 +4,22 @@ import { auth, db } from "../admin";
 import {
   APP_URL, HL_API_BASE, HL_CLIENT_ID, HL_CLIENT_SECRET, HL_REDIRECT_URI, HL_SCOPES,
 } from "../config";
-import { requireVerifiedUser, sendError } from "../http";
+import { rateLimited, requireVerifiedUser, sendError } from "../http";
+import { createLimiter, LIMITS } from "../rateLimits";
 import { requestToken } from "./token";
 
 const STATE_TTL_MS = 10 * 60 * 1000;
+
+// Each start writes an OAuth state document; treated like any other write (rateLimits.ts).
+const starts = createLimiter(LIMITS.apiWrites);
 
 export const hlAuthStart = onRequest(
   { cors: true, secrets: [HL_CLIENT_ID] },
   async (req, res) => {
     try {
       const uid = await requireVerifiedUser(req);
+      const wait = starts.take(uid);
+      if (wait) throw rateLimited(wait, "Too many connection attempts. Wait a moment and try again.", { limit: "hlAuthStart", uid });
       const state = randomUUID();
       await db.doc(`oauthStates/${state}`).set({ uid, createdAt: Date.now() });
       const url = new URL("https://marketplace.gohighlevel.com/oauth/chooselocation");

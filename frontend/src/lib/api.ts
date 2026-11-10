@@ -6,7 +6,7 @@ export async function authHeader(): Promise<Record<string, string>> {
   return { Authorization: `Bearer ${token}` }
 }
 
-/** Authenticated JSON call to the `api` function. Throws Error(message) using the server's error body. */
+/** Authenticated JSON call to the `api` function. Throws Error(message) using the server's error body (plus status, retryAfter). */
 export async function api<T>(method: string, path: string, body?: unknown): Promise<T> {
   let res: Response
   try {
@@ -19,6 +19,11 @@ export async function api<T>(method: string, path: string, body?: unknown): Prom
     throw new Error('Network error. Check your connection and try again.')
   }
   const json = await res.json().catch(() => null)
-  if (!res.ok) throw new Error(json?.error?.message ?? `Request failed (${res.status})`)
+  if (!res.ok) {
+    // `retryAfter` (seconds) is set on 429s, so callers can wait and retry once.
+    throw Object.assign(new Error(json?.error?.message ?? `Request failed (${res.status})`), {
+      status: res.status, retryAfter: json?.error?.retryAfter as number | undefined,
+    })
+  }
   return json as T
 }

@@ -10,7 +10,7 @@ This document covers the product goals, the system design, the data model, and e
 3. [Data model](#3-data-model)
 4. [Backend API](#4-backend-api)
 5. [Flows](#5-flows)
-6. [Generation pipeline](#6-generation-pipeline)
+6. [Generation pipeline](#6-generation-pipeline) · [6a. AI credits](#6a-ai-credits) · [6b. Rate limiting](#6b-rate-limiting)
 7. [Ready-made apps](#7-ready-made-apps)
 8. [Live data, preview and pagination](#8-live-data-preview-and-pagination)
 9. [Security model](#9-security-model)
@@ -84,6 +84,8 @@ users/{uid}
   hl: { locationId, locationName, companyId, location{email,phone,timezone}, connectedAt } | null   ← the active connection
   templatesVersion                                                  ← content hash of the ready-made app set the user has
   credits: { balance, reserved, granted, used }                     ← AI credits (1 credit = $0.001 of Claude list price)
+  activeBuilds: { [generationId]: { projectId, startedAt } }        ← running builds (rate limit, §6b)
+  buildStarts: [ms timestamps]                                      ← build starts in the last 10 minutes (§6b)
   creditLedger/{entryId}  type: grant|hold|charge, credits, generationId?, model?, usage?, rateCardVersion   (append-only)
 
 hlTokens/{uid}        accessToken, refreshToken, expiresAt, locationId, scope        (no client access)
@@ -112,7 +114,7 @@ projects/{pid}
 
 ## 4. Backend API
 
-All routes are on the `api` function and need `Authorization: Bearer <Firebase ID token>` for an account whose email is verified (otherwise `403 email_not_verified`; the same applies to `generate` and `hlAuthStart`). Errors are returned as `{ error: { code, message } }`.
+All routes are on the `api` function and need `Authorization: Bearer <Firebase ID token>` for an account whose email is verified (otherwise `403 email_not_verified`; the same applies to `generate` and `hlAuthStart`). Errors are returned as `{ error: { code, message } }`. Every route is rate limited per user and can return `429 rate_limited` with `retryAfter` (§6b).
 
 | Method & path | Purpose |
 |---|---|
@@ -132,7 +134,7 @@ All routes are on the `api` function and need `Authorization: Bearer <Firebase I
 | `POST /projects/:id/snapshots/:sid/restore` | Restores a snapshot, which itself records a new `restore` snapshot. Not allowed on ready-made apps. |
 | `POST /projects/:id/preview-token` | Issues a 15-minute preview token for the connected location. |
 
-The **`generate`** function takes `POST { projectId, prompt }` (prompt ≤ 4,000 characters). Before streaming, it can refuse with JSON, for example `402 insufficient_credits` when the available balance can't cover the build's worst case. Otherwise it replies with `text/event-stream`, and `done`, `cancelled` and `error` carry `credits: { charged, balance }`:
+The **`generate`** function takes `POST { projectId, prompt }` (prompt ≤ 4,000 characters). Before streaming, it can refuse with JSON, for example `429 rate_limited` (builds running at once or started recently, §6b) or `402 insufficient_credits` when the available balance can't cover the build's worst case. Otherwise it replies with `text/event-stream`, and `done`, `cancelled` and `error` carry `credits: { charged, balance }`:
 
 ```
 event: start      data: {generationId}
@@ -285,6 +287,98 @@ The chat shows the notice for that session only, so a declined request never aff
   - **Requests that fail before tokens are used** are charged nothing.
 - **Security:** balances and the ledger are readable by their owner, and only Cloud Functions write them.
 
+## 6b. Rate limiting
+
+Limits are set by what abuse would cost. **Builds** spend real money on Claude, so they're limited **exactly**, in Firestore, next to the credit hold. **Everything else** uses **in-memory token buckets** on each function instance. Those are approximate across instances, which is fine for throttling, and for the proxy HighLevel's own 429 is the backstop. Every limit lives in one table in [`rateLimits.ts`](../functions/src/rateLimits.ts).
+
+### Limits
+
+| Where | What is limited | Limit | Counted per | Mechanism | If the limiter itself fails |
+|---|---|---|---|---|---|
+| `generate` | Builds running at once | 1 per app, 2 per user | user | Build slots with expiry (Firestore) | Build refused |
+| `generate` | Build starts | 10 per 10 minutes | user | Sliding-window log (Firestore) | Build refused |
+| `hlProxy` | Requests from generated apps | 20/s, bursts of 40 | user | Token bucket (memory) | Allowed |
+| `hlProxy` | Repeated reads | Served from cache for 10 s | sub-account + URL | Response cache (memory) | Cache skipped |
+| `hlProxy` | Calls after HighLevel returns 429 | None until its `Retry-After` passes (default 10 s) | sub-account | Pause (memory) | — |
+| `api`, `hlAuthStart` | Changes (POST, PUT, PATCH, DELETE) | 60/min, bursts of 20 | user | Token bucket (memory) | Allowed |
+| `api` | Reads (GET) | 300/min, bursts of 60 | user | Token bucket (memory) | Allowed |
+| All functions | Requests with a rejected token | 60/min | IP address | Token bucket (memory) | Allowed |
+
+Sign-up and sign-in are protected separately by reCAPTCHA Enterprise and Firebase's per-IP sign-up quota (§9). Total AI spend is capped by credits (§6a).
+
+### Mechanisms
+
+**1. Build slots with expiry (builds running at once).** `users/{uid}.activeBuilds` maps each running build to `{ projectId, startedAt }`. `reserveBuildSlot` runs one Firestore transaction:
+1. Drop slots older than 10 minutes (the function times out at 9). A crashed instance can't lock a user out.
+2. Refuse if a slot exists for this app, or if 2 slots exist.
+3. Otherwise add the slot.
+
+`settleCredits` deletes the slot in the same transaction that charges the build. Every build settles exactly once, however it ended (done, partial, error, declined, cancelled or disconnected). A failure before streaming releases the slot directly. Two simultaneous Build clicks are serialised by the transaction, so the second sees the first slot.
+
+**2. Sliding-window log (build starts).** `users/{uid}.buildStarts` holds the start times from the last 10 minutes, never more than 10. In the same transaction: drop times older than 10 minutes, refuse if 10 remain, otherwise add `now`. The wait is exact: `oldest start + 10 min − now`. Unlike a fixed window, it never allows a double burst at a window boundary, and the log stays tiny.
+
+**3. Token bucket (everything else).** A `Map` at module scope holds `{ tokens, last }` for each key, and persists across the requests an instance serves. On each request:
+```
+tokens = min(burst, tokens + elapsed × perSecond)
+if tokens < 1 → refuse, retryAfter = (1 − tokens) / perSecond
+else tokens −= 1
+```
+- It allows the natural burst of a page loading several lists at once, while bounding the average rate.
+- Node runs the check synchronously, so concurrent requests on one instance can't race.
+- The map is capped at 10,000 keys, dropping the least recently used.
+
+**4. Proxy cache and pause after HighLevel's 429.**
+- Successful responses are cached for 10 s per sub-account, path and sorted query, so reloads and several open previews cost one HighLevel call. A response header says `X-Cache: hit` or `miss`.
+- When HighLevel answers 429, the sub-account is paused for HighLevel's `Retry-After`. Requests in the meantime get the 429 at once instead of piling on.
+
+### Order of checks
+Checks run cheapest first, and the first failure ends the request. A refused build costs no token count, no credit hold and no Claude call.
+
+- **`generate`:**
+  1. Token valid? (Rejected tokens count toward the IP limit.)
+  2. Email verified, prompt valid, user owns the app, HighLevel connected.
+  3. **Build slot and start log** (one transaction).
+  4. Count tokens, then hold credits. A 402 here releases the slot.
+  5. Stream.
+  6. Settle: charge the build and release the slot.
+- **`hlProxy`:**
+  1. Preview token valid? (Rejected tokens count toward the IP limit.)
+  2. Path allowed, project owned.
+  3. **Per-user bucket.**
+  4. Connection check.
+  5. **Cache hit?** If so, return it.
+  6. **Sub-account paused?** If so, refuse.
+  7. Call HighLevel. Cache a success; on a HighLevel 429, start the pause.
+- **`api` / `hlAuthStart`:**
+  1. Token valid? (Rejected tokens count toward the IP limit.)
+  2. Email verified.
+  3. **Bucket for writes or reads.**
+  4. Run the handler.
+
+The IP limit only counts *rejected* tokens, and only after the token has been checked, so a request with a valid token is never limited by it. The IP is the last entry of `X-Forwarded-For`, the one Google's front end appends. The client can't forge it.
+
+### Response
+```
+HTTP 429   Retry-After: 30
+{ "error": { "code": "rate_limited", "message": "You can run 2 builds at a time. Wait for one to finish.", "retryAfter": 30 } }
+```
+- `rate_limited` means a Genesis limit; `hl_rate_limited` means HighLevel's.
+- Every 429 is logged (`rate_limited` / `hl_rate_limited` with the user, limit and wait) so limits can be tuned.
+- In the workspace, the chat shows the message.
+- Autosave waits `retryAfter` and retries once before showing an error.
+- Generated apps are told (in `hlReference.md`) to wait `retryAfter`, retry once, then show the message, never retrying in a loop.
+
+### Exact and approximate
+- **Exact:** both build limits. They're Firestore transactions, so they hold across all instances.
+- **Approximate:** the token buckets. Each instance counts on its own, and a new instance starts with full buckets. A user spread over *n* instances could get up to *n* times a limit. That only ever makes a limit looser, never blocks someone wrongly. At this app's traffic one instance usually serves everything.
+- **For the HighLevel budget,** the real guarantee is the pause after HighLevel's 429, plus the cache and the per-user bucket that stop loops at the source.
+
+**Why not Redis:** builds need a limit that agrees with the credit hold, and the Firestore transaction gives that atomically. Nothing else here justifies a shared store, a third-party service or the extra latency. At larger scale, the token buckets would move to a shared store (Memorystore or Upstash Redis) for exact limits across instances, with Cloud Armor or an API gateway for IP limits at the edge and Firebase App Check on the functions.
+
+**Firestore cost:** the build check is one transaction per build start. Everything high-volume (proxy, autosave, reads) adds no Firestore operations. That keeps the per-document write rate low, which Firestore's best practices call for.
+
+**Changing a limit:** edit `LIMITS` in `rateLimits.ts`. The unit tests in `rateLimits.test.ts` cover the bucket, the slots, slot expiry and the start log with a fake clock.
+
 ## 7. Ready-made apps
 
 Six apps ship with Genesis: Customer 360, Daily Briefing, Appointment Prep Sheet, No-Contact Radar, Lead Follow-up Board and Activity Timeline.
@@ -380,9 +474,11 @@ src/
   - A `refuse` reply is handled, and stray trailers are removed.
   - `validateOps` behaves as described in §6.
   - Every ready-made template is valid, has unique slugs, and has a known category.
+  - Rate limits: the token bucket, build slots, slot expiry and the build-start log, with a fake clock.
 - **End-to-end checks** run against the emulators with a real HighLevel sandbox and real Claude:
   - OAuth connect, refresh and disconnect; concurrent token refresh; the proxy allowlist and forced location.
   - Generation, including partial results on disconnect and declined requests.
+  - Rate limits: concurrent and repeated builds refused before any hold, crashed slots expiring, proxy cache and per-user bursts, rapid saves, and bad tokens per IP while valid tokens pass.
   - Ready-made app seeding, locking, copying and in-place upgrades.
   - Pagination walks across all records.
   - Headless-browser screenshots of the main screens.

@@ -2,7 +2,9 @@ import Anthropic from "@anthropic-ai/sdk";
 import { FieldValue } from "firebase-admin/firestore";
 import { onRequest, type Request } from "firebase-functions/v2/https";
 import { ANTHROPIC_API_KEY, ANTHROPIC_MODEL, ANTHROPIC_SUMMARY_MODEL } from "./config";
-import { chargeable, creditsFor, holdCredits, settleCredits, toTokenUsage, type TokenUsage } from "./credits";
+import {
+  chargeable, creditsFor, holdCredits, releaseBuildSlot, reserveBuildSlot, settleCredits, toTokenUsage, type TokenUsage,
+} from "./credits";
 import { applyOps, createSnapshot, projectRef, readFiles } from "./files";
 import { httpError, requireVerifiedUser, sendError } from "./http";
 import { createParser } from "./llm/parser";
@@ -48,9 +50,14 @@ export const generate = onRequest(
     const model = ANTHROPIC_MODEL.value();
     const summaryModel = ANTHROPIC_SUMMARY_MODEL.value();
     let ctx;
+    let slot: { uid: string; generationId: string } | null = null;
     try {
       const { uid, pid, prompt, hl } = await precheck(req);
       const proj = projectRef(pid);
+      // Rate limit first, so a refused build costs no token count, no credit hold and no Claude call.
+      const genRef = proj.collection("generations").doc();
+      await reserveBuildSlot(uid, pid, genRef.id);
+      slot = { uid, generationId: genRef.id };
       const [files, recent] = await Promise.all([
         readFiles(pid),
         proj.collection("messages").orderBy("createdAt", "desc").limit(RECENT_MESSAGES).get(),
@@ -75,13 +82,13 @@ export const generate = onRequest(
         creditsFor(model, { inputTokens, outputTokens: MAX_OUTPUT_TOKENS, cacheWriteTokens: 0, cacheReadTokens: 0 }) +
         creditsFor(summaryModel, SUMMARY_ALLOWANCE),
       );
-      const genRef = proj.collection("generations").doc();
       await holdCredits(uid, genRef.id, held);
       // The prompt and chat messages are saved only after the model accepts the request,
       // so declined (off-topic or harmful) requests never enter history or later model context.
       await genRef.set({ status: "streaming", createdAt: FieldValue.serverTimestamp() });
       ctx = { uid, pid, prompt, proj, files, request, genRef, held };
     } catch (err) {
+      if (slot) await releaseBuildSlot(slot.uid, slot.generationId).catch((e) => console.error("generate: slot release failed", e));
       sendError(res, err);
       return;
     }

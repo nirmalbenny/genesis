@@ -3,6 +3,7 @@
 Base: `HL_PROXY` from `./hl.config.js`. Every request is a GET with header `Authorization: Bearer ${PREVIEW_TOKEN}`.
 `locationId` is added automatically by the proxy, but pass `locationId=${LOCATION_ID}` anyway where listed.
 Responses are JSON. On failure the proxy returns `{ "error": { "code", "message" } }` with a non-2xx status — always show that message in the UI.
+Rate limits: a 429 (`rate_limited` or `hl_rate_limited`) carries `error.retryAfter` (seconds). The fetch helper waits that long and retries the request ONCE, then shows the message. Never retry in a loop, and never fire requests on a timer faster than every 30 s.
 
 ## Contacts
 - `GET /contacts/?locationId=…&limit=20&query=<search text>&startAfterId=<id>&startAfter=<ts>`
