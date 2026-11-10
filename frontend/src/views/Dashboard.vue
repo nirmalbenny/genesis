@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ArrowRight, CalendarDays, Check, Contact, CornerDownLeft, MailCheck, MessageSquare, Plug, Sparkles } from '@lucide/vue'
-import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppCard from '@/components/AppCard.vue'
 import AppDetailsDialog from '@/components/AppDetailsDialog.vue'
@@ -49,14 +49,15 @@ const { user, emailVerified, resendVerification, refreshVerification } = useAuth
 const verifyState = ref<'idle' | 'checking' | 'not-yet' | 'sending' | 'sent'>('idle')
 const verifyError = ref('')
 
-async function checkVerified(silent = false) {
+// "I've verified": the same re-check useAuth runs automatically on load and on tab focus, with feedback.
+async function checkVerified() {
   if (emailVerified.value) return
-  if (!silent) verifyState.value = 'checking'
+  verifyState.value = 'checking'
   try {
-    const ok = await refreshVerification()
-    if (!silent) verifyState.value = ok ? 'idle' : 'not-yet'
+    verifyState.value = (await refreshVerification()) ? 'idle' : 'not-yet'
   } catch (e) {
-    if (!silent) { verifyState.value = 'idle'; verifyError.value = (e as Error).message }
+    verifyState.value = 'idle'
+    verifyError.value = (e as Error).message
   }
 }
 async function resend() {
@@ -72,10 +73,6 @@ async function resend() {
       : (e as Error).message
   }
 }
-// Coming back to the tab after clicking the email link: pick up the verification without a manual refresh.
-const onVisible = () => { if (document.visibilityState === 'visible') checkVerified(true) }
-onMounted(() => document.addEventListener('visibilitychange', onVisible))
-onUnmounted(() => document.removeEventListener('visibilitychange', onVisible))
 
 function startBuild() {
   const text = prompt.value.trim()

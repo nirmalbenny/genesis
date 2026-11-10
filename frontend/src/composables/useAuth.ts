@@ -16,7 +16,17 @@ const ready = new Promise<void>((resolve) => {
     user.value = u
     emailVerified.value = u?.emailVerified ?? false
     resolve()
+    // After the user clicks the email link (often in a new tab) the restored session can lag behind: the
+    // account may still read "unverified", or read verified while the cached ID token does not. Sync both.
+    if (u) refreshVerification().catch((e) => console.warn('Email verification re-check failed', e))
   })
+})
+
+// Coming back to an open tab after verifying: pick it up without a reload, on any page.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && auth.currentUser && !emailVerified.value) {
+    refreshVerification().catch((e) => console.warn('Email verification re-check failed', e))
+  }
 })
 
 // The verification link returns the user to the app.
@@ -29,17 +39,20 @@ async function signUp(email: string, password: string) {
 }
 
 /**
- * Re-checks verification after the user clicked the email link: reloads the account, refreshes the ID token so
- * the server sees email_verified, then asks the server to grant the signup credits. Returns true when verified.
+ * Brings the session up to date after the user clicked the verification link, and returns true when verified.
+ * The server grants the signup credits from the ID token's email_verified claim, which can lag behind the account
+ * itself; when it does, the token is refreshed and the credits are claimed (POST /bootstrap is idempotent).
  */
 async function refreshVerification(): Promise<boolean> {
   const u = auth.currentUser
   if (!u) return false
-  await u.reload()
+  if (!u.emailVerified) await u.reload()
   emailVerified.value = u.emailVerified
   if (!u.emailVerified) return false
-  await u.getIdToken(true)
-  await api('POST', '/bootstrap')
+  if ((await u.getIdTokenResult()).claims.email_verified !== true) {
+    await u.getIdToken(true)
+    await api('POST', '/bootstrap')
+  }
   return true
 }
 
