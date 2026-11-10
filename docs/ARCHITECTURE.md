@@ -302,7 +302,6 @@ Limits are set by what abuse would cost. **Builds** spend real money on Claude, 
 | `hlProxy` | Calls after HighLevel returns 429 | None until its `Retry-After` passes (default 10 s) | sub-account | Pause (memory) | — |
 | `api`, `hlAuthStart` | Changes (POST, PUT, PATCH, DELETE) | 60/min, bursts of 20 | user | Token bucket (memory) | Allowed |
 | `api` | Reads (GET) | 300/min, bursts of 60 | user | Token bucket (memory) | Allowed |
-| All functions | Requests with a rejected token | 60/min | IP address | Token bucket (memory) | Allowed |
 
 Sign-up and sign-in are protected separately by reCAPTCHA Enterprise and Firebase's per-IP sign-up quota (§9). Total AI spend is capped by credits (§6a).
 
@@ -335,14 +334,14 @@ else tokens −= 1
 Checks run cheapest first, and the first failure ends the request. A refused build costs no token count, no credit hold and no Claude call.
 
 - **`generate`:**
-  1. Token valid? (Rejected tokens count toward the IP limit.)
+  1. Token valid?
   2. Email verified, prompt valid, user owns the app, HighLevel connected.
   3. **Build slot and start log** (one transaction).
   4. Count tokens, then hold credits. A 402 here releases the slot.
   5. Stream.
   6. Settle: charge the build and release the slot.
 - **`hlProxy`:**
-  1. Preview token valid? (Rejected tokens count toward the IP limit.)
+  1. Preview token valid?
   2. Path allowed, project owned.
   3. **Per-user bucket.**
   4. Connection check.
@@ -350,12 +349,12 @@ Checks run cheapest first, and the first failure ends the request. A refused bui
   6. **Sub-account paused?** If so, refuse.
   7. Call HighLevel. Cache a success; on a HighLevel 429, start the pause.
 - **`api` / `hlAuthStart`:**
-  1. Token valid? (Rejected tokens count toward the IP limit.)
+  1. Token valid?
   2. Email verified.
   3. **Bucket for writes or reads.**
   4. Run the handler.
 
-The IP limit only counts *rejected* tokens, and only after the token has been checked, so a request with a valid token is never limited by it. The IP is the last entry of `X-Forwarded-For`, the one Google's front end appends. The client can't forge it.
+**No limit per IP.** Every limit is keyed by the verified user (or the sub-account), never by IP. An in-app IP limit was tried and removed: on Cloud Functions the client can fake the entries of `X-Forwarded-For` that the limiter read (verified on production), and Firebase ID tokens and preview tokens are signed, so rejecting a bad token is already cheap and guessing one is futile. Flood protection by IP belongs at the edge (Cloud Armor or an API gateway), with Firebase App Check; see the scale-up path below.
 
 ### Response
 ```
@@ -478,7 +477,7 @@ src/
 - **End-to-end checks** run against the emulators with a real HighLevel sandbox and real Claude:
   - OAuth connect, refresh and disconnect; concurrent token refresh; the proxy allowlist and forced location.
   - Generation, including partial results on disconnect and declined requests.
-  - Rate limits: concurrent and repeated builds refused before any hold, crashed slots expiring, proxy cache and per-user bursts, rapid saves, and bad tokens per IP while valid tokens pass.
+  - Rate limits: concurrent and repeated builds refused before any hold, crashed slots expiring, proxy cache and per-user bursts, and rapid saves.
   - Ready-made app seeding, locking, copying and in-place upgrades.
   - Pagination walks across all records.
   - Headless-browser screenshots of the main screens.

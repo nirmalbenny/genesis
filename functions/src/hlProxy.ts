@@ -1,6 +1,6 @@
 import { onRequest } from "firebase-functions/v2/https";
 import { HL_API_BASE, HL_CLIENT_ID, HL_CLIENT_SECRET, PREVIEW_TOKEN_SECRET } from "./config";
-import { authFailed, httpError, rateLimited, sendError, type HttpError } from "./http";
+import { httpError, rateLimited, sendError, type HttpError } from "./http";
 import { getValidHlToken } from "./hl/token";
 import { verifyPreviewToken } from "./previewToken";
 import { getOwnedProject } from "./projects";
@@ -91,12 +91,7 @@ export const hlProxy = onRequest(
     try {
       if (req.method !== "GET") throw httpError(405, "method_not_allowed", "Only GET is supported");
       const header = req.get("authorization") ?? "";
-      let claims;
-      try {
-        claims = verifyPreviewToken(header.startsWith("Bearer ") ? header.slice(7) : "");
-      } catch (err) {
-        throw authFailed(req, err as HttpError);
-      }
+      const claims = verifyPreviewToken(header.startsWith("Bearer ") ? header.slice(7) : "");
 
       const path = req.path;
       if (!ALLOWED.some((re) => re.test(path))) throw httpError(403, "path_not_allowed", `Path not allowed: ${path}`);

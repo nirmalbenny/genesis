@@ -14,7 +14,6 @@ export const LIMITS = {
   proxyPerUser: { perSecond: 20, burst: 40 },
   apiWrites: { perSecond: 1, burst: 20 }, // 60/min
   apiReads: { perSecond: 5, burst: 60 }, // 300/min
-  authFailuresPerIp: { perSecond: 1, burst: 60 }, // 60/min, counts only rejected tokens
 } as const;
 
 /** A build slot is dropped after this long even if the build never settled (crashed instance). */
