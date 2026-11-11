@@ -9,6 +9,8 @@ Vue 3 + TypeScript + Vite single-page app. UI is built with **shadcn-vue** (Tail
 | `npm run dev:local` | Plain Vite, no tunnel (the live preview can't reach local functions in Chrome). |
 | `npm run build` | Type-checks (`vue-tsc`) and builds to `dist/` using `.env.production`. |
 | `npm run preview` | Serves the production build locally. |
+| `npm test` | Unit tests (Vitest): the SSE reader and the build state machine. |
+| `npm run lint` | ESLint (Vue + TypeScript). |
 
 ## Layout
 ```

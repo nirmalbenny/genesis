@@ -2,11 +2,15 @@
   "name": "genesis-functions",
   "private": true,
   "main": "lib/index.js",
-  "engines": { "node": "24" },
+  "engines": {
+    "node": "24"
+  },
   "scripts": {
     "build": "tsc && cp src/llm/hlReference.md lib/llm/hlReference.md",
     "typecheck": "tsc --noEmit",
-    "test": "npm run build && node --test lib/*.test.js lib/llm/*.test.js"
+    "test": "npm run build && node --test lib/*.test.js lib/llm/*.test.js",
+    "test:e2e": "npm run build && node --test --test-concurrency=1 lib/e2e/*.e2e.js",
+    "lint": "eslint ."
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.5.0",
@@ -14,7 +18,10 @@
     "firebase-functions": "^6.1.0"
   },
   "devDependencies": {
-    "@types/node": "^20.14.0",
-    "typescript": "^5.6.0"
+    "@eslint/js": "^9.39.5",
+    "@types/node": "^24.19.2",
+    "eslint": "^9.39.5",
+    "typescript": "^5.6.0",
+    "typescript-eslint": "^8.72.2"
   }
 }

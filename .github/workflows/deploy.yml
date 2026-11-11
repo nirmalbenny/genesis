@@ -32,11 +32,38 @@ jobs:
             functions/package-lock.json
             frontend/package-lock.json
 
-      - name: Functions — install and test
+      - name: Functions — install, lint and unit tests
         working-directory: functions
         run: |
           npm ci
+          npm run lint
           npm test
+
+      # Integration tests run against the Firebase emulators on a throwaway demo- project, which needs no
+      # Google credentials. They never call Claude or HighLevel, so placeholder params and secrets suffice.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Functions — integration tests (emulators)
+        env:
+          GCLOUD_PROJECT: demo-genesis
+        run: |
+          cat > functions/.env.local <<EOF
+          ANTHROPIC_MODEL=claude-sonnet-5-5
+          ANTHROPIC_SUMMARY_MODEL=claude-haiku-5-5
+          HL_REDIRECT_URI=http://127.0.0.1:5001/demo-genesis/us-central1/hlAuthCallback
+          APP_URL=http://localhost:5173
+          EOF
+          cat > functions/.secret.local <<EOF
+          ANTHROPIC_API_KEY=placeholder
+          HL_CLIENT_ID=placeholder-id
+          HL_CLIENT_SECRET=placeholder
+          PREVIEW_TOKEN_SECRET=$(openssl rand -hex 32)
+          EOF
+          npx --yes firebase-tools@15.35.0 emulators:exec --only auth,firestore,functions --project demo-genesis \
+            "npm --prefix functions run test:e2e"
 
       - name: Frontend — write production env
         working-directory: frontend
@@ -50,10 +77,12 @@ jobs:
           VITE_USE_EMULATORS=false
           EOF
 
-      - name: Frontend — install, type-check and build
+      - name: Frontend — install, lint, unit tests, type-check and build
         working-directory: frontend
         run: |
           npm ci
+          npm run lint
+          npm test
           npm run build
 
       - uses: actions/upload-artifact@v4

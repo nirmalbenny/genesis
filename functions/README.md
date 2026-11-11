@@ -16,7 +16,9 @@ Firebase Cloud Functions (2nd gen, **Node 24**, TypeScript). See the [root READM
 |---|---|
 | `npm run build` | Compiles to `lib/` (also copies the HighLevel API reference). Runs automatically before deploy. |
 | `npm run typecheck` | `tsc --noEmit` |
-| `npm test` | Builds, then runs the unit tests (stream parser, output validator, ready-made templates) |
+| `npm test` | Builds, then runs the unit tests (stream parser, output validator, credits, rate limits, ready-made templates) |
+| `npm run test:e2e` | Integration tests against the running emulators (API, limits, proxy, security rules); never calls Claude or HighLevel |
+| `npm run lint` | ESLint |
 
 ## Layout
 ```

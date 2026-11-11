@@ -1,7 +1,7 @@
 import { FieldValue } from "firebase-admin/firestore";
 import { onRequest, type Request } from "firebase-functions/v2/https";
 import { db } from "./admin";
-import { PREVIEW_TOKEN_SECRET } from "./config";
+import { APP_ORIGINS, PREVIEW_TOKEN_SECRET } from "./config";
 import {
   applyOps, createSnapshot, fileId, projectRef, readFiles, restoreSnapshot, SEED_FILES, writeFileDoc,
 } from "./files";
@@ -222,7 +222,7 @@ const routes: Array<[string, RegExp, Handler]> = [
 const writes = createLimiter(LIMITS.apiWrites);
 const reads = createLimiter(LIMITS.apiReads);
 
-export const api = onRequest({ cors: true, secrets: [PREVIEW_TOKEN_SECRET] }, async (req, res) => {
+export const api = onRequest({ cors: APP_ORIGINS, secrets: [PREVIEW_TOKEN_SECRET] }, async (req, res) => {
   try {
     const uid = await requireVerifiedUser(req);
     const isWrite = req.method !== "GET";

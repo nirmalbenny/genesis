@@ -117,8 +117,14 @@ Secrets go in `functions/.secret.local` for the emulator and in **Secret Manager
 |---|---|---|
 | `frontend/` | `npm run dev` | Tunnel plus Vite dev server |
 | `frontend/` | `npm run build` | Type-check (`vue-tsc`) and production build into `dist/` |
+| `frontend/` | `npm test` | Unit tests (Vitest): the SSE reader and the build state machine (streaming, refusals, declines, broken streams, Stop) |
+| `frontend/` | `npm run lint` | ESLint (Vue + TypeScript recommended rules) |
 | `functions/` | `npm run build` | Compile to `lib/` (runs automatically before deploy) |
-| `functions/` | `npm test` | Unit tests: the incremental stream parser (any chunking, unclosed files, refusals, stray trailers), the output validator, and every ready-made template |
+| `functions/` | `npm test` | Unit tests: stream parser, output validator, credits, rate-limit algorithms, ready-made templates |
+| `functions/` | `npm run test:e2e` | Integration tests against the running emulators: auth gate, projects, isolation between users, snapshots, build limits, cancel, the proxy's checks and limits, and the Firestore security rules. Never calls Claude or HighLevel. |
+| `functions/` | `npm run lint` | ESLint (TypeScript recommended rules) |
+
+**Running everything locally:** `firebase emulators:start` in one terminal, then `cd functions && npm test && npm run test:e2e` and `cd frontend && npm test`. CI runs all of it on every push and pull request, with the integration tests on a throwaway `demo-` project.
 
 ## HighLevel setup
 1. **Create a Marketplace app** at [marketplace.gohighlevel.com](https://marketplace.gohighlevel.com) at **Sub-account** (Location) level. Enable these scopes:
@@ -195,7 +201,7 @@ firebase deploy                                      # Firestore rules and index
 ### Continuous deployment (GitHub Actions)
 [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) runs on every push and pull request:
 
-- **Check:** functions tests, then the frontend type-check and production build. Pull requests stop here.
+- **Check:** lint and unit tests for both packages, the integration tests against the emulators (a `demo-` project, so no credentials), then the frontend type-check and production build. Pull requests stop here.
 - **Deploy** (pushes to `main` only, after the check passes): `firebase deploy` of rules, functions and hosting. Pushes that change only Markdown, `docs/` or `.env.example` don't trigger a run.
 
 It authenticates with **Workload Identity Federation**, so there are no keys. Config comes from GitHub **repository variables**: `FIREBASE_PROJECT_ID`, `VITE_FIREBASE_*`, `ANTHROPIC_MODEL`, `ANTHROPIC_SUMMARY_MODEL`, `WIF_PROVIDER` and `DEPLOY_SERVICE_ACCOUNT`. The secrets stay in Secret Manager.

@@ -435,6 +435,7 @@ sequenceDiagram
 - **Least privilege:** the HighLevel scopes are read-only, and the proxy only allows the GET paths above.
 - **No token exposure:** HighLevel tokens never leave Cloud Functions. Generated apps hold only a short-lived preview token tied to one user, project and location.
 - **Server-side writes only:** Firestore security rules reject every client write.
+- **CORS:** `api`, `generate` and `hlAuthStart` accept browser calls only from the app's own origins (`<project>.web.app`, `<project>.firebaseapp.com`, and the Vite dev server). `hlProxy` accepts any origin, because generated apps run on Sandpack's origin; it's protected by the preview token instead.
 - **Bot sign-ups:** Firebase Auth (Identity Platform) scores every email/password sign-up and sign-in with reCAPTCHA Enterprise and rejects low scores or missing tokens. The check happens in Auth itself, so calling the public sign-up API directly doesn't skip it; the web SDK attaches the token without any app code. Accounts that get through still can't use anything until their email is verified (§5.1). Setup: [`scripts/setup-bot-protection.sh`](../scripts/setup-bot-protection.sh).
 - **Prompt-injection resistance:** the system prompt treats user text as a request to evaluate, never as instructions. Requests that are off-topic or try to override the rules are declined and never stored.
 - **Generated code is sandboxed:** it runs in the Sandpack iframe on another origin, with a fixed dependency set.
@@ -467,17 +468,20 @@ src/
 
 ## 11. Testing
 
-- **Unit tests** (`cd functions && npm test`):
-  - The stream parser produces identical results however the text is chunked.
-  - Unclosed files are detected.
-  - A `refuse` reply is handled, and stray trailers are removed.
+Everything below is in the repo and runs in CI on every push and pull request.
+
+- **Functions unit tests** (`cd functions && npm test`, `node:test`):
+  - The stream parser produces identical results however the text is chunked; unclosed files are detected; a `refuse` reply is handled; stray trailers and cut-off tags are removed.
   - `validateOps` behaves as described in §6.
-  - Every ready-made template is valid, has unique slugs, and has a known category.
+  - Credits: the rate card, unknown models billed at the highest rate, rounding, usage mapping.
   - Rate limits: the token bucket, build slots, slot expiry and the build-start log, with a fake clock.
-- **End-to-end checks** run against the emulators with a real HighLevel sandbox and real Claude:
-  - OAuth connect, refresh and disconnect; concurrent token refresh; the proxy allowlist and forced location.
-  - Generation, including partial results on disconnect and declined requests.
-  - Rate limits: concurrent and repeated builds refused before any hold, crashed slots expiring, proxy cache and per-user bursts, and rapid saves.
-  - Ready-made app seeding, locking, copying and in-place upgrades.
-  - Pagination walks across all records.
-  - Headless-browser screenshots of the main screens.
+  - Every ready-made template is valid, has unique slugs, and has a known category.
+- **Integration tests** (`cd functions && npm run test:e2e`, against the emulators). They seed state with the Admin SDK and call the functions over HTTP as real signed-in users. They never call Claude or HighLevel: a running build is seeded as a build slot, and the proxy tests use a HighLevel token for a different location, so every request that passes the proxy's checks stops at `connection_changed`.
+  - **Accounts:** unverified accounts are refused everywhere; bad tokens get 401; bootstrap seeds six locked apps and grants the credits exactly once, even with two parallel calls.
+  - **Projects:** create, read, rename, save and read a file, invalid paths, soft delete; another user gets 404 on every route; copying creates a snapshot and restoring it is non-destructive.
+  - **Limits:** a second build on the same app, a third concurrent build and the 11th start in 10 minutes are refused with the right `Retry-After`, with nothing held or recorded; locked apps and missing connections are refused first; cancel semantics; the per-user write limit, while reads still pass.
+  - **Proxy:** missing and forged preview tokens, the GET allowlist, tokens for deleted or other users' apps, a changed connection, and the per-user burst limit.
+  - **Security rules** (`rules.e2e.ts`): as signed-in users through the Firestore emulator, each user reads only their own user document, ledger and apps; nobody reads `hlTokens` or `oauthStates`; unfiltered app listings are refused; every client write (including topping up credits) is denied.
+- **Frontend unit tests** (`cd frontend && npm test`, Vitest): the SSE reader (any chunking, heartbeats, CRLF, malformed events) and `useGeneration` (tokens into files, credits, refusals before streaming, declined requests, broken streams, Stop).
+- **Lint:** ESLint with the recommended TypeScript rules (functions) and Vue + TypeScript rules (frontend). The generated shadcn-vue components and the ready-made apps' browser code are excluded.
+- **Manual end-to-end checks** were also run during development against a real HighLevel sandbox and real Claude (OAuth connect and refresh, generation, partial results, cancellation, pagination, rate limits), with headless-browser screenshots. These need real credentials and spend credits, so they aren't automated.

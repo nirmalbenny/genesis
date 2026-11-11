@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { FieldValue } from "firebase-admin/firestore";
 import { onRequest, type Request } from "firebase-functions/v2/https";
-import { ANTHROPIC_API_KEY, ANTHROPIC_MODEL, ANTHROPIC_SUMMARY_MODEL } from "./config";
+import { ANTHROPIC_API_KEY, ANTHROPIC_MODEL, ANTHROPIC_SUMMARY_MODEL, APP_ORIGINS } from "./config";
 import {
   chargeable, creditsFor, holdCredits, releaseBuildSlot, reserveBuildSlot, settleCredits, toTokenUsage, type TokenUsage,
 } from "./credits";
@@ -43,7 +43,7 @@ async function precheck(req: Request) {
 }
 
 export const generate = onRequest(
-  { cors: true, secrets: [ANTHROPIC_API_KEY], timeoutSeconds: 540, memory: "512MiB" },
+  { cors: APP_ORIGINS, secrets: [ANTHROPIC_API_KEY], timeoutSeconds: 540, memory: "512MiB" },
   async (req, res) => {
     // ---- Pre-stream: checks, context and the credit hold. Failures here are plain JSON errors. ----
     const client = new Anthropic({ apiKey: ANTHROPIC_API_KEY.value() });
