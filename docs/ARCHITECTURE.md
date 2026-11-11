@@ -294,14 +294,111 @@ The chat shows the notice for that session only, so a declined request never aff
 
 ## 7. AI credits
 
-- **Value:** 1 credit = $0.001 of Claude list price. The versioned rate card in [`credits.ts`](../functions/src/credits.ts) gives credits per million input, output, cache-write and cache-read tokens for each model. Any model not on the card is billed at the highest known rate, never for free. Users never pick a model: a build uses the generation model, plus Haiku for the snapshot summary, and pays for both.
-- **Signup grant:** 2,500 credits, granted by `POST /bootstrap` once the ID token says `email_verified`. The ledger entry ID `signup` makes the grant idempotent. Sign-up sends Firebase's verification email, and the `/verify` page offers **Resend email** and **I've verified**.
-- **Hold:** before streaming, `generate` counts the input tokens exactly (`messages.countTokens`). It prices the input plus the full 16K output cap plus a summary allowance, and reserves that amount in a Firestore transaction (`balance − reserved` must cover it). Otherwise it returns 402 and makes no Claude call.
-- **Charge:** after the build, the real usage (`final.usage`, plus the summary's usage) is converted to credits and rounded up once per build. The hold is released, the charge is applied in one transaction, and the result is recorded on the generation.
-  - **Cut-off streams** are charged for the input plus the output actually streamed.
-  - **Declined requests** pay for input only.
-  - **Requests that fail before tokens are used** are charged nothing.
-- **Security:** balances and the ledger are readable by their owner, and only Cloud Functions write them.
+Every build spends real money on Claude, so each user has a credit balance. A build reserves its worst-case cost before Claude is called, and is charged what it actually used afterwards. The engine is [`credits.ts`](../functions/src/credits.ts); the frontend reads the balance live from Firestore.
+
+### 7.1 Unit and rate card
+
+**1 credit = $0.001 of Claude list price.** The rate card is versioned (`RATE_CARD_VERSION = 1`), and every charge records the version it used. Rates are credits per million tokens:
+
+| Model | Used for | Input | Output | Cache write | Cache read |
+|---|---|---|---|---|---|
+| `claude-sonnet-5-5` | Builds | 2,000 | 10,000 | 2,500 | 200 |
+| `claude-haiku-5-5` | One-line snapshot summaries | 100 | 500 | 125 | 10 |
+
+- **Unknown models** are billed at the highest rate on the card, never for free.
+- **Users never pick a model.** A build uses the generation model plus Haiku for the summary, and pays for both.
+- **Rounding:** usage is priced exactly (fractional credits), then rounded up **once per build**.
+
+### 7.2 Balance and ledger
+
+```text
+users/{uid}.credits = { balance, reserved, granted, used }      available = balance − reserved
+users/{uid}/creditLedger/{entryId}                               append-only
+```
+
+| Entry ID | `type` | Written when | Fields |
+|---|---|---|---|
+| `signup` | `grant` | The email is verified (first account setup) | `credits`, `reason` |
+| `{generationId}-hold` | `hold` | A build starts | `credits`, `generationId` |
+| `{generationId}-charge` | `charge` | The build ends, however it ended | `credits`, `released`, `model`, `usage`, `summaryModel`, `summaryUsage`, `projectId`, `rateCardVersion` |
+
+The fixed entry IDs make every step idempotent: two account-setup calls grant once, and settling a build twice changes nothing.
+
+### 7.3 Lifecycle of a build
+
+```mermaid
+sequenceDiagram
+  participant SPA
+  participant G as generate
+  participant FS as Firestore
+  participant CL as Claude
+  SPA->>G: POST {projectId, prompt}
+  G->>CL: messages.countTokens (exact input)
+  G->>FS: transaction: available ≥ hold? reserve it, write {gid}-hold
+  alt not enough credits
+    G-->>SPA: 402 insufficient_credits (no Claude call)
+  else reserved
+    G->>CL: messages.stream
+    CL-->>G: tokens, final usage
+    G->>CL: Haiku summary (if files were saved)
+    G->>FS: transaction: release hold, charge actual usage, write {gid}-charge
+    G-->>SPA: done / cancelled / error, with credits {charged, balance}
+  end
+```
+
+**Hold**, reserved before Claude is called:
+
+```text
+held = ceil( exact input tokens × input rate
+           + 16,000 (output cap) × output rate
+           + summary allowance: 1,000 input + 60 output tokens on Haiku )
+```
+
+The input is counted with `messages.countTokens`. If counting is unavailable, the request's length ÷ 3.5 is used as an estimate. If `balance − reserved` can't cover the hold, the build gets `402 insufficient_credits` ("This build needs up to X AI credits and you have Y available.") and Claude is never called.
+
+**Charge**, after the build, in one transaction:
+
+```text
+charged = min( held, ceil(actual build usage + actual summary usage) )
+```
+
+The transaction releases the hold, deducts `charged` from the balance, adds it to `used`, writes the `{generationId}-charge` entry, and frees the build's rate-limit slot (§8). The charge and usage are also stored on `projects/{pid}/generations/{gid}`.
+
+### 7.4 Worked example
+
+A build whose prompt and files come to 20,000 input tokens:
+
+| Step | Calculation | Credits |
+|---|---|---|
+| Hold | 20,000 × 2,000/M = 40 · 16,000 × 10,000/M = 160 · summary 0.13 | **201** reserved |
+| The model writes 3,000 tokens | 20,000 × 2,000/M = 40 · 3,000 × 10,000/M = 30 | 70 |
+| Summary (600 in, 40 out on Haiku) | 0.06 + 0.02 | 0.08 |
+| Charge | ceil(70.08) | **71** charged, 130 released |
+
+A new user's 2,500 credits cover roughly 30–40 builds of this size.
+
+### 7.5 How each outcome is charged
+
+| Outcome | Charged |
+|---|---|
+| Done or partial | Input + output + summary |
+| Stopped (Stop or Esc, §6 step 7) | Input + the output produced before the stop (no summary is written) |
+| Stream cut off (disconnect, error) | Input + the output streamed, estimated from the text received (characters ÷ 3.5) if the final usage is missing |
+| Declined (off-topic or harmful) | Input only |
+| Refused before Claude (validation, 402, 429) | Nothing |
+
+### 7.6 What users see
+
+- **Top bar:** an **AI credits** pill with the available balance, live from Firestore. It turns amber below 300; hovering shows available and used.
+- **Chat:** after each build, "Used N AI credits · X left".
+- **Not enough credits:** the 402 message in the chat, with the amount needed and available.
+- **Unverified accounts:** no credits and no access until the email is verified (§5.1).
+
+### 7.7 Security and limits
+
+- Balances and the ledger are readable by their owner and written only by Cloud Functions. An integration test confirms a user can't top up their own credits.
+- The hold and the charge are Firestore transactions, so concurrent builds can't overspend: two builds that each fit the balance alone can't both be reserved if together they don't.
+- **Not built:** buying credits, monthly refills, or admin adjustments. A user who runs out today can't get more without someone editing their balance in Firestore.
 
 ## 8. Rate limiting
 
