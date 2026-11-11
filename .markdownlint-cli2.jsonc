@@ -1,0 +1,5 @@
+// markdownlint rules for the repo's docs (used by scripts/check-docs.mjs and editors).
+// Default rules, except line length: long table rows and code lines are normal here.
+{
+  "config": { "default": true, "MD013": false }
+}

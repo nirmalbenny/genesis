@@ -168,6 +168,9 @@ Secrets go in `functions/.secret.local` for the emulator and in **Secret Manager
 | `functions/` | `npm test` | Unit tests: stream parser, output validator, credits, rate-limit algorithms, token encryption, ready-made templates |
 | `functions/` | `npm run test:e2e` | Integration tests against the running emulators: auth gate, projects, isolation between users, snapshots, build limits, cancel, the proxy's checks and limits, and the Firestore security rules. Never calls Claude or HighLevel. |
 | `functions/` | `npm run lint` | ESLint (TypeScript recommended rules) |
+| repo root | `node scripts/check-docs.mjs` | Docs check: markdownlint, every local link and anchor, and that every Mermaid diagram renders |
+
+**Claude Code skills** in [`.claude/skills/`](.claude/skills) automate the routine work: `/verify` (definition of done), `/hl-endpoint`, `/new-template`, `/docs-check` and `/prod-check`.
 
 **Running everything locally:** `firebase emulators:start` in one terminal, then `cd functions && npm test && npm run test:e2e` and `cd frontend && npm test`. CI runs all of it on every push and pull request, with the integration tests on a throwaway `demo-` project.
 

@@ -15,6 +15,14 @@ Take-home assignment (HighLevel, Senior Engineer). Source of truth: `GENESIS_ASS
 - **HighLevel facts are verified, not assumed:** check marketplace.gohighlevel.com/docs, then confirm against the sandbox through `hlProxy` before relying on an endpoint or parameter.
 - **Never hard-code a HighLevel location id** anywhere (code, templates, generated apps). Apps follow the currently connected sub-account.
 
+## Project skills (`.claude/skills/`)
+
+- `/verify`: the full definition of done (lint, unit, emulator e2e, frontend tests, build, manual check, report).
+- `/hl-endpoint`: add a HighLevel endpoint to `hlProxy`, verified against the docs and the sandbox, with reference, tests and docs.
+- `/new-template`: add a ready-made app to `functions/templates/` following the conventions.
+- `/docs-check`: `node scripts/check-docs.mjs` (markdownlint, links and anchors, Mermaid rendering).
+- `/prod-check`: verify a production deploy (CI, live site, 401s, CORS, stored data) without printing secrets.
+
 ## Stack (fixed)
 
 - **Backend:** Firebase Auth (email/password) on **Identity Platform** with reCAPTCHA Enterprise, Firestore, Cloud Functions **2nd gen**, Node 24 runtime (Node 20 was decommissioned 2026-10-30), TypeScript, **Cloud KMS** via `@google-cloud/kms` (token encryption).
