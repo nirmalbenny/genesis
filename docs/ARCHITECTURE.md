@@ -38,38 +38,77 @@ Non-goals: writing to HighLevel, multiple connected sub-accounts per user (the a
 ## 2. System overview
 
 ```mermaid
-flowchart LR
-  subgraph Browser
-    SPA["Vue 3 SPA<br/>(shadcn-vue, Monaco)"]
-    SB["Sandpack iframe<br/>(generated app)"]
-  end
-  subgraph Firebase
-    AUTH[Firebase Auth]
-    FS[(Firestore)]
-    subgraph "Cloud Functions (2nd gen)"
-      START[hlAuthStart]
-      CB[hlAuthCallback]
-      API[api]
-      GEN["generate · SSE<br/>credits · build limits"]
-      PROXY["hlProxy<br/>cache · rate limits"]
-    end
-  end
-  HL[(HighLevel API)]
-  CLAUDE[(Claude API)]
+flowchart TB
+  GITHUB["<b>GitHub Actions</b><br/>lint · unit · emulator e2e · build"]
 
-  SPA -- ID token --> API & GEN & START
-  SPA -- live reads --> FS
-  SPA -- email/password --> AUTH
-  START -- authorize URL --> SPA
-  HL -- OAuth redirect --> CB
-  CB -- tokens --> FS
-  GEN -- stream --> CLAUDE
-  GEN -- files, snapshots --> FS
-  API --> FS
-  SB -- preview token --> PROXY
-  PROXY -- real token, GET only --> HL
-  CB --> HL
+  subgraph BROWSER["User's browser"]
+    direction LR
+    SPA["<b>Vue 3 SPA</b> · Firebase Hosting<br/>views · composables · Monaco editor<br/>useGeneration: SSE client + Stop"]
+    SANDBOX["<b>Sandpack iframe</b> · separate origin<br/>generated app + hl.config.js<br/>preview token only"]
+  end
+
+  AUTH["<b>Firebase Auth · Identity Platform</b><br/>email + password · email verification<br/>reCAPTCHA Enterprise"]
+
+  subgraph FUNCTIONS["Cloud Functions · 2nd gen · Node 24 · us-central1"]
+    direction LR
+    START["<b>hlAuthStart</b><br/>creates OAuth state"]
+    CALLBACK["<b>hlAuthCallback</b><br/>code → sealed tokens"]
+    API["<b>api</b><br/>projects · files · snapshots<br/>bootstrap · cancel · preview token"]
+    GENERATE["<b>generate</b><br/>SSE build pipeline"]
+    PROXY["<b>hlProxy</b><br/>GET allowlist · forced location<br/>10 s cache · 429 back-off"]
+  end
+
+  subgraph MODULES["Shared modules used by the functions"]
+    direction LR
+    LLM["<b>llm</b><br/>prompt · HL reference<br/>parser · validator"]
+    CREDITS["<b>credits</b><br/>hold · settle · ledger"]
+    LIMITS["<b>rateLimits</b><br/>build slots · token buckets"]
+    VAULT["<b>tokenVault</b><br/>AES-256-GCM envelope<br/>decrypt cache"]
+    PTOKEN["<b>previewToken</b><br/>HMAC-SHA256 · 15 min"]
+  end
+
+  subgraph STORES["Google Cloud data and keys"]
+    direction LR
+    FIRESTORE[("<b>Firestore</b><br/>users/{uid} + creditLedger<br/>projects/{pid} + files, snapshots,<br/>messages, generations<br/>hlTokens/{uid} (sealed) · oauthStates")]
+    SECRETS["<b>Secret Manager</b><br/>Anthropic key · HL client<br/>preview-token secret"]
+    KMS["<b>Cloud KMS</b><br/>genesis/hl-tokens"]
+  end
+
+  CLAUDE["<b>Anthropic API</b> (external)<br/>Sonnet: builds · Haiku: summaries"]
+  HIGHLEVEL["<b>HighLevel</b> (external)<br/>OAuth · Contacts · Conversations · Calendars"]
+
+  GITHUB -. "⑤ deploy hosting" .-> BROWSER
+  GITHUB -. "⑤ deploy functions + rules (Workload Identity, no keys)" .-> FUNCTIONS
+
+  SPA -- "① sign up / sign in" --> AUTH
+  SPA -- "② connect" --> START
+  SPA -- "③ prompt" --> GENERATE
+  GENERATE -- "③ tokens over SSE" --> SPA
+  SPA -- "app actions" --> API
+  SPA -- "④ files + preview token" --> SANDBOX
+  SANDBOX -- "④ GET + preview token" --> PROXY
+
+  FUNCTIONS --> MODULES
+  VAULT -- "wrap / unwrap data keys" --> KMS
+  FUNCTIONS -. "secrets at runtime" .-> SECRETS
+  FUNCTIONS -- "Admin SDK reads / writes" --> FIRESTORE
+  SPA -. "① live reads (own data only)" .-> FIRESTORE
+
+  CALLBACK <-- "② code + state ⇄ tokens" --> HIGHLEVEL
+  SPA -. "② redirect: pick a sub-account" .-> HIGHLEVEL
+  GENERATE -- "③ stream" --> CLAUDE
+  PROXY -- "④ GET with the real token" --> HIGHLEVEL
 ```
+
+| Flow | What happens | Details |
+|---|---|---|
+| ① Sign in | Firebase Auth (with reCAPTCHA Enterprise) signs the user in; until the email is verified, nothing else works. The SPA then reads its own data live from Firestore. | §5.1 |
+| ② Connect HighLevel | `hlAuthStart` creates a one-time state, the user picks a sub-account on HighLevel, and `hlAuthCallback` exchanges the code and stores the tokens sealed with Cloud KMS. | §5.2, §11.1 |
+| ③ Build | `generate` checks the build limits, holds credits, streams Claude's output to the editor over SSE, then saves validated files, a snapshot and the charge. | §5.3, §6–8 |
+| ④ Preview on live data | `api` issues a 15-minute preview token; the generated app in Sandpack calls `hlProxy`, which opens the sealed token and calls HighLevel with it. | §10 |
+| ⑤ Deploy | GitHub Actions runs lint, unit and emulator tests, then deploys hosting, functions and rules with Workload Identity Federation. | README |
+
+Everything runs in one Firebase project in `us-central1`. Clients never write to Firestore and never see a HighLevel token or a secret.
 
 | Function | Auth | Responsibility |
 |---|---|---|
