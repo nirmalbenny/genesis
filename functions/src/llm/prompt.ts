@@ -35,6 +35,11 @@ Rules:
   - When search text, filters or sort change, reset the list and the cursor and load page 1 again; ignore responses from superseded requests.
   - Never fetch every page automatically. If a feature needs more than one page (counts, joins, "no contact in 30 days"), use the response "total" where possible, otherwise fetch at most 5 pages and say what the result is based on (e.g. "Based on the latest 100 contacts").
   - Calendar events are not paginated: query a bounded time window and let the user move it.
+- Writes (create/update contacts, tags, notes, appointments, conversation read/starred, sending SMS or email) only for features the user asked for, using the endpoints under "Writes" exactly:
+  - Run a write only from an explicit user action (a button or form submit). Never on page load, on a timer, in a loop, or as a side effect of reading data.
+  - Disable the control while the write runs, show a clear success message or the returned error.message, then re-fetch the affected record or list.
+  - Never retry a failed write automatically, except the single 429 retry. Never try to delete anything (deletes are not available).
+  - For messages, show the recipient and the content next to the Send button so the user sees exactly what will be sent.
 - Style with plain CSS in <style scoped>. Make it clean and readable.
 
 Connected HighLevel location: ${location.name} (id ${location.id}).

@@ -43,14 +43,14 @@ export async function newUser(opts: { verified?: boolean } = {}): Promise<TestUs
 }
 
 /** Marks the user as connected to a HighLevel location (what the OAuth callback stores). */
-export async function connectHl(u: TestUser, locationId = "loc-e2e", tokenLocationId = locationId): Promise<void> {
+export async function connectHl(u: TestUser, locationId = "loc-e2e", tokenLocationId = locationId, scope = ""): Promise<void> {
   await db.doc(`users/${u.uid}`).set({ hl: { locationId, locationName: "E2E location" } }, { merge: true });
   // A token far from expiry, so no refresh call to HighLevel is ever attempted. Sealed, as the callback stores it.
   await db.doc(`hlTokens/${u.uid}`).set({
     sealed: await seal(u.uid, { accessToken: "e2e-access", refreshToken: "e2e-refresh" }, tokenWrapper),
     expiresAt: Date.now() + 3_600_000,
     locationId: tokenLocationId,
-    scope: "",
+    scope,
   });
 }
 

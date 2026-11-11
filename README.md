@@ -19,7 +19,8 @@ Describe an app in plain English. Genesis streams the code from Claude into a li
 
 ## Features
 
-- **HighLevel connection:** sign in, then connect a sub-account with OAuth 2.0 (read-only scopes). Tokens stay on the server and refresh automatically.
+- **HighLevel connection:** sign in, then connect a sub-account with OAuth 2.0. Tokens stay on the server, encrypted, and refresh automatically.
+- **Apps that read and write:** generated apps show live contacts, conversations and calendars, and can create and update contacts (with tags and notes), book, reschedule and cancel appointments, mark conversations read or starred, and send SMS or email. Deletes are never allowed.
 - **Prompt-first workspace:** describe an app and name it, then watch Claude's output stream into Monaco (read-only while it streams). The preview shows a "Building your app" overlay meanwhile.
 - **Live preview:** apps run in a Sandpack iframe and call HighLevel through a secure proxy. They never see your token.
 - **Generated apps paginate:** contacts, conversations and messages load 20 at a time behind Load more. Calendar apps can show events and open booking slots.
@@ -42,11 +43,11 @@ flowchart LR
   G -- "files, snapshots, credits" --> F[("Firestore")]
   U -- "files" --> S["Sandpack preview"]
   S -- "preview token" --> P["hlProxy<br/>(Cloud Function)"]
-  P -- "real token, read-only" --> H[("HighLevel API")]
+  P -- "real token, allowlisted reads and writes" --> H[("HighLevel API")]
 ```
 
 1. **Build:** the browser sends a prompt to `generate`, which holds the worst-case credits, streams Claude's output back over SSE, and saves the validated files with a snapshot.
-2. **Run:** the preview runs the files in Sandpack. The generated app calls HighLevel only through `hlProxy`, with a short-lived preview token; the real HighLevel token never leaves the server.
+2. **Run:** the preview runs the files in Sandpack. The generated app reads and writes HighLevel only through `hlProxy`, with a short-lived preview token; the real HighLevel token never leaves the server.
 3. **Store:** clients read their own data straight from Firestore, but every write goes through Cloud Functions.
 
 This is the short version. The **[detailed architecture diagram](docs/ARCHITECTURE.md#2-system-overview)** shows every component (Auth, all five functions, the shared modules, Firestore, Secret Manager, Cloud KMS, CI/CD) with the five main flows numbered. The rest of [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) covers the data model, API, flows and the reasoning behind each decision.
@@ -65,7 +66,7 @@ This is the short version. The **[detailed architecture diagram](docs/ARCHITECTU
 | AI | Claude via `@anthropic-ai/sdk`: streaming generation, plus Haiku for snapshot summaries |
 | Frontend | Vue 3 + TypeScript + Vite, **shadcn-vue** (Tailwind v4), `@lucide/vue`, `vue-router` |
 | Editor / preview | `@guolao/vue-monaco-editor`, `@codesandbox/sandpack-client` |
-| HighLevel | OAuth 2.0 (Location), Contacts, Conversations and Calendars APIs (read-only) |
+| HighLevel | OAuth 2.0 (Location), Contacts, Conversations and Calendars APIs (reads plus allowlisted writes, no deletes) |
 | Hosting | Firebase Hosting (SPA) and Firebase Functions (us-central1) |
 | Security | Identity Platform + reCAPTCHA Enterprise, Cloud KMS (token encryption), Secret Manager |
 | Quality | `node:test` (unit + integration on the emulators), Vitest, ESLint, GitHub Actions CI/CD |
@@ -177,8 +178,8 @@ Secrets go in `functions/.secret.local` for the emulator and in **Secret Manager
 ## HighLevel setup
 
 1. **Create a Marketplace app** at [marketplace.gohighlevel.com](https://marketplace.gohighlevel.com) at **Sub-account** (Location) level. Enable these scopes:
-   `contacts.readonly conversations.readonly conversations/message.readonly calendars.readonly calendars/events.readonly locations.readonly`
-   (`locations.readonly` is only used to show the connected sub-account's name.)
+   `contacts.readonly contacts.write conversations.readonly conversations.write conversations/message.readonly conversations/message.write calendars.readonly calendars/events.readonly calendars/events.write locations.readonly`
+   (`locations.readonly` is only used to show the connected sub-account's name.) Enable **only** these: the consent screen lists every scope enabled on the app, not just the ones Genesis requests.
 2. **Copy the Client ID and Client Secret** into the secrets. The authorize URL includes `version_id`, derived from the client ID. HighLevel returns "No integration found" without it.
 3. **Add both redirect URIs** under Advanced Settings → Auth:
    - production: `https://us-central1-<project-id>.cloudfunctions.net/hlAuthCallback`
@@ -187,7 +188,7 @@ Secrets go in `functions/.secret.local` for the emulator and in **Secret Manager
 
 ## Architecture decisions
 
-1. **Generated apps never see the HighLevel token.** They call `hlProxy` with a 15-minute HMAC preview token tied to the user, project and location. The proxy allows only specific GET paths, rejects tokens whose app was deleted or isn't the user's, forces the `locationId`, and attaches the real token server-side.
+1. **Generated apps never see the HighLevel token.** They call `hlProxy` with a 15-minute HMAC preview token tied to the user, project and location. The proxy allows only listed reads and writes (never deletes), rejects tokens whose app was deleted or isn't the user's, forces the `locationId`, checks the connection granted the write's scope, and attaches the real token server-side.
 2. **Firestore is read directly by the client, but written only by Cloud Functions.** Security rules allow owner-only reads and reject every client write, so all validation stays on the server.
 3. **One Firestore document per file,** for both project files and snapshot files. This stays clear of the 1 MB document limit and makes snapshots cheap to copy.
 4. **A strict `<plan>/<file>/<delete>/<refuse>` output format, parsed incrementally.** Tokens and file boundaries stream to the editor live, while each file is validated whole before it's saved.
@@ -207,6 +208,7 @@ Secrets go in `functions/.secret.local` for the emulator and in **Secret Manager
 | Context | Bounded on purpose: the system prompt, a hand-written HighLevel API reference verified against a live sandbox, the connected location, the app's files (up to 60,000 characters) and the last 6 chat messages. Prompts are capped at 4,000 characters and output at 16,000 tokens. |
 | Output | A strict `<plan>` / `<file>` / `<delete>` / `<refuse>` format, parsed incrementally so files appear live. Every file is validated before it's saved (paths, extensions, size, protected files); valid files are kept even when others are rejected. |
 | Grounding | The prompt makes pagination mandatory, forbids hard-coded location IDs and sample data, and tells generated apps to call HighLevel only through the proxy, so previews show **real data**. |
+| Writes | Generated apps write only from an explicit user action (never on load, on a timer or in a loop), show the result, and never retry a failed write except once on a 429. Message forms show the recipient and content next to Send. |
 | Safety | Off-topic, harmful or rule-breaking prompts get a `<refuse>` reply (or the API's refusal) and are **never stored**, so they can't steer later prompts. User text is treated as a request to evaluate, never as instructions. |
 | Cost control | **AI credits** (1 credit = $0.001 of Claude list price): each build reserves its worst case using an exact token count, then pays for what it used. Exact **build limits** stop runaway spending before Claude is called. |
 | Resilience | Interrupted or truncated streams keep every finished file, and each build ends in a snapshot that can be restored. |
@@ -219,7 +221,7 @@ Details: the [generation pipeline](docs/ARCHITECTURE.md#6-generation-pipeline), 
 |---|---|
 | Accounts | Firebase Auth with **email verification required** before any endpoint works; **reCAPTCHA Enterprise** on every sign-up and sign-in |
 | HighLevel tokens | Never sent to the browser; stored with **Cloud KMS envelope encryption** (AES-256-GCM, bound to the user); refreshed safely under concurrency |
-| Generated apps | Run in a **sandboxed iframe on another origin**; reach HighLevel only through `hlProxy` with a **15-minute HMAC preview token** (GET allowlist, forced location, app ownership checked) |
+| Generated apps | Run in a **sandboxed iframe on another origin**; reach HighLevel only through `hlProxy` with a **15-minute HMAC preview token** (method and path allowlist with no deletes, forced location, app ownership and write scopes checked) |
 | Data access | Firestore rules allow **owner-only reads** and **no client writes**; every change goes through Cloud Functions, which check ownership |
 | Secrets | **Secret Manager** in production, git-ignored files locally; CI deploys **without keys** (Workload Identity Federation) |
 | Abuse and cost | **AI credits** with worst-case holds, exact **build limits**, per-user rate limits, CORS restricted to the app's origins |
@@ -237,6 +239,7 @@ Limits are set by what abuse would cost. Builds spend real money on Claude, so t
 | Builds (`generate`) | 10 starts per 10 minutes | user | Sliding-window log, exact wait time |
 | Generated apps → HighLevel (`hlProxy`) | 20 requests/s, bursts of 40 | user | Token bucket |
 | `hlProxy` | Repeated reads served from cache for 10 s; paused while HighLevel says to back off | sub-account | Cache + pause on HighLevel's 429 |
+| `hlProxy` writes | 30 writes/min (bursts of 10); message sends 10/min per user and about 200/day per sub-account | user, sub-account | Token buckets |
 | `api`, connect HighLevel | 60 changes/min, 300 reads/min | user | Token bucket |
 
 Checks run cheapest first, so a refused build never counts tokens, holds credits or calls Claude. A refused request gets `429` with a `Retry-After` header and `{ "error": { "code": "rate_limited", "message", "retryAfter" } }`. The algorithms, the order of checks, what's exact and what's approximate, and why there's no Redis or per-IP limit are in [ARCHITECTURE §8](docs/ARCHITECTURE.md#8-rate-limiting). All limits live in `LIMITS` in [`rateLimits.ts`](functions/src/rateLimits.ts).
@@ -247,7 +250,7 @@ Checks run cheapest first, so a refused build never counts tokens, holds credits
 2. **HighLevel webhooks:** add a receiver with Ed25519 signature checks, so apps such as a speed-to-lead monitor or a live inbox update in real time. Also use the `AppUninstall` event to delete stored tokens as soon as Genesis is uninstalled.
 3. **Shared rate limiting at scale:** move the in-memory token buckets to a shared store (Memorystore or Upstash Redis) for exact limits across instances, and add Cloud Armor or an API gateway for IP limits at the edge, plus Firebase App Check.
 4. **Static checks on generated code** before saving, rejecting `v-html`, `eval`, `document.cookie`, script tags, and network calls that bypass the proxy.
-5. **Opt-in write scopes,** for example sending messages or booking appointments, behind explicit per-app consent.
+5. **Per-app write permissions:** let users choose which apps may write to HighLevel, with an optional approval step for message sends (today any generated app may use every allowed write).
 
 ## Deployment notes
 

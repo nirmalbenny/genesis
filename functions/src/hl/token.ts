@@ -32,7 +32,8 @@ export async function requestToken(params: Record<string, string>): Promise<Toke
   return res.json() as Promise<TokenResponse>;
 }
 
-export type ValidHlToken = { accessToken: string; locationId: string };
+/** `scopes`: what HighLevel granted at connect time, so callers can refuse a write before calling it. */
+export type ValidHlToken = { accessToken: string; locationId: string; scopes: string[] };
 
 const inflight = new Map<string, Promise<ValidHlToken>>();
 
@@ -49,6 +50,7 @@ export function getValidHlToken(uid: string): Promise<ValidHlToken> {
 }
 
 const isFresh = (expiresAt: number) => expiresAt - 60_000 > Date.now();
+const scopesOf = (d: { scope?: string }) => (d.scope ?? "").split(/\s+/).filter(Boolean);
 
 /** hlTokens/{uid}: the tokens are sealed (tokenVault.ts); the rest isn't secret and stays readable. */
 type StoredTokens = {
@@ -78,7 +80,9 @@ async function loadValidToken(uid: string): Promise<ValidHlToken> {
   const snap = await ref.get();
   if (!snap.exists) throw httpError(409, "hl_not_connected", "HighLevel is not connected");
   const d = snap.data() as StoredTokens;
-  if (isFresh(d.expiresAt)) return { accessToken: (await readTokens(ref, uid, d)).accessToken, locationId: d.locationId };
+  if (isFresh(d.expiresAt)) {
+    return { accessToken: (await readTokens(ref, uid, d)).accessToken, locationId: d.locationId, scopes: scopesOf(d) };
+  }
 
   const { refreshToken } = await readTokens(ref, uid, d); // a decryption failure ends here, with a clear 503
   try {
@@ -88,7 +92,7 @@ async function loadValidToken(uid: string): Promise<ValidHlToken> {
     await db.runTransaction(async (tx) => {
       tx.update(ref, { ...fields, expiresAt: Date.now() + t.expires_in * 1000, scope: t.scope });
     });
-    return { accessToken: t.access_token, locationId: d.locationId };
+    return { accessToken: t.access_token, locationId: d.locationId, scopes: scopesOf({ scope: t.scope }) };
   } catch (err) {
     if ((err as HttpError).code === "hl_tokens_unavailable") throw err;
     // Refresh tokens are single-use: if a concurrent request already rotated it, wait for its result.
@@ -96,7 +100,7 @@ async function loadValidToken(uid: string): Promise<ValidHlToken> {
       await new Promise((r) => setTimeout(r, 400));
       const latest = (await ref.get()).data() as StoredTokens | undefined;
       if (latest && isFresh(latest.expiresAt)) {
-        return { accessToken: (await readTokens(ref, uid, latest)).accessToken, locationId: latest.locationId };
+        return { accessToken: (await readTokens(ref, uid, latest)).accessToken, locationId: latest.locationId, scopes: scopesOf(latest) };
       }
     }
     throw err;

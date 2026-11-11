@@ -100,14 +100,14 @@ Take-home assignment (HighLevel, Senior Engineer). Source of truth: `GENESIS_ASS
 ## Key decisions (do not undo without asking)
 
 - Apps are **not tied to a sub-account**: preview/generate use the current connection and update `project.locationId`.
-- HL token never reaches the browser; generated apps use a 15-min preview token via `hlProxy` (GET allowlist, forced `locationId`, project ownership check). HL tokens are stored only sealed (KMS).
+- HL token never reaches the browser; generated apps use a 15-min preview token via `hlProxy` (method + path allowlist, no DELETE, forced `locationId`, project ownership and write-scope checks). HL tokens are stored only sealed (KMS).
 - All Firestore writes via Functions; clients read only their own data.
 - Proxy allowlist: `/contacts/`, `/contacts/{id}`, `/contacts/{id}/appointments`, `/conversations/search`, `/conversations/{id}`, `/conversations/{id}/messages`, `/calendars/`, `/calendars/events`, `/calendars/{id}/free-slots` (this one must NOT get a `locationId` param — HL returns 422; the proxy skips it there).
 - Pagination contract (verified on the sandbox, documented in `functions/src/llm/hlReference.md`): contacts cursor `startAfterId`+`startAfter` (stop on short page — `nextPageUrl` lies), conversations `startAfterDate = sort[0]`, messages `lastMessageId` while `nextPage`; calendar events and free slots not paginated (free slots: ≤31-day range, active calendars only).
 - Parser strips a stray `</parameter>` trailer the model sometimes appends to files.
 - Multiple sub-accounts per user were considered and **rejected** (assignment requires one location per user).
 - Rate limits: no Redis/Upstash (Firestore where atomic with credits, memory elsewhere); documented as the scale-up path.
-- Writes to HighLevel (create/update contact, send message) were discussed but **not built**: the app is read-only by design.
+- **Writes to HighLevel are supported** (user decision, 2026-11-11): contacts (create, update, tags, notes), appointments (create, reschedule, cancel), conversations (read/unread, starred), messages (SMS or email only). **No deletes.** No extra confirmation step; generated apps must write only on an explicit user action. All endpoints verified on the sandbox except SMS (no test number). Write limits: 30/min per user; sends 10/min per user, ~200/day per sub-account.
 
 ## Environment
 

@@ -24,9 +24,13 @@ export const APP_ORIGINS: (string | RegExp)[] = [
 export const HL_API_BASE = "https://services.leadconnectorhq.com";
 export const HL_SCOPES = [
   "contacts.readonly",
+  "contacts.write",
   "conversations.readonly",
+  "conversations.write",
   "conversations/message.readonly",
+  "conversations/message.write",
   "calendars.readonly",
   "calendars/events.readonly",
+  "calendars/events.write",
   "locations.readonly",
 ].join(" ");

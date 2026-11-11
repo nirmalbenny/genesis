@@ -35,8 +35,8 @@ test("the proxy only allows its GET allowlist", async () => {
     assert.equal(r.status, 403, path);
     assert.equal(r.body.error?.code, "path_not_allowed", path);
   }
-  const post = await call({ uid: "", email: "", token }, "POST", "hlProxy/contacts/", {});
-  assert.equal(post.status, 405);
+  const del = await call({ uid: "", email: "", token }, "DELETE", "hlProxy/contacts/abc123");
+  assert.equal(del.status, 405, "deletes are never allowed");
 });
 
 test("a preview token stops working once its app is deleted", async () => {
@@ -78,3 +78,65 @@ test("the proxy limits each user to bursts of 40 requests", async () => {
   assert.equal(limited.body.error?.code, "rate_limited");
   assert.ok(Number(limited.headers.get("retry-after")) >= 1);
 });
+
+// ---- Writes ----
+
+const write = (token: string, method: string, path: string, body: unknown) =>
+  call({ uid: "", email: "", token }, method, `hlProxy${path}`, body);
+
+test("the listed writes pass every check (and stop at the connection check, so HighLevel is never called)", async () => {
+  const { token } = await previewSetup();
+  for (const [method, path, body] of [
+    ["POST", "/contacts/", { firstName: "Ada", email: "ada@example.com" }],
+    ["PUT", "/contacts/c1", { firstName: "Ada" }],
+    ["POST", "/contacts/c1/tags", { tags: ["vip"] }],
+    ["POST", "/contacts/c1/notes", { body: "Called back" }],
+    ["POST", "/calendars/events/appointments", { calendarId: "cal1", contactId: "c1", startTime: "2026-12-01T10:00:00Z" }],
+    ["PUT", "/calendars/events/appointments/ev1", { appointmentStatus: "cancelled" }],
+    ["PUT", "/conversations/conv1", { unreadCount: 0 }],
+  ] as const) {
+    const r = await write(token, method, path, body);
+    assert.equal(r.body.error?.code, "connection_changed", `${method} ${path}`);
+  }
+});
+
+test("unlisted writes, bad bodies and other message types are refused before anything else", async () => {
+  const { token } = await previewSetup();
+  assert.equal((await write(token, "POST", "/contacts/c1", {})).body.error?.code, "path_not_allowed");
+  assert.equal((await write(token, "PUT", "/contacts/c1/notes/n1", {})).body.error?.code, "path_not_allowed");
+  assert.equal((await write(token, "POST", "/contacts/", { note: "x".repeat(50_001) })).status, 413);
+  const comment = await write(token, "POST", "/conversations/messages", { type: "InternalComment", contactId: "c1" });
+  assert.equal(comment.status, 400);
+  assert.equal(comment.body.error?.code, "invalid_message_type");
+});
+
+test("a connection made without write permission is told to reconnect, and HighLevel isn't called", async () => {
+  const u = await newUser();
+  await connectHl(u, "loc-e2e", "loc-e2e", "contacts.readonly calendars.readonly");
+  const app = await createApp(u);
+  const token = (await call(u, "POST", `api/projects/${app}/preview-token`)).body.token as string;
+  const r = await write(token, "POST", "/contacts/", { firstName: "Ada" });
+  assert.equal(r.status, 403);
+  assert.equal(r.body.error?.code, "hl_scope_missing");
+});
+
+test("writes are limited to bursts of 10, and message sends to bursts of 5", async () => {
+  const { token } = await previewSetup();
+  let writes = 0;
+  for (let i = 0; i < 30; i++) {
+    const r = await write(token, "PUT", "/contacts/c1", { firstName: `Ada ${i}` });
+    if (r.status === 429) { assert.equal(r.body.error?.code, "rate_limited"); break; }
+    writes++;
+  }
+  assert.ok(writes >= 10 && writes <= 14, `${writes} writes before the limit`);
+
+  const other = await previewSetup();
+  let sends = 0;
+  for (let i = 0; i < 20; i++) {
+    const r = await write(other.token, "POST", "/conversations/messages", { type: "Email", contactId: "c1", subject: "Hi", html: "Hi" });
+    if (r.status === 429) { assert.match(r.body.error!.message, /messages/); break; }
+    sends++;
+  }
+  assert.ok(sends >= 5 && sends <= 8, `${sends} sends before the limit`);
+});
+

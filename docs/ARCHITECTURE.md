@@ -28,12 +28,12 @@ This document covers the product goals, the system design, the data model, and e
 |---|---|
 | Apps built on **real HighLevel data** | Generated apps call the Contacts, Conversations and Calendars APIs through a proxy and show live records. They never use sample data. |
 | **Streaming** generation | Claude's output streams token by token over SSE into a read-only Monaco editor. The preview shows a "Building your app" overlay meanwhile. |
-| **Safe by default** | Read-only HighLevel scopes. The generated app never sees the HighLevel token. Every Firestore write goes through Cloud Functions. |
+| **Safe by default** | Generated apps never see the HighLevel token, and reach HighLevel only through an allowlist of reads and writes with no deletes. Every Firestore write goes through Cloud Functions. |
 | **Nothing is lost** | Every generation creates a restorable snapshot. Interrupted or partly invalid output keeps every file that completed. |
 | **Useful on day one** | Every user gets six locked, ready-made apps. Users can launch them, copy them and pin them to the sidebar. |
 | **Graceful failure** | Malformed model output, interrupted streams, failed HighLevel calls, declined requests and a missing connection each produce a clear message. |
 
-Non-goals: writing to HighLevel, multiple connected sub-accounts per user (the assignment requires one), and deployment pipelines for generated apps.
+Non-goals: deleting HighLevel data, multiple connected sub-accounts per user (the assignment requires one), and deployment pipelines for generated apps.
 
 ## 2. System overview
 
@@ -55,7 +55,7 @@ flowchart TB
     CALLBACK["<b>hlAuthCallback</b><br/>code → sealed tokens"]
     API["<b>api</b><br/>projects · files · snapshots<br/>bootstrap · cancel · preview token"]
     GENERATE["<b>generate</b><br/>SSE build pipeline"]
-    PROXY["<b>hlProxy</b><br/>GET allowlist · forced location<br/>10 s cache · 429 back-off"]
+    PROXY["<b>hlProxy</b><br/>read/write allowlist, no deletes<br/>forced location · cache · 429 back-off"]
   end
 
   subgraph MODULES["Shared modules used by the functions"]
@@ -97,7 +97,7 @@ flowchart TB
   CALLBACK <-- "② code + state ⇄ tokens" --> HIGHLEVEL
   SPA -. "② redirect: pick a sub-account" .-> HIGHLEVEL
   GENERATE -- "③ stream" --> CLAUDE
-  PROXY -- "④ GET with the real token" --> HIGHLEVEL
+  PROXY -- "④ reads and writes with the real token" --> HIGHLEVEL
 ```
 
 | Flow | What happens | Details |
@@ -452,6 +452,8 @@ Limits are set by what abuse would cost. **Builds** spend real money on Claude, 
 | `hlProxy` | Requests from generated apps | 20/s, bursts of 40 | user | Token bucket (memory) | Allowed |
 | `hlProxy` | Repeated reads | Served from cache for 10 s | sub-account + URL | Response cache (memory) | Cache skipped |
 | `hlProxy` | Calls after HighLevel returns 429 | None until its `Retry-After` passes (default 10 s) | sub-account | Pause (memory) | — |
+| `hlProxy` | Writes (POST, PUT) | 30/min, bursts of 10 | user | Token bucket (memory) | Allowed |
+| `hlProxy` | Message sends | 10/min, bursts of 5 · about 200/day, bursts of 50 | user · sub-account | Token buckets (memory) | Allowed |
 | `api`, `hlAuthStart` | Changes (POST, PUT, PATCH, DELETE) | 60/min, bursts of 20 | user | Token bucket (memory) | Allowed |
 | `api` | Reads (GET) | 300/min, bursts of 60 | user | Token bucket (memory) | Allowed |
 
@@ -565,14 +567,19 @@ sequenceDiagram
   P->>SB: files + injected src/hl.config.js (HL_PROXY, PREVIEW_TOKEN, LOCATION_ID) + fixed package.json
   SB->>PX: GET /contacts/?… (Bearer preview token)
   PX->>PX: verify token, allowlist path, check project, force locationId
-  PX->>HL: GET with the real access token (refreshed if needed)
+  PX->>HL: request with the real access token (refreshed if needed)
   HL-->>SB: JSON (errors mapped to {error:{code,message}})
 ```
 
-- **Proxy allowlist** (GET only):
-  - `/contacts/`, `/contacts/{id}` and `/contacts/{id}/appointments`
-  - `/conversations/search`, `/conversations/{id}` and `/conversations/{id}/messages`
-  - `/calendars/`, `/calendars/events` and `/calendars/{id}/free-slots` (open booking slots)
+- **Proxy allowlist,** by method and path; anything else is refused, and `DELETE` is refused everywhere (`405`):
+
+  | Area | Reads (GET) | Writes (verified on the sandbox) | Scope for writes |
+  |---|---|---|---|
+  | Contacts | `/contacts/`, `/contacts/{id}`, `/contacts/{id}/appointments` | `POST /contacts/` · `PUT /contacts/{id}` · `POST /contacts/{id}/tags` · `POST /contacts/{id}/notes` | `contacts.write` |
+  | Conversations | `/conversations/search`, `/conversations/{id}`, `/conversations/{id}/messages` | `PUT /conversations/{id}` (read/unread, starred) · `POST /conversations/messages` (SMS or email only) | `conversations.write` · `conversations/message.write` |
+  | Calendars | `/calendars/`, `/calendars/events`, `/calendars/{id}/free-slots` | `POST /calendars/events/appointments` · `PUT /calendars/events/appointments/{id}` (reschedule, cancel) | `calendars/events.write` |
+
+- **Writes:** JSON bodies up to 50 KB. Where HighLevel takes the location in the body (creating contacts and appointments, updating conversations) the proxy forces the connected one. A connection whose granted scopes lack the write's scope gets `403 hl_scope_missing` ("Reconnect HighLevel"), without calling HighLevel. Every write is logged (user, sub-account, method, path, status; never the body). A successful write clears the sub-account's cached reads. Write and send limits are in §8.
 - **Project check:** the token works only while its `projectId` exists, isn't deleted and belongs to the token's user. Otherwise the proxy returns `403 project_not_allowed`. Successful checks are cached for 60 seconds per server instance, so a deleted app's previews stop working within a minute.
 - **API version header:** calendar requests use `Version: 2021-04-15`, and everything else uses `2021-07-28`.
 - **Token refresh:**
@@ -596,7 +603,7 @@ sequenceDiagram
 ## 11. Security model
 
 - **Secrets:** the Anthropic API key, the HighLevel client ID and secret, and the preview-token signing secret are Firebase secrets (`defineSecret`). They live in `.secret.local` for the emulator and in Secret Manager in production, and are never in source.
-- **Least privilege:** the HighLevel scopes are read-only, and the proxy only allows the GET paths above.
+- **Least privilege:** Genesis requests only the scopes its allowlist needs (§10), the proxy allows only the listed reads and writes, and nothing can be deleted. The Marketplace app should enable only those scopes, because HighLevel's consent screen lists every scope enabled on the app.
 - **No token exposure:** HighLevel tokens never leave Cloud Functions. Generated apps hold only a short-lived preview token tied to one user, project and location.
 - **Tokens encrypted at rest:** see §11.1.
 - **Server-side writes only:** Firestore security rules reject every client write.
@@ -674,7 +681,8 @@ Everything below is in the repo and runs in CI on every push and pull request.
   - **Accounts:** unverified accounts are refused everywhere; bad tokens get 401; bootstrap seeds six locked apps and grants the credits exactly once, even with two parallel calls.
   - **Projects:** create, read, rename, save and read a file, invalid paths, soft delete; another user gets 404 on every route; copying creates a snapshot and restoring it is non-destructive.
   - **Limits:** a second build on the same app, a third concurrent build and the 11th start in 10 minutes are refused with the right `Retry-After`, with nothing held or recorded; locked apps and missing connections are refused first; cancel semantics; the per-user write limit, while reads still pass.
-  - **Proxy:** missing and forged preview tokens, the GET allowlist, tokens for deleted or other users' apps, a changed connection, and the per-user burst limit.
+  - **Proxy:** missing and forged preview tokens, the read allowlist, tokens for deleted or other users' apps, a changed connection, and the per-user burst limit.
+  - **Proxy writes:** every listed write passes the checks; deletes, unlisted writes, oversized bodies and other message types are refused; a connection without write scopes is told to reconnect; write and send limits apply.
   - **Token encryption:** stored records contain no plain-text token and still work; legacy plain-text records are sealed on first use; a corrupted record, or one moved to another user, fails closed with `503 hl_tokens_unavailable`.
   - **Security rules** (`rules.e2e.ts`): as signed-in users through the Firestore emulator, each user reads only their own user document, ledger and apps; nobody reads `hlTokens` or `oauthStates`; unfiltered app listings are refused; every client write (including topping up credits) is denied.
 - **Frontend unit tests** (`cd frontend && npm test`, Vitest): the SSE reader (any chunking, heartbeats, CRLF, malformed events) and `useGeneration` (tokens into files, credits, refusals before streaming, declined requests, broken streams, Stop).

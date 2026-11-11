@@ -12,6 +12,9 @@
 export const LIMITS = {
   build: { maxPerProject: 1, maxPerUser: 2, startsPerWindow: 10, windowMs: 10 * 60_000 },
   proxyPerUser: { perSecond: 20, burst: 40 },
+  proxyWritesPerUser: { perSecond: 0.5, burst: 10 }, // 30/min: creates and updates in HighLevel
+  proxySendsPerUser: { perSecond: 1 / 6, burst: 5 }, // 10/min: messages reach real people and can cost money
+  proxySendsPerLocation: { perSecond: 200 / 86_400, burst: 50 }, // about 200 a day per sub-account
   apiWrites: { perSecond: 1, burst: 20 }, // 60/min
   apiReads: { perSecond: 5, burst: 60 }, // 300/min
 } as const;

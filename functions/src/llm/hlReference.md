@@ -1,6 +1,6 @@
-# HighLevel API reference (read-only, via proxy)
+# HighLevel API reference (via proxy)
 
-Base: `HL_PROXY` from `./hl.config.js`. Every request is a GET with header `Authorization: Bearer ${PREVIEW_TOKEN}`.
+Base: `HL_PROXY` from `./hl.config.js`. Every request sends header `Authorization: Bearer ${PREVIEW_TOKEN}`. Reads are GET; writes are POST/PUT with a JSON body (see Writes). DELETE is never available.
 `locationId` is added automatically by the proxy, but pass `locationId=${LOCATION_ID}` anyway where listed.
 Responses are JSON. On failure the proxy returns `{ "error": { "code", "message" } }` with a non-2xx status — always show that message in the UI.
 Rate limits: a 429 (`rate_limited` or `hl_rate_limited`) carries `error.retryAfter` (seconds). The fetch helper waits that long and retries the request ONCE, then shows the message. Never retry in a loop, and never fire requests on a timer faster than every 30 s.
@@ -38,9 +38,26 @@ Rate limits: a 429 (`rate_limited` or `hl_rate_limited`) carries `error.retryAft
     inactive calendar returns 400 "Calendar is inactive". A calendar with no availability configured returns no date keys:
     show "No open slots in this period" rather than an error. Not paginated.
 
+## Writes (verified; POST/PUT with `Content-Type: application/json`)
+The proxy adds the location to the body where HighLevel needs it. After a successful write, re-fetch what it changed (the proxy clears its cache).
+- `POST /contacts/` `{ firstName, lastName, email, phone, tags?, source? }` → 201 `{ contact: { id, firstName, lastName, email, tags, … } }`
+    If the location enforces unique email/phone, a duplicate → 400: show the message.
+- `PUT /contacts/{contactId}` with only the fields to change → `{ succeeded, contact }`. Sending `tags` here REPLACES all tags; to add tags use:
+- `POST /contacts/{contactId}/tags` `{ tags: ["vip"] }` → 201 `{ tags (all tags now), tagsAdded }` — adds, never removes.
+- `POST /contacts/{contactId}/notes` `{ body }` → 201 `{ note: { id, body, dateAdded } }`
+- `POST /calendars/events/appointments` `{ calendarId, contactId, startTime, title?, toNotify? }` → 201 `{ id, appointmentStatus, … }`
+    `startTime` must be a slot returned by free-slots for an ACTIVE calendar (send it exactly as returned, with its offset).
+- `PUT /calendars/events/appointments/{eventId}` `{ startTime }` reschedules, `{ appointmentStatus: "cancelled" }` cancels → 200.
+    The response may omit `startTime`: re-fetch (`GET /contacts/{contactId}/appointments`) to show the new time.
+- `PUT /conversations/{conversationId}` `{ unreadCount: 0 }` marks read, `{ starred: true|false }` stars → `{ success, conversation }`
+- `POST /conversations/messages` → 201 `{ conversationId, messageId, msg }`
+    Email: `{ type: "Email", contactId, subject, html }` (goes to the contact's email). SMS: `{ type: "SMS", contactId, message }`.
+    Only `Email` and `SMS` are allowed. This reaches a real person.
+Write errors: 403 `hl_scope_missing` → show the message (the user must reconnect HighLevel). Writes and sends have tighter rate limits; on 429 apply the retry rule above.
+
 ## Pagination (verified behaviour — follow exactly)
 Each list endpoint returns one page. Page with these cursors; never guess offsets or page numbers.
-`hlGet(path, params)` below stands for the app's own small fetch helper (adds the Authorization header, builds the query string, throws the proxy's error.message).
+`hlGet(path, params)` below stands for the app's own small fetch helper (adds the Authorization header, builds the query string, throws the proxy's error.message). Writes use a sibling helper, e.g. `hlSend(method, path, body)`.
 
 Contacts — cursor from `meta`:
 ```js

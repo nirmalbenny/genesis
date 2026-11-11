@@ -10,7 +10,7 @@ Firebase Cloud Functions (2nd gen, **Node 24**, TypeScript). See the [root READM
 | `hlAuthCallback` | public (verified `state`) | Exchanges the code, stores tokens, redirects to the app |
 | `api` | Firebase ID token | Projects, files, snapshots, ready-made apps, pinning, preview tokens, disconnect |
 | `generate` | Firebase ID token | Streams Claude over SSE and saves validated files + a snapshot |
-| `hlProxy` | preview token | Forwards allowlisted read-only GET calls to HighLevel with the real token |
+| `hlProxy` | preview token | Forwards allowlisted reads and writes (no deletes) to HighLevel with the real token |
 
 ## Scripts
 
@@ -29,7 +29,7 @@ src/
   index.ts            exports the five functions
   api.ts              REST router (projects, files, snapshots, bootstrap, pin, cancel, preview token, disconnect)
   generate.ts         SSE generation pipeline (credit hold, build limits, Stop)
-  hlProxy.ts          HighLevel proxy (GET allowlist, project check, rate limits, cache, forced location)
+  hlProxy.ts          HighLevel proxy (read/write allowlist, project and scope checks, rate limits, cache, forced location)
   hl/oauth.ts         OAuth start + callback      hl/token.ts   token refresh (single-flight, rotation-safe)
   hl/tokenVault.ts    HighLevel tokens encrypted at rest (Cloud KMS envelope encryption, decryption cache)
   llm/                prompt.ts · hlReference.md (API + pagination reference given to the model)
