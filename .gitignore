@@ -30,5 +30,3 @@ Thumbs.db
 .idea/
 .claude/settings.local.json
 
-# Local agent instructions (kept on this machine only)
-CLAUDE.md
