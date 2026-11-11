@@ -576,7 +576,7 @@ sequenceDiagram
   | Area | Reads (GET) | Writes (verified on the sandbox) | Scope for writes |
   |---|---|---|---|
   | Contacts | `/contacts/`, `/contacts/{id}`, `/contacts/{id}/appointments` | `POST /contacts/` · `PUT /contacts/{id}` · `POST /contacts/{id}/tags` · `POST /contacts/{id}/notes` | `contacts.write` |
-  | Conversations | `/conversations/search`, `/conversations/{id}`, `/conversations/{id}/messages` | `PUT /conversations/{id}` (read/unread, starred) · `POST /conversations/messages` (SMS or email only) | `conversations.write` · `conversations/message.write` |
+  | Conversations | `/conversations/search`, `/conversations/{id}`, `/conversations/{id}/messages` | `PUT /conversations/{id}` (read/unread, starred) · `POST /conversations/messages` (email verified; SMS allowed but not yet verified, no test number) | `conversations.write` · `conversations/message.write` |
   | Calendars | `/calendars/`, `/calendars/events`, `/calendars/{id}/free-slots` | `POST /calendars/events/appointments` · `PUT /calendars/events/appointments/{id}` (reschedule, cancel) | `calendars/events.write` |
 
 - **Writes:** JSON bodies up to 50 KB. Where HighLevel takes the location in the body (creating contacts and appointments, updating conversations) the proxy forces the connected one. A connection whose granted scopes lack the write's scope gets `403 hl_scope_missing` ("Reconnect HighLevel"), without calling HighLevel. Every write is logged (user, sub-account, method, path, status; never the body). A successful write clears the sub-account's cached reads. Write and send limits are in §8.

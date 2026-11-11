@@ -51,7 +51,7 @@ The proxy adds the location to the body where HighLevel needs it. After a succes
     The response may omit `startTime`: re-fetch (`GET /contacts/{contactId}/appointments`) to show the new time.
 - `PUT /conversations/{conversationId}` `{ unreadCount: 0 }` marks read, `{ starred: true|false }` stars → `{ success, conversation }`
 - `POST /conversations/messages` → 201 `{ conversationId, messageId, msg }`
-    Email: `{ type: "Email", contactId, subject, html }` (goes to the contact's email). SMS: `{ type: "SMS", contactId, message }`.
+    Email: `{ type: "Email", contactId, subject, html }` (goes to the contact's email; verified). SMS: `{ type: "SMS", contactId, message }` (per HighLevel's docs; not yet verified on the sandbox, so show the returned error clearly if it fails).
     Only `Email` and `SMS` are allowed. This reaches a real person.
 Write errors: 403 `hl_scope_missing` → show the message (the user must reconnect HighLevel). Writes and sends have tighter rate limits; on 429 apply the retry rule above.
 
