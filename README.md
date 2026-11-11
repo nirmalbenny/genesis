@@ -15,7 +15,7 @@ Describe an app in plain English. Genesis streams the code from Claude into a li
 
 ## Contents
 
-[Features](#features) · [How it works](#how-it-works) · [Live URLs](#live-urls) · [Tech stack](#tech-stack) · [Repository layout](#repository-layout) · [Local setup](#local-setup-firebase-emulators) · [Configuration](#configuration-reference) · [Scripts & tests](#scripts--tests) · [HighLevel setup](#highlevel-setup) · [Architecture decisions](#architecture-decisions) · [Security at a glance](#security-at-a-glance) · [Rate limits](#rate-limits) · [What I would improve](#what-i-would-improve) · [Deployment notes](#deployment-notes) · [Troubleshooting](#troubleshooting) · [License](#license)
+[Features](#features) · [How it works](#how-it-works) · [Live URLs](#live-urls) · [Tech stack](#tech-stack) · [Repository layout](#repository-layout) · [Local setup](#local-setup-firebase-emulators) · [Configuration](#configuration-reference) · [Scripts & tests](#scripts--tests) · [HighLevel setup](#highlevel-setup) · [Architecture decisions](#architecture-decisions) · [AI at a glance](#ai-at-a-glance) · [Security at a glance](#security-at-a-glance) · [Rate limits](#rate-limits) · [What I would improve](#what-i-would-improve) · [Deployment notes](#deployment-notes) · [Troubleshooting](#troubleshooting) · [License](#license)
 
 ## Features
 
@@ -194,6 +194,21 @@ Secrets go in `functions/.secret.local` for the emulator and in **Secret Manager
 8. **The model's context is bounded, and the API reference is hand-written.** Files within a character budget, the last 6 messages, and a compact reference whose endpoints, pagination and free-slot rules were verified against a live sandbox. The prompt makes **pagination** mandatory and forbids hard-coding a location ID.
 9. **Ready-made apps are content-hashed templates seeded on first visit.** Seeding is safe to repeat, the apps are locked on the server and edited through copies, and template changes upgrade users' locked copies automatically.
 10. **Off-topic or harmful prompts are declined, and never stored.** They're detected through a `<refuse>` reply or the API's refusal stop reason, so a declined prompt can't influence later prompts.
+
+## AI at a glance
+
+| Area | How Genesis uses Claude |
+|---|---|
+| Models | **Claude Sonnet 5.5** writes the apps; **Claude Haiku 5.5** writes the one-line summary of each snapshot. Both are set in config (`ANTHROPIC_MODEL`, `ANTHROPIC_SUMMARY_MODEL`); users never pick a model. |
+| Streaming | Every build streams (`messages.stream`). Tokens reach the editor over SSE as they're generated, with a 15-second heartbeat. **Stop** or Esc ends the stream at once. |
+| Context | Bounded on purpose: the system prompt, a hand-written HighLevel API reference verified against a live sandbox, the connected location, the app's files (up to 60,000 characters) and the last 6 chat messages. Prompts are capped at 4,000 characters and output at 16,000 tokens. |
+| Output | A strict `<plan>` / `<file>` / `<delete>` / `<refuse>` format, parsed incrementally so files appear live. Every file is validated before it's saved (paths, extensions, size, protected files); valid files are kept even when others are rejected. |
+| Grounding | The prompt makes pagination mandatory, forbids hard-coded location IDs and sample data, and tells generated apps to call HighLevel only through the proxy, so previews show **real data**. |
+| Safety | Off-topic, harmful or rule-breaking prompts get a `<refuse>` reply (or the API's refusal) and are **never stored**, so they can't steer later prompts. User text is treated as a request to evaluate, never as instructions. |
+| Cost control | **AI credits** (1 credit = $0.001 of Claude list price): each build reserves its worst case using an exact token count, then pays for what it used. Exact **build limits** stop runaway spending before Claude is called. |
+| Resilience | Interrupted or truncated streams keep every finished file, and each build ends in a snapshot that can be restored. |
+
+Details: the [generation pipeline](docs/ARCHITECTURE.md#6-generation-pipeline), [AI credits](docs/ARCHITECTURE.md#7-ai-credits), [rate limiting](docs/ARCHITECTURE.md#8-rate-limiting) and [declined requests](docs/ARCHITECTURE.md#55-declined-requests) in ARCHITECTURE.
 
 ## Security at a glance
 
