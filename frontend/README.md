@@ -3,6 +3,7 @@
 Vue 3 + TypeScript + Vite single-page app. UI is built with **shadcn-vue** (Tailwind v4) and `@lucide/vue` icons; Monaco for the editor and Sandpack for the live preview. See the [root README](../README.md) for setup and [docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md) for how it fits together.
 
 ## Scripts
+
 | Command | What it does |
 |---|---|
 | `npm run dev` | Opens a Cloudflare tunnel to the functions emulator, then starts Vite on `http://localhost:5173` pointed at it ([`scripts/dev.mjs`](scripts/dev.mjs)). Needs `cloudflared`. |
@@ -13,18 +14,24 @@ Vue 3 + TypeScript + Vite single-page app. UI is built with **shadcn-vue** (Tail
 | `npm run lint` | ESLint (Vue + TypeScript). |
 
 ## Layout
-```
+
+```text
 src/
   main.ts · router.ts · firebase.ts (emulators when VITE_USE_EMULATORS=true) · style.css (design tokens)
   lib/          api.ts (authed fetch) · sse.ts (SSE reader) · catalog.ts (categories, icons, suggestions)
-  composables/  useAuth · useHl (connection) · useApps (live app list) · useCreateApp · useProject
-                useGeneration (SSE client) · useLaunchApp · useConnectPrompt
-  views/        Dashboard (/) · AppsView (/apps) · Workspace (/p/:id) · RunView (/run/:id) · SignIn/SignUp/AuthForm
+  composables/  useAuth (session + email verification) · useCredits · useHl (connection) · useApps (live app list)
+                useCreateApp · useProject · useGeneration (SSE client + Stop) · useLaunchApp · useConnectPrompt
+  views/        Dashboard (/) · AppsView (/apps) · Workspace (/p/:id) · RunView (/run/:id)
+                SignIn/SignUp/AuthForm · VerifyEmail (/verify)
   components/   TopBar · SideNav · AppCard · ChatPanel · EditorPanel · FileTree · PreviewPanel · BuildingOverlay
                 SnapshotSheet · dialogs (AppDetails, CopyApp, ConnectRequired) · ui/ (generated shadcn-vue)
 ```
 
+Unit tests sit next to the code they test (`*.test.ts`).
+
 ## Conventions
+
 - All UI primitives come from `src/components/ui` (shadcn-vue). Add new ones with `npx shadcn-vue@latest add <name>`.
 - State lives in composables (`ref`/`reactive`); no Pinia.
 - The browser reads Firestore directly (owner-only rules) and writes only through the `api` / `generate` functions.
+- Signed-in users with an unverified email can only open `/verify`; the router and the server enforce the same rule.

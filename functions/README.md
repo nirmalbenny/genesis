@@ -3,6 +3,7 @@
 Firebase Cloud Functions (2nd gen, **Node 24**, TypeScript). See the [root README](../README.md) for setup and [docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md) for the full design.
 
 ## Functions
+
 | Function | Auth | Purpose |
 |---|---|---|
 | `hlAuthStart` | Firebase ID token | Creates an OAuth `state`, returns the HighLevel authorize URL |
@@ -12,29 +13,35 @@ Firebase Cloud Functions (2nd gen, **Node 24**, TypeScript). See the [root READM
 | `hlProxy` | preview token | Forwards allowlisted read-only GET calls to HighLevel with the real token |
 
 ## Scripts
+
 | Command | What it does |
 |---|---|
 | `npm run build` | Compiles to `lib/` (also copies the HighLevel API reference). Runs automatically before deploy. |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm test` | Builds, then runs the unit tests (stream parser, output validator, credits, rate limits, ready-made templates) |
 | `npm run test:e2e` | Integration tests against the running emulators (API, limits, proxy, security rules); never calls Claude or HighLevel |
-| `npm run lint` | ESLint |
+| `npm run lint` | ESLint (TypeScript recommended rules) |
 
 ## Layout
-```
+
+```text
 src/
   index.ts            exports the five functions
-  api.ts              REST router (projects, files, snapshots, bootstrap, pin, preview token, disconnect)
-  generate.ts         SSE generation pipeline
-  hlProxy.ts          HighLevel proxy (GET allowlist, project check, forced location, error mapping)
+  api.ts              REST router (projects, files, snapshots, bootstrap, pin, cancel, preview token, disconnect)
+  generate.ts         SSE generation pipeline (credit hold, build limits, Stop)
+  hlProxy.ts          HighLevel proxy (GET allowlist, project check, rate limits, cache, forced location)
   hl/oauth.ts         OAuth start + callback      hl/token.ts   token refresh (single-flight, rotation-safe)
   llm/                prompt.ts · hlReference.md (API + pagination reference given to the model)
                       parser.ts (incremental output parser) · validate.ts · summary.ts (Haiku summaries)
+  credits.ts          rate card, hold and settle, ledger, build slots
+  rateLimits.ts       every limit (LIMITS), token bucket, build-start rules
   files.ts            file docs, snapshots, restore          projects.ts   ownership, lock, location
   templates.ts        ready-made app seeding                 previewToken.ts · config.ts · http.ts
+  *.test.ts           unit tests (npm test)
+  e2e/                integration tests against the emulators, including the security rules (npm run test:e2e)
 templates/            six ready-made apps (templates.json + <slug>/src/**)
 ```
 
 ## Config
-Non-secret params in `.env` (shared), `.env.local` (emulator only) and `.env.<project-id>` (production);
-secrets in `.secret.local` (emulator) or Secret Manager (production). Every variable is listed in [`.env.example`](.env.example).
+
+Non-secret params live in `.env` (shared), `.env.local` (emulator only) and `.env.<project-id>` (production). Secrets live in `.secret.local` (emulator) or Secret Manager (production). Every variable is listed in [`.env.example`](.env.example).

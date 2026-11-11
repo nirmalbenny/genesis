@@ -5,17 +5,20 @@ Genesis is an AI app builder for HighLevel. A user connects a HighLevel sub-acco
 This document covers the product goals, the system design, the data model, and each main flow. The [README](../README.md) covers setup and deployment.
 
 ## Contents
+
 1. [Goals](#1-goals)
 2. [System overview](#2-system-overview)
 3. [Data model](#3-data-model)
 4. [Backend API](#4-backend-api)
 5. [Flows](#5-flows)
-6. [Generation pipeline](#6-generation-pipeline) · [6a. AI credits](#6a-ai-credits) · [6b. Rate limiting](#6b-rate-limiting)
-7. [Ready-made apps](#7-ready-made-apps)
-8. [Live data, preview and pagination](#8-live-data-preview-and-pagination)
-9. [Security model](#9-security-model)
-10. [Frontend structure](#10-frontend-structure)
-11. [Testing](#11-testing)
+6. [Generation pipeline](#6-generation-pipeline)
+7. [AI credits](#7-ai-credits)
+8. [Rate limiting](#8-rate-limiting)
+9. [Ready-made apps](#9-ready-made-apps)
+10. [Live data, preview and pagination](#10-live-data-preview-and-pagination)
+11. [Security model](#11-security-model)
+12. [Frontend structure](#12-frontend-structure)
+13. [Testing](#13-testing)
 
 ---
 
@@ -47,8 +50,8 @@ flowchart LR
       START[hlAuthStart]
       CB[hlAuthCallback]
       API[api]
-      GEN[generate · SSE]
-      PROXY[hlProxy]
+      GEN["generate · SSE<br/>credits · build limits"]
+      PROXY["hlProxy<br/>cache · rate limits"]
     end
   end
   HL[(HighLevel API)]
@@ -73,19 +76,19 @@ flowchart LR
 | `hlAuthStart` | Firebase ID token | Creates a one-time OAuth `state` and returns the HighLevel authorize URL. |
 | `hlAuthCallback` | Public (verified by `state`) | Exchanges the code, stores tokens, fetches the location name, then redirects back to the app. |
 | `api` | Firebase ID token | A small router for projects, files, snapshots, ready-made apps, pinning, preview tokens and disconnect (see §4). |
-| `generate` | Firebase ID token | Streaming generation over SSE (see §6). |
-| `hlProxy` | Preview token | Forwards allowlisted GET requests to HighLevel using the user's real token (see §8). |
+| `generate` | Firebase ID token | Streaming generation over SSE (see §6), with the credit hold (§7) and build limits (§8). |
+| `hlProxy` | Preview token | Forwards allowlisted GET requests to HighLevel using the user's real token (see §10). |
 
 ## 3. Data model
 
-```
+```text
 users/{uid}
   email               (recorded when HighLevel is connected)
   hl: { locationId, locationName, companyId, location{email,phone,timezone}, connectedAt } | null   ← the active connection
   templatesVersion                                                  ← content hash of the ready-made app set the user has
   credits: { balance, reserved, granted, used }                     ← AI credits (1 credit = $0.001 of Claude list price)
-  activeBuilds: { [generationId]: { projectId, startedAt } }        ← running builds (rate limit, §6b)
-  buildStarts: [ms timestamps]                                      ← build starts in the last 10 minutes (§6b)
+  activeBuilds: { [generationId]: { projectId, startedAt } }        ← running builds (rate limit, §8)
+  buildStarts: [ms timestamps]                                      ← build starts in the last 10 minutes (§8)
   creditLedger/{entryId}  type: grant|hold|charge, credits, generationId?, model?, usage?, rateCardVersion   (append-only)
 
 hlTokens/{uid}        accessToken, refreshToken, expiresAt, locationId, scope        (no client access)
@@ -114,7 +117,7 @@ projects/{pid}
 
 ## 4. Backend API
 
-All routes are on the `api` function and need `Authorization: Bearer <Firebase ID token>` for an account whose email is verified (otherwise `403 email_not_verified`; the same applies to `generate` and `hlAuthStart`). Errors are returned as `{ error: { code, message } }`. Every route is rate limited per user and can return `429 rate_limited` with `retryAfter` (§6b).
+All routes are on the `api` function and need `Authorization: Bearer <Firebase ID token>` for an account whose email is verified (otherwise `403 email_not_verified`; the same applies to `generate` and `hlAuthStart`). Errors are returned as `{ error: { code, message } }`. Every route is rate limited per user and can return `429 rate_limited` with `retryAfter` (§8).
 
 | Method & path | Purpose |
 |---|---|
@@ -134,9 +137,9 @@ All routes are on the `api` function and need `Authorization: Bearer <Firebase I
 | `POST /projects/:id/snapshots/:sid/restore` | Restores a snapshot, which itself records a new `restore` snapshot. Not allowed on ready-made apps. |
 | `POST /projects/:id/preview-token` | Issues a 15-minute preview token for the connected location. |
 
-The **`generate`** function takes `POST { projectId, prompt }` (prompt ≤ 4,000 characters). Before streaming, it can refuse with JSON, for example `429 rate_limited` (builds running at once or started recently, §6b) or `402 insufficient_credits` when the available balance can't cover the build's worst case. Otherwise it replies with `text/event-stream`, and `done`, `cancelled` and `error` carry `credits: { charged, balance }`:
+The **`generate`** function takes `POST { projectId, prompt }` (prompt ≤ 4,000 characters). Before streaming, it can refuse with JSON, for example `429 rate_limited` (builds running at once or started recently, §8) or `402 insufficient_credits` when the available balance can't cover the build's worst case. Otherwise it replies with `text/event-stream`, and `done`, `cancelled` and `error` carry `credits: { charged, balance }`:
 
-```
+```text
 event: start      data: {generationId}
 event: token      data: {text, path|null}          path null = plan text outside any file
 event: file_start data: {path}
@@ -150,6 +153,7 @@ event: error      data: {code, message, partial}   e.g. declined, truncated, llm
 ## 5. Flows
 
 ### 5.1 Sign up and first visit
+
 ```mermaid
 sequenceDiagram
   participant U as User
@@ -166,9 +170,11 @@ sequenceDiagram
   SPA->>SPA: live Firestore listener on the user's projects
   Note over SPA: Not connected: "Make your HighLevel data work harder" + Connect HighLevel
 ```
+
 Firebase's built-in persistence keeps the session across page reloads. The router sends signed-out users to `/signin`, signed-in users with an unverified email to `/verify` (the only page they can open), and everyone else away from the auth pages. The server enforces the same rule, so skipping the page doesn't help. On load and whenever the tab regains focus, the app re-checks verification and refreshes the ID token if its `email_verified` claim is stale.
 
 ### 5.2 Connect, reconnect and disconnect HighLevel
+
 ```mermaid
 sequenceDiagram
   participant SPA
@@ -179,7 +185,7 @@ sequenceDiagram
   SPA->>S: (ID token)
   S->>FS: oauthStates/{state} = {uid}
   S-->>SPA: authorize URL (chooselocation, scopes, version_id, state)
-  SPA->>HL: redirect; user picks a sub-account
+  SPA->>HL: redirect, user picks a sub-account
   HL->>C: ?code&state
   C->>FS: verify + delete state
   C->>HL: POST /oauth/token (user_type=Location)
@@ -187,11 +193,13 @@ sequenceDiagram
   C->>FS: hlTokens/{uid}, users/{uid}.hl
   C-->>SPA: redirect APP_URL/?hl=connected
 ```
+
 - **Reconnect** runs the same flow and overwrites the stored tokens. That's how a user switches to another sub-account, since the assignment allows one location per user.
 - **Disconnect** deletes `hlTokens/{uid}` and any pending OAuth states, and sets `users/{uid}.hl = null`.
 - **The top bar** shows a "Connected sub-account" control with the location name and a menu for reconnecting or disconnecting.
 
 ### 5.3 Create and build an app
+
 ```mermaid
 sequenceDiagram
   participant U as User
@@ -207,18 +215,20 @@ sequenceDiagram
   loop streaming
     CL-->>G: text
     G-->>SPA: token / file_start / file_end
-    SPA->>SPA: tokens into Monaco (read-only); preview shows "Building your app"
+    SPA->>SPA: tokens into Monaco (read-only), preview shows "Building your app"
   end
   G->>G: validate ops → write files → Haiku summary → snapshot → messages
-  G-->>SPA: done (or error with partial=true)
+  G-->>SPA: done · cancelled (Stop) · error (partial=true when files were kept)
   SPA->>SPA: reload files, refresh Sandpack preview
 ```
+
 - **Example prompts:** the "Try" cards on the homepage fill the composer with a prompt. The user reviews it and presses Build.
 - **Follow-up prompts** in the workspace refine the same app. Only the files that change are sent back.
 - **Manual edits** in Monaco save after an 800 ms pause and refresh the preview.
 - **History** opens a shadcn Sheet listing snapshots with timestamps and Haiku-written summaries. Restoring one is non-destructive, because it records a new snapshot.
 
 ### 5.4 Launch, pin and edit
+
 - **Clicking an app card** (or its Open button, or a pinned app in the sidebar) opens `/run/:id` in a new tab: the app full-screen, plus a top bar with the sub-account, Refresh and Edit.
 - **Without a connected sub-account,** cards show a "Connect a sub-account first" dialog. A direct `/run/:id` link shows a notice and returns to the homepage after 6 seconds.
 - **Editing only happens from the ⋯ menu.** The options are:
@@ -232,7 +242,9 @@ sequenceDiagram
 - **The sidebar** (hamburger menu) lists Home, Apps and the pinned apps. Each pinned app has its own ⋯ menu with Edit and Unpin.
 
 ### 5.5 Declined requests
+
 If a prompt isn't about building the app, is harmful, or tries to override the rules, the model replies with `<refuse>…</refuse>`. A refusal from the API itself (`stop_reason: "refusal"`) is treated the same way. Either way the server:
+
 - sends `error{code:"declined"}`,
 - marks the generation `declined`,
 - stores neither the prompt nor the reply.
@@ -241,11 +253,13 @@ The chat shows the notice for that session only, so a declined request never aff
 
 ## 6. Generation pipeline
 
-1. **Pre-checks**, returned as JSON errors before streaming starts:
-   - the user is signed in;
+1. **Pre-checks**, in this order. A failure returns a JSON error before streaming starts:
+   - the user is signed in and their email is verified;
    - the prompt is between 1 and 4,000 characters;
    - the user owns the project, and it isn't a locked ready-made app;
-   - HighLevel is connected. The project's `locationId` is then updated to the current connection, because apps follow whichever sub-account is connected.
+   - HighLevel is connected. The project's `locationId` is then updated to the current connection, because apps follow whichever sub-account is connected;
+   - the build limits allow another build (§8). From here a build slot is held, and released if a later check fails;
+   - the input tokens are counted and the worst-case cost is held from the user's credits (§7).
 2. **Bounded context:**
    - the system prompt (rules plus the strict output format);
    - [`hlReference.md`](../functions/src/llm/hlReference.md), the endpoints, response shapes and verified pagination patterns;
@@ -253,12 +267,14 @@ The chat shows the notice for that session only, so a declined request never aff
    - the current files, within a 60,000-character budget (files over 20,000 characters are listed but omitted);
    - the last 6 chat messages.
 3. **Output format:**
-   ```
+
+   ```text
    <plan>…</plan>
    <file path="src/App.vue">FULL content</file>
    <delete path="src/old.vue"/>
    <refuse>reason</refuse>          (declines only; no plan or files)
    ```
+
    An incremental parser streams tokens and file boundaries while the output is still arriving. It holds back partial closing tags until it can see the rest, and removes a stray `</parameter>` trailer the model occasionally adds to the end of a file.
 4. **Validation**, applied to each operation separately:
    - the path must be relative and inside `src/`, with an extension of `.vue`, `.ts`, `.js`, `.css` or `.json`;
@@ -272,11 +288,11 @@ The chat shows the notice for that session only, so a declined request never aff
    - `done`: everything was applied;
    - `partial`: some files were applied, and the error explains the rest;
    - `error`: nothing was applied;
-   - `cancelled`: the user pressed Stop (see 7).
+   - `cancelled`: the user pressed Stop (step 7).
 6. **Interruptions:** if the client disconnects mid-stream, the server aborts the Anthropic stream and keeps the files that completed, so the generation ends as `partial`. A heartbeat comment every 15 seconds keeps proxies from closing the connection.
-7. **Stop (cancellation):** **Stop** (or Esc) calls `POST /projects/:id/generations/:gid/cancel`, which sets `cancelRequested` on the generation. The running build watches that document, so the request works whichever instance serves it, and stops the Anthropic stream within about a second. Files the model had finished are kept; the file it was writing is discarded, never saved half-written. The build is saved with status `cancelled`, a fixed snapshot label ("Stopped before finishing") instead of a Haiku summary, and a chat message naming the kept and unfinished files. It is charged only for the tokens used. The stream ends with a `cancelled` event, so the client shows the outcome and credits rather than an error. A late stop, after the model has finished, is ignored. If the stop request can't be sent, the client drops the connection, which is handled as an interruption (6).
+7. **Stop (cancellation):** **Stop** (or Esc) calls `POST /projects/:id/generations/:gid/cancel`, which sets `cancelRequested` on the generation. The running build watches that document, so the request works whichever instance serves it, and stops the Anthropic stream within about a second. Files the model had finished are kept; the file it was writing is discarded, never saved half-written. The build is saved with status `cancelled`, a fixed snapshot label ("Stopped before finishing") instead of a Haiku summary, and a chat message naming the kept and unfinished files. It is charged only for the tokens used. The stream ends with a `cancelled` event, so the client shows the outcome and credits rather than an error. A late stop, after the model has finished, is ignored. If the stop request can't be sent, the client drops the connection, which is handled as an interruption (step 6).
 
-## 6a. AI credits
+## 7. AI credits
 
 - **Value:** 1 credit = $0.001 of Claude list price. The versioned rate card in [`credits.ts`](../functions/src/credits.ts) gives credits per million input, output, cache-write and cache-read tokens for each model. Any model not on the card is billed at the highest known rate, never for free. Users never pick a model: a build uses the generation model, plus Haiku for the snapshot summary, and pays for both.
 - **Signup grant:** 2,500 credits, granted by `POST /bootstrap` once the ID token says `email_verified`. The ledger entry ID `signup` makes the grant idempotent. Sign-up sends Firebase's verification email, and the `/verify` page offers **Resend email** and **I've verified**.
@@ -287,11 +303,11 @@ The chat shows the notice for that session only, so a declined request never aff
   - **Requests that fail before tokens are used** are charged nothing.
 - **Security:** balances and the ledger are readable by their owner, and only Cloud Functions write them.
 
-## 6b. Rate limiting
+## 8. Rate limiting
 
 Limits are set by what abuse would cost. **Builds** spend real money on Claude, so they're limited **exactly**, in Firestore, next to the credit hold. **Everything else** uses **in-memory token buckets** on each function instance. Those are approximate across instances, which is fine for throttling, and for the proxy HighLevel's own 429 is the backstop. Every limit lives in one table in [`rateLimits.ts`](../functions/src/rateLimits.ts).
 
-### Limits
+### 8.1 Limits
 
 | Where | What is limited | Limit | Counted per | Mechanism | If the limiter itself fails |
 |---|---|---|---|---|---|
@@ -303,11 +319,12 @@ Limits are set by what abuse would cost. **Builds** spend real money on Claude, 
 | `api`, `hlAuthStart` | Changes (POST, PUT, PATCH, DELETE) | 60/min, bursts of 20 | user | Token bucket (memory) | Allowed |
 | `api` | Reads (GET) | 300/min, bursts of 60 | user | Token bucket (memory) | Allowed |
 
-Sign-up and sign-in are protected separately by reCAPTCHA Enterprise and Firebase's per-IP sign-up quota (§9). Total AI spend is capped by credits (§6a).
+Sign-up and sign-in are protected separately by reCAPTCHA Enterprise and Firebase's per-IP sign-up quota (§11). Total AI spend is capped by credits (§7).
 
-### Mechanisms
+### 8.2 Mechanisms
 
 **1. Build slots with expiry (builds running at once).** `users/{uid}.activeBuilds` maps each running build to `{ projectId, startedAt }`. `reserveBuildSlot` runs one Firestore transaction:
+
 1. Drop slots older than 10 minutes (the function times out at 9). A crashed instance can't lock a user out.
 2. Refuse if a slot exists for this app, or if 2 slots exist.
 3. Otherwise add the slot.
@@ -317,20 +334,24 @@ Sign-up and sign-in are protected separately by reCAPTCHA Enterprise and Firebas
 **2. Sliding-window log (build starts).** `users/{uid}.buildStarts` holds the start times from the last 10 minutes, never more than 10. In the same transaction: drop times older than 10 minutes, refuse if 10 remain, otherwise add `now`. The wait is exact: `oldest start + 10 min − now`. Unlike a fixed window, it never allows a double burst at a window boundary, and the log stays tiny.
 
 **3. Token bucket (everything else).** A `Map` at module scope holds `{ tokens, last }` for each key, and persists across the requests an instance serves. On each request:
-```
+
+```text
 tokens = min(burst, tokens + elapsed × perSecond)
 if tokens < 1 → refuse, retryAfter = (1 − tokens) / perSecond
 else tokens −= 1
 ```
+
 - It allows the natural burst of a page loading several lists at once, while bounding the average rate.
 - Node runs the check synchronously, so concurrent requests on one instance can't race.
 - The map is capped at 10,000 keys, dropping the least recently used.
 
 **4. Proxy cache and pause after HighLevel's 429.**
+
 - Successful responses are cached for 10 s per sub-account, path and sorted query, so reloads and several open previews cost one HighLevel call. A response header says `X-Cache: hit` or `miss`.
 - When HighLevel answers 429, the sub-account is paused for HighLevel's `Retry-After`. Requests in the meantime get the 429 at once instead of piling on.
 
-### Order of checks
+### 8.3 Order of checks
+
 Checks run cheapest first, and the first failure ends the request. A refused build costs no token count, no credit hold and no Claude call.
 
 - **`generate`:**
@@ -356,18 +377,24 @@ Checks run cheapest first, and the first failure ends the request. A refused bui
 
 **No limit per IP.** Every limit is keyed by the verified user (or the sub-account), never by IP. An in-app IP limit was tried and removed: on Cloud Functions the client can fake the entries of `X-Forwarded-For` that the limiter read (verified on production), and Firebase ID tokens and preview tokens are signed, so rejecting a bad token is already cheap and guessing one is futile. Flood protection by IP belongs at the edge (Cloud Armor or an API gateway), with Firebase App Check; see the scale-up path below.
 
-### Response
-```
-HTTP 429   Retry-After: 30
+### 8.4 Response
+
+```http
+HTTP/1.1 429 Too Many Requests
+Retry-After: 30
+Content-Type: application/json
+
 { "error": { "code": "rate_limited", "message": "You can run 2 builds at a time. Wait for one to finish.", "retryAfter": 30 } }
 ```
+
 - `rate_limited` means a Genesis limit; `hl_rate_limited` means HighLevel's.
 - Every 429 is logged (`rate_limited` / `hl_rate_limited` with the user, limit and wait) so limits can be tuned.
 - In the workspace, the chat shows the message.
 - Autosave waits `retryAfter` and retries once before showing an error.
 - Generated apps are told (in `hlReference.md`) to wait `retryAfter`, retry once, then show the message, never retrying in a loop.
 
-### Exact and approximate
+### 8.5 Exact and approximate
+
 - **Exact:** both build limits. They're Firestore transactions, so they hold across all instances.
 - **Approximate:** the token buckets. Each instance counts on its own, and a new instance starts with full buckets. A user spread over *n* instances could get up to *n* times a limit. That only ever makes a limit looser, never blocks someone wrongly. At this app's traffic one instance usually serves everything.
 - **For the HighLevel budget,** the real guarantee is the pause after HighLevel's 429, plus the cache and the per-user bucket that stop loops at the source.
@@ -378,7 +405,7 @@ HTTP 429   Retry-After: 30
 
 **Changing a limit:** edit `LIMITS` in `rateLimits.ts`. The unit tests in `rateLimits.test.ts` cover the bucket, the slots, slot expiry and the start log with a fake clock.
 
-## 7. Ready-made apps
+## 9. Ready-made apps
 
 Six apps ship with Genesis: Customer 360, Daily Briefing, Appointment Prep Sheet, No-Contact Radar, Lead Follow-up Board and Activity Timeline.
 
@@ -388,7 +415,7 @@ Six apps ship with Genesis: Customer 360, Daily Briefing, Appointment Prep Sheet
 - **Locking:** saving files, renaming, generating and restoring all return `409 app_locked`. Users change a ready-made app with **Edit a copy**, which creates an editable `user` app with `forkedFrom` and a "Created from …" snapshot.
 - **Location:** ready-made apps contain no location ID and run on whichever sub-account is connected.
 
-## 8. Live data, preview and pagination
+## 10. Live data, preview and pagination
 
 ```mermaid
 sequenceDiagram
@@ -405,6 +432,7 @@ sequenceDiagram
   PX->>HL: GET with the real access token (refreshed if needed)
   HL-->>SB: JSON (errors mapped to {error:{code,message}})
 ```
+
 - **Proxy allowlist** (GET only):
   - `/contacts/`, `/contacts/{id}` and `/contacts/{id}/appointments`
   - `/conversations/search`, `/conversations/{id}` and `/conversations/{id}/messages`
@@ -429,7 +457,7 @@ sequenceDiagram
 
   Generated apps load 20 at a time behind a **Load more** button and show "Showing N of total". They reset the list when search or filters change, and never fetch every page automatically.
 
-## 9. Security model
+## 11. Security model
 
 - **Secrets:** the Anthropic API key, the HighLevel client ID and secret, and the preview-token signing secret are Firebase secrets (`defineSecret`). They live in `.secret.local` for the emulator and in Secret Manager in production, and are never in source.
 - **Least privilege:** the HighLevel scopes are read-only, and the proxy only allows the GET paths above.
@@ -440,21 +468,26 @@ sequenceDiagram
 - **Prompt-injection resistance:** the system prompt treats user text as a request to evaluate, never as instructions. Requests that are off-topic or try to override the rules are declined and never stored.
 - **Generated code is sandboxed:** it runs in the Sandpack iframe on another origin, with a fixed dependency set.
 
-## 10. Frontend structure
+## 12. Frontend structure
 
-```
+```text
 src/
   main.ts, router.ts, firebase.ts (emulators in dev), style.css (design tokens)
   lib/          api.ts (authed fetch), sse.ts (SSE reader), catalog.ts (categories, icons, name/category suggestions)
-  composables/  useAuth, useHl (shared connection store), useApps (live app list + bootstrap),
-                useCreateApp, useProject, useGeneration (SSE client), useLaunchApp, useConnectPrompt
-  views/        Dashboard (prompt-first workspace + ready-made apps), AppsView (catalog with filters),
-                Workspace (chat · preview/code · files), RunView (full-screen app), SignIn/SignUp/AuthForm
+  composables/  useAuth (session + email verification), useCredits, useHl (shared connection store),
+                useApps (live app list + account setup), useCreateApp, useProject,
+                useGeneration (SSE client + Stop), useLaunchApp, useConnectPrompt
+  views/        Dashboard (prompt-first home + ready-made apps), AppsView (catalog with filters),
+                Workspace (chat · preview/code · files), RunView (full-screen app),
+                SignIn / SignUp / AuthForm, VerifyEmail (the only page until the email is verified)
   components/   TopBar, SideNav (drawer + pinned apps), AppCard, AppDetailsDialog, CopyAppDialog,
                 ConnectRequiredDialog, ChatPanel, EditorPanel (Monaco), FileTree, PreviewPanel (Sandpack),
                 BuildingOverlay, SnapshotSheet, AuthIllustration, AppLogo, ui/ (shadcn-vue)
 ```
-- **State:** composables and refs. A few shared stores (the HighLevel connection and the connect prompt) live in module-level refs. There's no Pinia.
+
+Unit tests sit next to the code they test (`lib/sse.test.ts`, `composables/useGeneration.test.ts`).
+
+- **State:** composables and refs. A few shared stores (the HighLevel connection, credits and the connect prompt) live in module-level refs. There's no Pinia.
 - **Routes:**
 
   | Route | Page |
@@ -466,7 +499,7 @@ src/
   | `/signin`, `/signup` | Authentication |
   | `/verify` | Verify email (the only page until the email is verified) |
 
-## 11. Testing
+## 13. Testing
 
 Everything below is in the repo and runs in CI on every push and pull request.
 
