@@ -114,6 +114,7 @@ The full design, with the data model, API, flows and the reasoning behind each d
    cp functions/.env.example functions/.env          # ANTHROPIC_MODEL, ANTHROPIC_SUMMARY_MODEL
    # functions/.env.local      HL_REDIRECT_URI=http://127.0.0.1:5001/<project-id>/us-central1/hlAuthCallback
    #                           APP_URL=http://localhost:5173
+   #                           LOCAL_TOKEN_KEK=<openssl rand -base64 32>
    # functions/.secret.local   ANTHROPIC_API_KEY=…  HL_CLIENT_ID=…  HL_CLIENT_SECRET=…  PREVIEW_TOKEN_SECRET=<openssl rand -hex 32>
    cp frontend/.env.example frontend/.env.local      # Firebase web config; VITE_USE_EMULATORS=true
    ```
@@ -146,6 +147,7 @@ Ctrl+C stops both. `npm run dev:local` runs plain Vite without a tunnel. Deploye
 | `ANTHROPIC_API_KEY` | secret | Claude API key |
 | `HL_CLIENT_ID`, `HL_CLIENT_SECRET` | secret | HighLevel Marketplace app credentials |
 | `PREVIEW_TOKEN_SECRET` | secret | HMAC key for the 15-minute preview tokens that generated apps use |
+| `LOCAL_TOKEN_KEK` | `functions/.env.local` | Emulator-only key that encrypts stored HighLevel tokens (`openssl rand -base64 32`). Production uses Cloud KMS instead. |
 | `VITE_FIREBASE_*` | `frontend/.env.local` · `.env.production` | Firebase web app config (public by design) |
 | `VITE_FUNCTIONS_BASE_URL` | `frontend/.env.*` | Functions base URL. In dev it's set automatically by `npm run dev`. |
 | `VITE_USE_EMULATORS` | `frontend/.env.*` | `true` locally, `false` in production |
@@ -161,7 +163,7 @@ Secrets go in `functions/.secret.local` for the emulator and in **Secret Manager
 | `frontend/` | `npm test` | Unit tests (Vitest): the SSE reader and the build state machine (streaming, refusals, declines, broken streams, Stop) |
 | `frontend/` | `npm run lint` | ESLint (Vue + TypeScript recommended rules) |
 | `functions/` | `npm run build` | Compile to `lib/` (runs automatically before deploy) |
-| `functions/` | `npm test` | Unit tests: stream parser, output validator, credits, rate-limit algorithms, ready-made templates |
+| `functions/` | `npm test` | Unit tests: stream parser, output validator, credits, rate-limit algorithms, token encryption, ready-made templates |
 | `functions/` | `npm run test:e2e` | Integration tests against the running emulators: auth gate, projects, isolation between users, snapshots, build limits, cancel, the proxy's checks and limits, and the Firestore security rules. Never calls Claude or HighLevel. |
 | `functions/` | `npm run lint` | ESLint (TypeScript recommended rules) |
 
@@ -186,7 +188,7 @@ Secrets go in `functions/.secret.local` for the emulator and in **Secret Manager
 4. **A strict `<plan>/<file>/<delete>/<refuse>` output format, parsed incrementally.** Tokens and file boundaries stream to the editor live, while each file is validated whole before it's saved.
 5. **Partial results are always kept.** Invalid operations are rejected one at a time, an interrupted stream keeps every completed file, and each generation creates a snapshot with a one-line Haiku summary. Restoring is non-destructive.
 6. **SSE over `fetch` with a `ReadableStream`** rather than `EventSource`, because the request needs POST and an Authorization header. A defined event protocol, a 15-second heartbeat, and a hand-written parser, with no extra library.
-7. **HighLevel refresh tokens are single-use.** Concurrent refreshes are funnelled into one request per instance, the refresh call happens outside the Firestore transaction, and losing requests read back the winner's token.
+7. **HighLevel tokens are encrypted at rest and refreshed safely.** Each user's tokens are sealed with envelope encryption: a fresh AES-256-GCM key per record, wrapped by a Cloud KMS key that never leaves KMS, so reading them needs database access _and_ KMS permission. Refresh tokens are single-use, so concurrent refreshes are funnelled into one request per instance, and losing requests read back the winner's token.
 8. **The model's context is bounded, and the API reference is hand-written.** Files within a character budget, the last 6 messages, and a compact reference whose endpoints, pagination and free-slot rules were verified against a live sandbox. The prompt makes **pagination** mandatory and forbids hard-coding a location ID.
 9. **Ready-made apps are content-hashed templates seeded on first visit.** Seeding is safe to repeat, the apps are locked on the server and edited through copies, and template changes upgrade users' locked copies automatically.
 10. **Off-topic or harmful prompts are declined, and never stored.** They're detected through a `<refuse>` reply or the API's refusal stop reason, so a declined prompt can't influence later prompts.
@@ -218,6 +220,7 @@ Checks run cheapest first, so a refused build never counts tokens, holds credits
 **Firebase project setup** (one time):
 
 - **Blaze plan,** required for 2nd-gen functions and Secret Manager. Set a budget alert.
+- **Token encryption:** run `./scripts/setup-token-encryption.sh <project-id>` **before the first deploy**. It enables Cloud KMS, creates the `genesis/hl-tokens` key (manual rotation) and lets only the functions' service account use it.
 - **Authentication:** enable Email/Password, then turn on bot protection with `./scripts/setup-bot-protection.sh <project-id>`. It upgrades Auth to Identity Platform (free up to 50k monthly users; the upgrade can't be undone) and has Firebase score every email/password sign-up and sign-in with reCAPTCHA Enterprise, blocking scores ≤ 0.3. Run it with `AUDIT` as the second argument to score without blocking, or `OFF` to turn it off.
 - **Firestore:** Standard edition, Native mode.
 - **Hosting:** serves `frontend/dist`. `firebase.json` rewrites every path to `index.html`.
@@ -270,6 +273,7 @@ The script creates a `github-deployer` service account with deploy-only roles. I
 | The app hangs locally after working earlier | The quick tunnel expired. Restart `npm run dev` to get a fresh URL. |
 | HighLevel says "No integration found with the id" | The authorize URL needs `version_id`, which Genesis adds. Check that `HL_CLIENT_ID` is correct. |
 | HighLevel rejects the redirect | The redirect URI must match `HL_REDIRECT_URI` exactly, with `https` and no trailing slash. |
+| "HighLevel credentials can't be read right now" (`hl_tokens_unavailable`) | Production: run `scripts/setup-token-encryption.sh` and check the functions' service account can use the key. Locally: set `LOCAL_TOKEN_KEK` in `functions/.env.local`. |
 | The emulators refuse to start with a Java error | Install JDK 21 or newer (for example `brew install openjdk@21`) and put it on your `PATH`. |
 | Deploy fails with "Node.js 20 was decommissioned" | `functions/package.json` must use `"engines": { "node": "24" }`. |
 | A ready-made app shows "Connect a sub-account first" | Connect HighLevel from the top bar. Apps always run on the connected sub-account. |

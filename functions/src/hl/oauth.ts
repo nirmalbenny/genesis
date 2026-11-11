@@ -6,7 +6,7 @@ import {
 } from "../config";
 import { rateLimited, requireVerifiedUser, sendError } from "../http";
 import { createLimiter, LIMITS } from "../rateLimits";
-import { requestToken } from "./token";
+import { requestToken, sealedRecord } from "./token";
 
 const STATE_TTL_MS = 10 * 60 * 1000;
 
@@ -66,9 +66,10 @@ export const hlAuthCallback = onRequest(
       const email = (await auth.getUser(uid)).email ?? null;
 
       // One HL location per user: both docs are overwritten on reconnect.
+      // The tokens are stored encrypted (tokenVault.ts); only expiry, location and scope are readable.
+      const { sealed } = await sealedRecord(uid, { accessToken: t.access_token, refreshToken: t.refresh_token });
       await db.doc(`hlTokens/${uid}`).set({
-        accessToken: t.access_token,
-        refreshToken: t.refresh_token,
+        sealed,
         expiresAt: Date.now() + t.expires_in * 1000,
         locationId: t.locationId,
         scope: t.scope,

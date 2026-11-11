@@ -8,12 +8,19 @@ import path from "node:path";
 import { getApps, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
+import { localWrapper, seal } from "../hl/tokenVault";
 
 const rc = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "..", "..", ".firebaserc"), "utf8"));
 export const PROJECT = process.env.GCLOUD_PROJECT ?? (rc.projects.default as string);
 const AUTH_HOST = process.env.FIREBASE_AUTH_EMULATOR_HOST ??= "127.0.0.1:9099";
 process.env.FIRESTORE_EMULATOR_HOST ??= "127.0.0.1:8080";
 export const FN = `http://${process.env.FUNCTIONS_EMULATOR_HOST ?? "127.0.0.1:5001"}/${PROJECT}/us-central1`;
+
+/** The emulator's token key (functions/.env.local), so seeded tokens are sealed exactly as the functions seal them. */
+const LOCAL_TOKEN_KEK = process.env.LOCAL_TOKEN_KEK
+  ?? fs.readFileSync(path.join(__dirname, "..", "..", ".env.local"), "utf8").match(/^LOCAL_TOKEN_KEK=(.+)$/m)?.[1]?.trim()
+  ?? "";
+export const tokenWrapper = localWrapper(LOCAL_TOKEN_KEK);
 
 const app = getApps().find((a) => a.name === "e2e") ?? initializeApp({ projectId: PROJECT }, "e2e");
 export const db = getFirestore(app);
@@ -38,10 +45,12 @@ export async function newUser(opts: { verified?: boolean } = {}): Promise<TestUs
 /** Marks the user as connected to a HighLevel location (what the OAuth callback stores). */
 export async function connectHl(u: TestUser, locationId = "loc-e2e", tokenLocationId = locationId): Promise<void> {
   await db.doc(`users/${u.uid}`).set({ hl: { locationId, locationName: "E2E location" } }, { merge: true });
-  // A token far from expiry, so no refresh call to HighLevel is ever attempted.
+  // A token far from expiry, so no refresh call to HighLevel is ever attempted. Sealed, as the callback stores it.
   await db.doc(`hlTokens/${u.uid}`).set({
-    accessToken: "e2e-access", refreshToken: "e2e-refresh", expiresAt: Date.now() + 3_600_000,
-    locationId: tokenLocationId, scope: "",
+    sealed: await seal(u.uid, { accessToken: "e2e-access", refreshToken: "e2e-refresh" }, tokenWrapper),
+    expiresAt: Date.now() + 3_600_000,
+    locationId: tokenLocationId,
+    scope: "",
   });
 }
 

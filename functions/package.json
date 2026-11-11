@@ -8,12 +8,13 @@
   "scripts": {
     "build": "tsc && cp src/llm/hlReference.md lib/llm/hlReference.md",
     "typecheck": "tsc --noEmit",
-    "test": "npm run build && node --test lib/*.test.js lib/llm/*.test.js",
+    "test": "npm run build && node --test lib/*.test.js lib/llm/*.test.js lib/hl/*.test.js",
     "test:e2e": "npm run build && node --test --test-concurrency=1 lib/e2e/*.e2e.js",
     "lint": "eslint ."
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.5.0",
+    "@google-cloud/kms": "^6.3.0",
     "firebase-admin": "^12.7.0",
     "firebase-functions": "^6.1.0"
   },

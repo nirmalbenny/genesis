@@ -74,7 +74,7 @@ flowchart LR
 | Function | Auth | Responsibility |
 |---|---|---|
 | `hlAuthStart` | Firebase ID token | Creates a one-time OAuth `state` and returns the HighLevel authorize URL. |
-| `hlAuthCallback` | Public (verified by `state`) | Exchanges the code, stores tokens, fetches the location name, then redirects back to the app. |
+| `hlAuthCallback` | Public (verified by `state`) | Exchanges the code, stores the tokens encrypted (§11.1), fetches the location name, then redirects back to the app. |
 | `api` | Firebase ID token | A small router for projects, files, snapshots, ready-made apps, pinning, preview tokens and disconnect (see §4). |
 | `generate` | Firebase ID token | Streaming generation over SSE (see §6), with the credit hold (§7) and build limits (§8). |
 | `hlProxy` | Preview token | Forwards allowlisted GET requests to HighLevel using the user's real token (see §10). |
@@ -91,7 +91,7 @@ users/{uid}
   buildStarts: [ms timestamps]                                      ← build starts in the last 10 minutes (§8)
   creditLedger/{entryId}  type: grant|hold|charge, credits, generationId?, model?, usage?, rateCardVersion   (append-only)
 
-hlTokens/{uid}        accessToken, refreshToken, expiresAt, locationId, scope        (no client access)
+hlTokens/{uid}        sealed{v, kek, wrappedDek, iv, tag, ciphertext}, expiresAt, locationId, scope   (no client access; tokens encrypted, §11)
 oauthStates/{state}   uid, createdAt                                                   (no client access)
 
 projects/{pid}
@@ -462,11 +462,35 @@ sequenceDiagram
 - **Secrets:** the Anthropic API key, the HighLevel client ID and secret, and the preview-token signing secret are Firebase secrets (`defineSecret`). They live in `.secret.local` for the emulator and in Secret Manager in production, and are never in source.
 - **Least privilege:** the HighLevel scopes are read-only, and the proxy only allows the GET paths above.
 - **No token exposure:** HighLevel tokens never leave Cloud Functions. Generated apps hold only a short-lived preview token tied to one user, project and location.
+- **Tokens encrypted at rest:** see §11.1.
 - **Server-side writes only:** Firestore security rules reject every client write.
 - **CORS:** `api`, `generate` and `hlAuthStart` accept browser calls only from the app's own origins (`<project>.web.app`, `<project>.firebaseapp.com`, and the Vite dev server). `hlProxy` accepts any origin, because generated apps run on Sandpack's origin; it's protected by the preview token instead.
 - **Bot sign-ups:** Firebase Auth (Identity Platform) scores every email/password sign-up and sign-in with reCAPTCHA Enterprise and rejects low scores or missing tokens. The check happens in Auth itself, so calling the public sign-up API directly doesn't skip it; the web SDK attaches the token without any app code. Accounts that get through still can't use anything until their email is verified (§5.1). Setup: [`scripts/setup-bot-protection.sh`](../scripts/setup-bot-protection.sh).
 - **Prompt-injection resistance:** the system prompt treats user text as a request to evaluate, never as instructions. Requests that are off-topic or try to override the rules are declined and never stored.
 - **Generated code is sandboxed:** it runs in the Sandpack iframe on another origin, with a fixed dependency set.
+
+### 11.1 HighLevel tokens at rest
+
+Each user's access and refresh tokens are stored with **envelope encryption** ([`tokenVault.ts`](../functions/src/hl/tokenVault.ts)). Only the expiry, location and scope stay readable, because the code needs them for freshness and location checks.
+
+```text
+seal:  random 256-bit data key (DEK) → AES-256-GCM(tokens) locally → Cloud KMS wraps the DEK
+       hlTokens/{uid}.sealed = { v, kek, wrappedDek, iv, tag, ciphertext }
+open:  Cloud KMS unwraps the DEK → AES-256-GCM decrypts locally (tampering fails the auth tag)
+```
+
+- **One KMS key** (`genesis/hl-tokens`, `us-central1`) wraps every record's own data key. Created by [`setup-token-encryption.sh`](../scripts/setup-token-encryption.sh); only the functions' service account may use it. Rotation is manual: a new primary version encrypts new records, and older versions keep decrypting.
+- **Bound to the user:** `hlTokens/{uid}` is additional authenticated data for both AES-GCM and the KMS call, so a record copied to another user's document can't be decrypted.
+- **Decryption cache:** the proxy reads the token on every call, so decrypted tokens are kept in memory for 5 minutes per instance, keyed by the stored ciphertext. A refresh or reconnect writes a new ciphertext and misses the cache; a disconnect deletes the record, which the Firestore read sees first. KMS is called about once per user per instance per 5 minutes, plus once per refresh.
+- **Fails closed:** if KMS is unavailable or a record was tampered with, the request fails with `503 hl_tokens_unavailable` and nothing is logged beyond the user and error code.
+- **Legacy records** stored in plain text before encryption are sealed in place the first time they're read.
+- **Emulators and CI** can't call Cloud KMS, so they wrap data keys with a local key (`LOCAL_TOKEN_KEK` in `functions/.env.local`). It's used only when `FUNCTIONS_EMULATOR` is set, never by a deployed function.
+
+| Threat | Protected? |
+|---|---|
+| Database export or backup leaked, someone browsing the Firebase console, a rules mistake | ✅ They see ciphertext; decrypting needs KMS permission |
+| Leaked credentials with database access only | ✅ |
+| A compromised running function | ❌ It may decrypt by design; encryption at rest doesn't cover a live server |
 
 ## 12. Frontend structure
 
@@ -507,6 +531,7 @@ Everything below is in the repo and runs in CI on every push and pull request.
   - The stream parser produces identical results however the text is chunked; unclosed files are detected; a `refuse` reply is handled; stray trailers and cut-off tags are removed.
   - `validateOps` behaves as described in §6.
   - Credits: the rate card, unknown models billed at the highest rate, rounding, usage mapping.
+  - Token encryption: round trip, a fresh key and IV per record, tampering and user-swapping rejected, and the decryption cache.
   - Rate limits: the token bucket, build slots, slot expiry and the build-start log, with a fake clock.
   - Every ready-made template is valid, has unique slugs, and has a known category.
 - **Integration tests** (`cd functions && npm run test:e2e`, against the emulators). They seed state with the Admin SDK and call the functions over HTTP as real signed-in users. They never call Claude or HighLevel: a running build is seeded as a build slot, and the proxy tests use a HighLevel token for a different location, so every request that passes the proxy's checks stops at `connection_changed`.
@@ -514,6 +539,7 @@ Everything below is in the repo and runs in CI on every push and pull request.
   - **Projects:** create, read, rename, save and read a file, invalid paths, soft delete; another user gets 404 on every route; copying creates a snapshot and restoring it is non-destructive.
   - **Limits:** a second build on the same app, a third concurrent build and the 11th start in 10 minutes are refused with the right `Retry-After`, with nothing held or recorded; locked apps and missing connections are refused first; cancel semantics; the per-user write limit, while reads still pass.
   - **Proxy:** missing and forged preview tokens, the GET allowlist, tokens for deleted or other users' apps, a changed connection, and the per-user burst limit.
+  - **Token encryption:** stored records contain no plain-text token and still work; legacy plain-text records are sealed on first use; a corrupted record, or one moved to another user, fails closed with `503 hl_tokens_unavailable`.
   - **Security rules** (`rules.e2e.ts`): as signed-in users through the Firestore emulator, each user reads only their own user document, ledger and apps; nobody reads `hlTokens` or `oauthStates`; unfiltered app listings are refused; every client write (including topping up credits) is denied.
 - **Frontend unit tests** (`cd frontend && npm test`, Vitest): the SSE reader (any chunking, heartbeats, CRLF, malformed events) and `useGeneration` (tokens into files, credits, refusals before streaming, declined requests, broken streams, Stop).
 - **Lint:** ESLint with the recommended TypeScript rules (functions) and Vue + TypeScript rules (frontend). The generated shadcn-vue components and the ready-made apps' browser code are excluded.

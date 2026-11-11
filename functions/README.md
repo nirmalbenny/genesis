@@ -31,6 +31,7 @@ src/
   generate.ts         SSE generation pipeline (credit hold, build limits, Stop)
   hlProxy.ts          HighLevel proxy (GET allowlist, project check, rate limits, cache, forced location)
   hl/oauth.ts         OAuth start + callback      hl/token.ts   token refresh (single-flight, rotation-safe)
+  hl/tokenVault.ts    HighLevel tokens encrypted at rest (Cloud KMS envelope encryption, decryption cache)
   llm/                prompt.ts · hlReference.md (API + pagination reference given to the model)
                       parser.ts (incremental output parser) · validate.ts · summary.ts (Haiku summaries)
   credits.ts          rate card, hold and settle, ledger, build slots
