@@ -4,7 +4,7 @@
 
 Describe an app in plain English. Genesis streams the code from Claude into a live editor and runs the result on your **real HighLevel data**: contacts, conversations and calendars.
 
-**[Live app](https://genesisaibuilder.web.app)** · **[Architecture & flows](docs/ARCHITECTURE.md)** · **[Local setup](#local-setup-firebase-emulators)**
+**[Live app](https://genesisaibuilder.web.app)** · **[Architecture diagram](docs/ARCHITECTURE.md#2-system-overview)** · **[Architecture & flows](docs/ARCHITECTURE.md)** · **[Local setup](#local-setup-firebase-emulators)**
 
 ![Genesis home: a prompt-first workspace with ready-made apps](docs/screenshots/home.png)
 
@@ -15,7 +15,7 @@ Describe an app in plain English. Genesis streams the code from Claude into a li
 
 ## Contents
 
-[Features](#features) · [How it works](#how-it-works) · [Live URLs](#live-urls) · [Tech stack](#tech-stack) · [Repository layout](#repository-layout) · [Local setup](#local-setup-firebase-emulators) · [Configuration](#configuration-reference) · [Scripts & tests](#scripts--tests) · [HighLevel setup](#highlevel-setup) · [Architecture decisions](#architecture-decisions) · [Rate limits](#rate-limits) · [What I would improve](#what-i-would-improve) · [Deployment notes](#deployment-notes) · [Troubleshooting](#troubleshooting) · [License](#license)
+[Features](#features) · [How it works](#how-it-works) · [Live URLs](#live-urls) · [Tech stack](#tech-stack) · [Repository layout](#repository-layout) · [Local setup](#local-setup-firebase-emulators) · [Configuration](#configuration-reference) · [Scripts & tests](#scripts--tests) · [HighLevel setup](#highlevel-setup) · [Architecture decisions](#architecture-decisions) · [Security at a glance](#security-at-a-glance) · [Rate limits](#rate-limits) · [What I would improve](#what-i-would-improve) · [Deployment notes](#deployment-notes) · [Troubleshooting](#troubleshooting) · [License](#license)
 
 ## Features
 
@@ -29,7 +29,7 @@ Describe an app in plain English. Genesis streams the code from Claude into a li
 - **App catalog:** search, type and category filters, ordering, pinning, and full-screen launch at `/run/:id`.
 - **AI credits:** every user gets **2,500 credits** once they verify their email (1 credit = $0.001 of Claude list price). Each build holds its worst-case cost up front, then is charged what it actually used. The balance is shown live in the top bar, and every grant, hold and charge is recorded in a ledger.
 - **Rate limiting:** builds are limited exactly (1 at a time per app, 2 per user, 10 starts per 10 minutes) before any credits are held or Claude is called. The proxy and API are throttled per user; the proxy also caches repeated reads and backs off when HighLevel returns 429. See [Rate limits](#rate-limits).
-- **Account safety:** email verification is required before anything works, and reCAPTCHA Enterprise screens every sign-up and sign-in.
+- **Account safety:** email verification is required before anything works, reCAPTCHA Enterprise screens every sign-up and sign-in, and stored HighLevel tokens are encrypted with Cloud KMS.
 - **Graceful failure:** handles malformed model output, interrupted streams, failed HighLevel calls, declined off-topic or harmful prompts, and a missing connection, each with a clear message.
 
 ## How it works
@@ -49,7 +49,7 @@ flowchart LR
 2. **Run:** the preview runs the files in Sandpack. The generated app calls HighLevel only through `hlProxy`, with a short-lived preview token; the real HighLevel token never leaves the server.
 3. **Store:** clients read their own data straight from Firestore, but every write goes through Cloud Functions.
 
-The full design, with the data model, API, flows and the reasoning behind each decision, is in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+This is the short version. The **[detailed architecture diagram](docs/ARCHITECTURE.md#2-system-overview)** shows every component (Auth, all five functions, the shared modules, Firestore, Secret Manager, Cloud KMS, CI/CD) with the five main flows numbered. The rest of [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) covers the data model, API, flows and the reasoning behind each decision.
 
 ## Live URLs
 
@@ -67,6 +67,7 @@ The full design, with the data model, API, flows and the reasoning behind each d
 | Editor / preview | `@guolao/vue-monaco-editor`, `@codesandbox/sandpack-client` |
 | HighLevel | OAuth 2.0 (Location), Contacts, Conversations and Calendars APIs (read-only) |
 | Hosting | Firebase Hosting (SPA) and Firebase Functions (us-central1) |
+| Security | Identity Platform + reCAPTCHA Enterprise, Cloud KMS (token encryption), Secret Manager |
 | Quality | `node:test` (unit + integration on the emulators), Vitest, ESLint, GitHub Actions CI/CD |
 
 ## Repository layout
@@ -82,7 +83,8 @@ The full design, with the data model, API, flows and the reasoning behind each d
 │   ├── src/                   views · components (ui/ = shadcn-vue) · composables · lib, with *.test.ts beside the code
 │   └── scripts/dev.mjs        npm run dev: Cloudflare tunnel + Vite
 ├── .github/workflows/         deploy.yml: lint and tests on every push and PR, deploy to Firebase on main
-├── scripts/                   one-time setup: setup-github-deploy.sh (CI), setup-bot-protection.sh (reCAPTCHA)
+├── scripts/                   one-time setup: setup-github-deploy.sh (CI), setup-bot-protection.sh (reCAPTCHA),
+│                              setup-token-encryption.sh (Cloud KMS)
 ├── docs/
 │   ├── ARCHITECTURE.md        goals, system design, data model, API, flows, credits, rate limits, security, testing
 │   └── screenshots/
@@ -193,6 +195,20 @@ Secrets go in `functions/.secret.local` for the emulator and in **Secret Manager
 9. **Ready-made apps are content-hashed templates seeded on first visit.** Seeding is safe to repeat, the apps are locked on the server and edited through copies, and template changes upgrade users' locked copies automatically.
 10. **Off-topic or harmful prompts are declined, and never stored.** They're detected through a `<refuse>` reply or the API's refusal stop reason, so a declined prompt can't influence later prompts.
 
+## Security at a glance
+
+| Area | Control |
+|---|---|
+| Accounts | Firebase Auth with **email verification required** before any endpoint works; **reCAPTCHA Enterprise** on every sign-up and sign-in |
+| HighLevel tokens | Never sent to the browser; stored with **Cloud KMS envelope encryption** (AES-256-GCM, bound to the user); refreshed safely under concurrency |
+| Generated apps | Run in a **sandboxed iframe on another origin**; reach HighLevel only through `hlProxy` with a **15-minute HMAC preview token** (GET allowlist, forced location, app ownership checked) |
+| Data access | Firestore rules allow **owner-only reads** and **no client writes**; every change goes through Cloud Functions, which check ownership |
+| Secrets | **Secret Manager** in production, git-ignored files locally; CI deploys **without keys** (Workload Identity Federation) |
+| Abuse and cost | **AI credits** with worst-case holds, exact **build limits**, per-user rate limits, CORS restricted to the app's origins |
+| Verification | Integration tests cover the auth gate, isolation between users, the proxy's checks, token encryption and the **security rules** |
+
+Details, including what each control does and doesn't protect against: [ARCHITECTURE §11](docs/ARCHITECTURE.md#11-security-model).
+
 ## Rate limits
 
 Limits are set by what abuse would cost. Builds spend real money on Claude, so they're limited **exactly**, in Firestore transactions next to the credit hold. Everything else uses fast **in-memory token buckets** on each function instance.
@@ -235,7 +251,7 @@ firebase functions:secrets:set ANTHROPIC_API_KEY      # also HL_CLIENT_ID, HL_CL
 #   frontend/.env.production      Firebase web config, VITE_FUNCTIONS_BASE_URL=https://us-central1-<project-id>.cloudfunctions.net,
 #                                 VITE_USE_EMULATORS=false
 (cd frontend && npm run build)
-firebase deploy                                      # Firestore rules and indexes, functions, hosting
+firebase deploy                                       # Firestore rules and indexes, functions, hosting
 ```
 
 **Manual steps after the first deploy:**
