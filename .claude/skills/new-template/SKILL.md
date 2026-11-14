@@ -13,8 +13,8 @@ Create `functions/templates/<slug>/src/` (`<slug>` in kebab-case, unique). Follo
 
 - **Required:** `src/main.js` and `src/App.vue`.
 - **Allowed:** `.vue`, `.js`, `.ts`, `.css`, `.json` under `src/`, each under 100 KB.
-- **Never include** `package.json` or `src/hl.config.js`: they're system-owned and injected by the preview.
-- **Data access:** import `HL_PROXY`, `PREVIEW_TOKEN` and `LOCATION_ID` from `./hl.config.js`, call HighLevel only through the proxy, and **never hard-code a location ID or sample data**.
+- **Never include** `package.json`, `src/hl.config.js` or anything under `src/genesis/`: they're system-owned and injected by the preview.
+- **Data access:** new templates import from `./genesis/hl.js` (the injected client: `usePager`, `listEvents`, `freeSlots`, `hlGet`, named writes; see the "Client" section of `functions/src/llm/hlReference.md`). Older templates have their own `api.js` built on `./hl.config.js`, which keeps working. For styling, new templates can import `./genesis/ui.css` in `main.js` and use its classes (`functions/src/llm/uiKit.md`). Call HighLevel only through the proxy, and **never hard-code a location ID or sample data**.
 - **Pagination:** follow `functions/src/llm/hlReference.md` exactly: 20 at a time behind **Load more**, "Showing N of total".
 - **Errors:** show the proxy's `error.message`; on 429, wait `error.retryAfter` and retry once.
 - **States:** loading, empty and error states for every panel.

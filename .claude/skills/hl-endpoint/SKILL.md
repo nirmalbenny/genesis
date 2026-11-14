@@ -30,7 +30,8 @@ Never print or log access or refresh tokens.
 | File | Change |
 |---|---|
 | `functions/src/hlProxy.ts` | Add a route to `ROUTES` (method, path regex, and for writes `scope` / `bodyLocation` / `send`). Add reads to `NO_LOCATION_PARAM` if HighLevel rejects `locationId`. Calendar paths use `Version: 2021-04-15`, others `2021-07-28` (both verified for writes too). |
-| `functions/src/llm/hlReference.md` | Endpoint, parameters, verified response shape and pagination rule. Keep it compact: it's sent with every build. |
+| `functions/src/llm/hlReference.md` | Endpoint and verified response shape; if it gets a client function, document it under "Client". Keep it compact: it's sent with every build. |
+| `frontend/src/sandbox/genesis/hl.js` (+ `hl.test.ts`) | A named function (a write) or a `usePager` kind (a paginated list) with its verified cursor. Only add, never change existing exports. |
 | `functions/src/hlProxy.test.ts`, `functions/src/e2e/proxy.e2e.ts` | Unit test for the route (and its scope); an e2e test that it passes the checks (it reaches `connection_changed`) and that a neighbouring path is still refused. |
 | `CLAUDE.md` | The proxy allowlist line under "Key decisions" (and the pagination contract if relevant). |
 | `docs/ARCHITECTURE.md` | §10 proxy allowlist (and pagination). |

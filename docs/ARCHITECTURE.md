@@ -301,8 +301,9 @@ The chat shows the notice for that session only, so a declined request never aff
    - the input tokens are counted and the worst-case cost is held from the user's credits (§7).
 2. **Bounded context:**
    - the system prompt (rules plus the strict output format);
-   - [`hlReference.md`](../functions/src/llm/hlReference.md), the endpoints, response shapes and verified pagination patterns;
-   - the connected location's name and ID;
+   - [`hlReference.md`](../functions/src/llm/hlReference.md), the API of the injected HighLevel client (§10) and the response shapes;
+   - [`uiKit.md`](../functions/src/llm/uiKit.md), the classes of the injected UI kit (§10). Apps use the kit's look unless the user explicitly asks for another, and are split into components of about 150 lines, so a follow-up rewrites only the component it touches;
+   - deliberately **not** the connected location's name or ID: apps read them at run time (`LOCATION_NAME`, `LOCATION_ID`, injected by the preview), so the model has nothing to hard-code;
    - the current files, within a 60,000-character budget (files over 20,000 characters are listed but omitted);
    - the last 6 chat messages.
 3. **Output format:**
@@ -318,7 +319,7 @@ The chat shows the notice for that session only, so a declined request never aff
 4. **Validation**, applied to each operation separately:
    - the path must be relative and inside `src/`, with an extension of `.vue`, `.ts`, `.js`, `.css` or `.json`;
    - files are capped at 100 KB;
-   - `package.json` and `src/hl.config.js` are system-owned, so the model can't write them;
+   - `package.json`, `src/hl.config.js` and everything under `src/genesis/` are system-owned, so the model can't write them;
    - `src/main.js` and `src/App.vue` can't be deleted;
    - empty files are rejected.
 
@@ -564,7 +565,7 @@ sequenceDiagram
   participant HL as HighLevel
   P->>API: POST /projects/:id/preview-token
   API-->>P: HMAC token {uid, projectId, locationId, exp=15 min}
-  P->>SB: files + injected src/hl.config.js (HL_PROXY, PREVIEW_TOKEN, LOCATION_ID) + fixed package.json
+  P->>SB: files + injected src/hl.config.js (HL_PROXY, PREVIEW_TOKEN, LOCATION_ID, LOCATION_NAME) + src/genesis/hl.js (client) + src/genesis/ui.css (UI kit) + fixed package.json
   SB->>PX: GET /contacts/?… (Bearer preview token)
   PX->>PX: verify token, allowlist path, check project, force locationId
   PX->>HL: request with the real access token (refreshed if needed)
@@ -591,9 +592,18 @@ sequenceDiagram
   - `5xx` becomes `hl_unavailable`.
   - If the connection has changed since the preview token was issued, the proxy returns `connection_changed`.
 - **When the preview refreshes:** after a generation finishes, after a manual save, when the preview token is about to expire, and when the user connects or switches sub-account.
-- **Pagination** was verified against a live sandbox, and the prompt makes it mandatory:
+- **HighLevel client:** generated apps don't write their own fetch or pagination code. The preview injects [`src/genesis/hl.js`](../frontend/src/sandbox/genesis/hl.js) next to `hl.config.js` (never saved, so `RunView` gets it too), and the prompt tells the model to import from it:
+  - `hlGet` / `hlSend` add the preview token, retry a `429` once (only when the wait is 10 seconds or less), and throw errors carrying the proxy's `{ code, message }`;
+  - `usePager('contacts' | 'conversations' | 'messages', options)` returns Vue refs (`items`, `total`, `hasMore`, `loading`, `error`, `loadMore`, `reset`) and applies every pagination rule below: the right cursor, stopping on a short page, skipping ids already shown, resetting (debounced) when its options change, and dropping superseded responses;
+  - `listEvents` merges events across calendars, and `freeSlots` caps the range at 31 days and sends the viewer's timezone;
+  - writes are named functions (`createContact`, `addTags`, `bookAppointment`, `sendEmail`, …).
+
+  The client is live for every app at once, so its API may only grow: nothing is ever renamed or removed. A Vitest test checks that the "Client" section of `hlReference.md` documents exactly the functions it exports. Older apps and the ready-made apps keep their own `api.js`, which still works because `hl.config.js` is still injected.
+- **UI kit:** [`src/genesis/ui.css`](../frontend/src/sandbox/genesis/ui.css) is injected the same way and imported by new apps in `main.js`. It styles the page and provides classes for layout, cards, buttons, forms, lists, tables, badges, chips, stats and loading/empty/error states; colors, radius and font are CSS variables. The prompt tells the model to use it and write no restyling CSS unless the user explicitly asks for a different look (then it overrides the variables). Apps that don't import it (older ones, ready-made ones) keep their own CSS. Like the client, it may only grow, and a Vitest test checks that `uiKit.md` documents exactly its classes and variables.
+- **Measured effect** (same prompt, local emulator, real Claude): the contact dashboard went from one 11.5 KB `App.vue` (6,135 output tokens, 69 credits) to five files totalling 8.4 KB (4,455 output tokens, 54 credits), and a small follow-up rewrote only one component (1,053 output tokens, 27 credits).
+- **Pagination** was verified against a live sandbox, and the prompt makes it mandatory (implemented once, in the client):
   - **Contacts:** a cursor (`meta.startAfterId` plus `meta.startAfter`). Stop when a page has fewer rows than `limit`, because `nextPageUrl` stays set on the last page. `limit` can't exceed 100.
-  - **Conversations:** `startAfterDate` is the last item's `sort[0]`. The response includes `total`.
+  - **Conversations:** `startAfterDate` is the last item's `sort[0]`. The response includes `total`. `query` searches contact names on the server (start of any word, any case; one letter matches loosely, so the client sends it from 2 characters) and `total` then counts the matches.
   - **Messages:** send `lastMessageId` while `nextPage` is true. Messages arrive newest first.
   - **Calendar events:** no paging. Use a bounded window that the user can move.
   - **Free slots:** no paging. The range can't exceed 31 days, and the endpoint rejects a `locationId` parameter, so the proxy leaves it off for this path only. The access token still limits it to the connected sub-account. Only active calendars return slots.

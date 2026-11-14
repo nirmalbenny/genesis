@@ -52,7 +52,7 @@ export const generate = onRequest(
     let ctx;
     let slot: { uid: string; generationId: string } | null = null;
     try {
-      const { uid, pid, prompt, hl } = await precheck(req);
+      const { uid, pid, prompt } = await precheck(req);
       const proj = projectRef(pid);
       // Rate limit first, so a refused build costs no token count, no credit hold and no Claude call.
       const genRef = proj.collection("generations").doc();
@@ -67,7 +67,7 @@ export const generate = onRequest(
         .map((d) => ({ role: d.get("role") as "user" | "assistant", content: d.get("content") as string }));
       const request = {
         model,
-        system: buildSystemPrompt({ id: hl.locationId, name: hl.locationName }),
+        system: buildSystemPrompt(),
         messages: [
           ...history,
           { role: "user" as const, content: `Current project files:\n${renderFiles(files)}\n\nRequest: ${prompt}` },

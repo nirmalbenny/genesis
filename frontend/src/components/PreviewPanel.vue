@@ -7,6 +7,8 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { FUNCTIONS_BASE } from '@/firebase'
 import { api } from '@/lib/api'
+import HL_CLIENT from '@/sandbox/genesis/hl.js?raw'
+import UI_KIT from '@/sandbox/genesis/ui.css?raw'
 
 const props = defineProps<{
   projectId: string
@@ -25,7 +27,7 @@ const emit = defineEmits<{ connect: []; 'show-code': [] }>()
 const iframe = ref<HTMLIFrameElement | null>(null)
 const banner = ref('')
 let client: SandpackClient | null = null
-let token: { token: string; locationId: string; expiresAt: number } | null = null
+let token: { token: string; locationId: string; locationName?: string; expiresAt: number } | null = null
 let refreshTimer: ReturnType<typeof setTimeout> | undefined
 
 const INDEX_HTML = '<!DOCTYPE html><html><head><meta charset="utf-8" /><title>Preview</title></head><body><div id="app"></div></body></html>'
@@ -57,8 +59,17 @@ async function refresh() {
   files['/package.json'] = { code: PACKAGE_JSON }
   files['/public/index.html'] = { code: INDEX_HTML }
   files['/src/hl.config.js'] = {
-    code: `export const HL_PROXY = ${JSON.stringify(`${FUNCTIONS_BASE}/hlProxy`)}\nexport const PREVIEW_TOKEN = ${JSON.stringify(token!.token)}\nexport const LOCATION_ID = ${JSON.stringify(token!.locationId)}\n`,
+    code: [
+      `export const HL_PROXY = ${JSON.stringify(`${FUNCTIONS_BASE}/hlProxy`)}`,
+      `export const PREVIEW_TOKEN = ${JSON.stringify(token!.token)}`,
+      `export const LOCATION_ID = ${JSON.stringify(token!.locationId)}`,
+      `export const LOCATION_NAME = ${JSON.stringify(token!.locationName ?? '')}`,
+      '',
+    ].join('\n'),
   }
+  // The shared HighLevel client and UI kit (src/genesis/ is reserved: the model can't write there).
+  files['/src/genesis/hl.js'] = { code: HL_CLIENT }
+  files['/src/genesis/ui.css'] = { code: UI_KIT }
   const setup = {
     files,
     entry: '/src/main.js',

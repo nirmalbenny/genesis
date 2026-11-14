@@ -6,7 +6,7 @@
     "node": "24"
   },
   "scripts": {
-    "build": "tsc && cp src/llm/hlReference.md lib/llm/hlReference.md",
+    "build": "tsc && cp src/llm/hlReference.md src/llm/uiKit.md lib/llm/",
     "typecheck": "tsc --noEmit",
     "test": "npm run build && node --test lib/*.test.js lib/llm/*.test.js lib/hl/*.test.js",
     "test:e2e": "npm run build && node --test --test-concurrency=1 lib/e2e/*.e2e.js",

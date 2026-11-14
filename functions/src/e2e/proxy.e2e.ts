@@ -12,6 +12,8 @@ async function previewSetup(): Promise<{ u: TestUser; app: string; token: string
   const app = await createApp(u);
   const r = await call(u, "POST", `api/projects/${app}/preview-token`);
   assert.equal(r.status, 200);
+  assert.equal(r.body.locationId, "loc-e2e");
+  assert.equal(r.body.locationName, "E2E location", "the preview gets the name to inject as LOCATION_NAME");
   return { u, app, token: r.body.token as string };
 }
 
