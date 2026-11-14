@@ -90,7 +90,8 @@ Take-home assignment (HighLevel, Senior Engineer). Source of truth: `GENESIS_ASS
 - **Declined requests:** off-topic/harmful prompts answered with `<refuse>`; shown transiently, never stored.
 - **Connection UX:** top-bar "Connected sub-account" control; connect-first dialog on launch without a connection; `/run/:id` without a connection redirects home after a notice.
 - **Building overlay** over the preview while streaming; editor tabs open quietly so the overlay stays visible.
-- **AI credits:** 1 credit = $0.001 of Claude list price; 2,500 granted once the email is verified; worst-case hold before Claude, settle actual usage; append-only `creditLedger`; 402 when short. ARCHITECTURE §7.
+- **AI credits:** 1 credit = $0.001 of Claude list price; 2,500 granted once the email is verified; worst-case hold before Claude (input priced as a cache miss), settle actual usage; append-only `creditLedger`; 402 when short. Rate card v2 (Sonnet 5.5 cache reads 100/M). ARCHITECTURE §7.
+- **Prompt caching:** the system prompt (~5,500 tokens, identical for every user) is one `cache_control: ephemeral` block (`systemBlocks()` in `functions/src/llm/prompt.ts`), 5-minute TTL. Hit ≈ 0.55 credits vs 11 uncached; miss ≈ 13.75. Never add per-user content to it. ARCHITECTURE §7.8.
 - **Email verification gate:** unverified users only see `/verify`; every endpoint returns `403 email_not_verified`. Password confirmation on sign-up.
 - **Bot protection:** Identity Platform + reCAPTCHA Enterprise in ENFORCE (score ≤ 0.3 blocked), set up by `scripts/setup-bot-protection.sh`.
 - **HL tokens encrypted at rest:** KMS envelope encryption in `functions/src/hl/tokenVault.ts` (AES-256-GCM DEK per record, wrapped by `genesis/hl-tokens`, AAD = `hlTokens/{uid}`, 5-min decrypt cache, fail closed 503). Manual rotation; KMS data-access logs off. Emulators use `LOCAL_TOKEN_KEK`. Legacy plain-text records are sealed on first read (remove that path once none remain). ARCHITECTURE §11.1.

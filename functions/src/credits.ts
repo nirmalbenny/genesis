@@ -10,11 +10,12 @@ import { decideBuildStart, type BuildState } from "./rateLimits";
  * Balances live on users/{uid}.credits; every change is an entry in users/{uid}/creditLedger (append-only).
  */
 export const SIGNUP_CREDITS = 2500; // keep in sync with frontend/src/composables/useCredits.ts
-export const RATE_CARD_VERSION = 1;
+// 2: Sonnet 5.5 cache reads corrected to $0.10/MTok (was $0.20), with prompt caching of the system prompt.
+export const RATE_CARD_VERSION = 2;
 
 type Rate = { input: number; output: number; cacheWrite: number; cacheRead: number }; // credits per 1M tokens
 const RATES: Record<string, Rate> = {
-  "claude-sonnet-5-5": { input: 2000, output: 10000, cacheWrite: 2500, cacheRead: 200 },
+  "claude-sonnet-5-5": { input: 2000, output: 10000, cacheWrite: 2500, cacheRead: 100 },
   "claude-haiku-5-5": { input: 100, output: 500, cacheWrite: 125, cacheRead: 10 },
 };
 // An unknown model is billed at the highest known rate rather than for free.
@@ -39,6 +40,15 @@ export function creditsFor(model: string, u: TokenUsage): number {
 }
 
 export const chargeable = (credits: number) => Math.ceil(credits);
+
+/**
+ * The most one model call can cost: every input token at the dearest input rate (a cache write, 1.25x, when the
+ * cached prefix has expired) plus the full output cap. Builds hold this, so a cache miss is never under-charged.
+ */
+export function worstCaseCredits(model: string, inputTokens: number, maxOutputTokens: number): number {
+  const r = rateFor(model);
+  return (inputTokens * Math.max(r.input, r.cacheWrite) + maxOutputTokens * r.output) / 1e6;
+}
 
 export type CreditState = { balance: number; reserved: number; granted: number; used: number };
 const EMPTY: CreditState = { balance: 0, reserved: 0, granted: 0, used: 0 };

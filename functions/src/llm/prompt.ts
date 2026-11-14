@@ -1,3 +1,4 @@
+import type Anthropic from "@anthropic-ai/sdk";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -57,6 +58,15 @@ Rules:
 
 ${uiKit}
 ${hlReference}`;
+}
+
+/**
+ * The system prompt as one cached block. It is the same for every user and build (it changes only on deploy), so a
+ * build started within 5 minutes of any other reads it from Anthropic's prompt cache at 0.05x the input price.
+ * Nothing per-user may ever be added to it: that would split the cache and could leak between users.
+ */
+export function systemBlocks(): Anthropic.TextBlockParam[] {
+  return [{ type: "text", text: buildSystemPrompt(), cache_control: { type: "ephemeral" } }];
 }
 
 /** Renders current project files within a character budget; oversized files are listed but omitted. */

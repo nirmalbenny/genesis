@@ -1,6 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildSystemPrompt } from "./prompt";
+import { buildSystemPrompt, systemBlocks } from "./prompt";
+
+test("the system prompt is one cached block, byte-identical on every call", () => {
+  const blocks = systemBlocks();
+  assert.equal(blocks.length, 1);
+  assert.deepEqual(blocks[0]!.cache_control, { type: "ephemeral" }, "5-minute TTL: the rate card has no 1-hour price");
+  assert.equal(blocks[0]!.text, buildSystemPrompt());
+  assert.equal(systemBlocks()[0]!.text, blocks[0]!.text, "any variation would make every build a cache miss");
+});
 
 test("the system prompt carries no sub-account name or id, and points the model to LOCATION_NAME", () => {
   const prompt = buildSystemPrompt();

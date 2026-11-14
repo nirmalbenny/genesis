@@ -3,13 +3,14 @@ import { FieldValue } from "firebase-admin/firestore";
 import { onRequest, type Request } from "firebase-functions/v2/https";
 import { ANTHROPIC_API_KEY, ANTHROPIC_MODEL, ANTHROPIC_SUMMARY_MODEL, APP_ORIGINS } from "./config";
 import {
-  chargeable, creditsFor, holdCredits, releaseBuildSlot, reserveBuildSlot, settleCredits, toTokenUsage, type TokenUsage,
+  chargeable, creditsFor, holdCredits, releaseBuildSlot, reserveBuildSlot, settleCredits, toTokenUsage, worstCaseCredits,
+  type TokenUsage,
 } from "./credits";
 import { applyOps, createSnapshot, projectRef, readFiles } from "./files";
 import { httpError, requireVerifiedUser, sendError } from "./http";
 import { createParser } from "./llm/parser";
 import { summarizeChange } from "./llm/summary";
-import { buildSystemPrompt, RECENT_MESSAGES, renderFiles } from "./llm/prompt";
+import { RECENT_MESSAGES, renderFiles, systemBlocks } from "./llm/prompt";
 import { validateOps, type FileOp, type Rejection } from "./llm/validate";
 import { assertEditable, getOwnedProject, getUserHl, useConnectedLocation } from "./projects";
 
@@ -67,20 +68,19 @@ export const generate = onRequest(
         .map((d) => ({ role: d.get("role") as "user" | "assistant", content: d.get("content") as string }));
       const request = {
         model,
-        system: buildSystemPrompt(),
+        system: systemBlocks(),
         messages: [
           ...history,
           { role: "user" as const, content: `Current project files:\n${renderFiles(files)}\n\nRequest: ${prompt}` },
         ],
       };
 
-      // Hold the worst case: exact input tokens plus the full output cap and the summary allowance.
+      // Hold the worst case: exact input tokens priced as a cache miss, the full output cap and the summary allowance.
       const inputTokens = await client.messages.countTokens(request)
         .then((r) => r.input_tokens)
         .catch(() => Math.ceil(JSON.stringify(request).length / CHARS_PER_TOKEN));
       const held = chargeable(
-        creditsFor(model, { inputTokens, outputTokens: MAX_OUTPUT_TOKENS, cacheWriteTokens: 0, cacheReadTokens: 0 }) +
-        creditsFor(summaryModel, SUMMARY_ALLOWANCE),
+        worstCaseCredits(model, inputTokens, MAX_OUTPUT_TOKENS) + creditsFor(summaryModel, SUMMARY_ALLOWANCE),
       );
       await holdCredits(uid, genRef.id, held);
       // The prompt and chat messages are saved only after the model accepts the request,
@@ -251,7 +251,10 @@ export const generate = onRequest(
     }
 
     const credits = await settle(buildUsage);
-    console.info("generate: persisted", { generationId, status, applied: applied.length, credits: credits.charged });
+    console.info("generate: persisted", {
+      generationId, status, applied: applied.length, credits: credits.charged,
+      cacheRead: buildUsage.cacheReadTokens, cacheWrite: buildUsage.cacheWriteTokens, // system prompt cache hit / miss
+    });
     if (status === "cancelled") {
       send("cancelled", { generationId, snapshotId, files: applied, unfinished: unclosed, credits });
     } else if (failure) send("error", { ...failure, partial: applied.length > 0, credits });
