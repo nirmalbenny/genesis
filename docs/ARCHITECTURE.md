@@ -338,11 +338,11 @@ Every build spends real money on Claude, so each user has a credit balance. A bu
 
 ### 7.1 Unit and rate card
 
-**1 credit = $0.001 of Claude list price.** The rate card is versioned (`RATE_CARD_VERSION = 1`), and every charge records the version it used. Rates are credits per million tokens:
+**1 credit = $0.001 of Claude list price.** The rate card is versioned (`RATE_CARD_VERSION = 2`; version 2 corrected Sonnet 5.5 cache reads from 200 to 100 when prompt caching was turned on), and every charge records the version it used. Rates are credits per million tokens:
 
 | Model | Used for | Input | Output | Cache write | Cache read |
 |---|---|---|---|---|---|
-| `claude-sonnet-5-5` | Builds | 2,000 | 10,000 | 2,500 | 200 |
+| `claude-sonnet-5-5` | Builds | 2,000 | 10,000 | 2,500 | 100 |
 | `claude-haiku-5-5` | One-line snapshot summaries | 100 | 500 | 125 | 10 |
 
 - **Unknown models** are billed at the highest rate on the card, never for free.
@@ -389,7 +389,7 @@ sequenceDiagram
 **Hold**, reserved before Claude is called:
 
 ```text
-held = ceil( exact input tokens × input rate
+held = ceil( exact input tokens × cache-write rate   (the dearest input rate: a cache miss, §7.8)
            + 16,000 (output cap) × output rate
            + summary allowance: 1,000 input + 60 output tokens on Haiku )
 ```
@@ -406,16 +406,16 @@ The transaction releases the hold, deducts `charged` from the balance, adds it t
 
 ### 7.4 Worked example
 
-A build whose prompt and files come to 20,000 input tokens:
+A build whose input comes to 20,000 tokens: the 5,500-token system prompt (cached, §7.8) plus 14,500 tokens of history, files and prompt:
 
 | Step | Calculation | Credits |
 |---|---|---|
-| Hold | 20,000 × 2,000/M = 40 · 16,000 × 10,000/M = 160 · summary 0.13 | **201** reserved |
-| The model writes 3,000 tokens | 20,000 × 2,000/M = 40 · 3,000 × 10,000/M = 30 | 70 |
+| Hold | 20,000 × 2,500/M = 50 (all input as a cache miss) · 16,000 × 10,000/M = 160 · summary 0.13 | **211** reserved |
+| The model writes 3,000 tokens, cache hit | 14,500 × 2,000/M = 29 · 5,500 × 100/M = 0.55 · 3,000 × 10,000/M = 30 | 59.55 |
 | Summary (600 in, 40 out on Haiku) | 0.06 + 0.02 | 0.08 |
-| Charge | ceil(70.08) | **71** charged, 130 released |
+| Charge | ceil(59.63) | **60** charged, 151 released |
 
-A new user's 2,500 credits cover roughly 30–40 builds of this size.
+On a cache miss the system prompt costs 5,500 × 2,500/M = 13.75 instead of 0.55, and the same build is charged 73. A new user's 2,500 credits cover roughly 35–40 builds of this size.
 
 ### 7.5 How each outcome is charged
 
@@ -439,6 +439,22 @@ A new user's 2,500 credits cover roughly 30–40 builds of this size.
 - Balances and the ledger are readable by their owner and written only by Cloud Functions. An integration test confirms a user can't top up their own credits.
 - The hold and the charge are Firestore transactions, so concurrent builds can't overspend: two builds that each fit the balance alone can't both be reserved if together they don't.
 - **Not built:** buying credits, monthly refills, or admin adjustments. A user who runs out today can't get more without someone editing their balance in Firestore.
+
+### 7.8 Prompt caching
+
+The system prompt (rules, UI kit and HighLevel reference: about 5,500 tokens) is identical for every user and build; it changes only on deploy. `generate` sends it as one block with `cache_control: { type: "ephemeral" }` ([`systemBlocks()`](../functions/src/llm/prompt.ts)), so Anthropic caches it for 5 minutes, and every read restarts that timer.
+
+| | System prompt cost | vs. uncached (11 credits) |
+|---|---|---|
+| Cache hit: any build, by anyone, started within 5 minutes of the last one | 5,500 × 100/M ≈ 0.55 | about 10 credits saved |
+| Cache miss: the first build after a quiet spell, or after a deploy | 5,500 × 2,500/M ≈ 13.75 | about 2.7 credits extra |
+
+- It pays off once about 1 build in 5 is a hit. A user's follow-up prompts nearly always are.
+- Measured on the emulator: two follow-ups 2 minutes apart showed `cacheWriteTokens: 5,487` then `cacheReadTokens: 5,487`. The second was charged 28 credits instead of 38.
+- The charge always follows Claude's reported usage, so caching can't over-charge. The hold prices all input as a cache miss, so it can't under-charge either.
+- Nothing per-user may be added to the system prompt: that would split the cache, and the cache is shared by every user of the API key. A test checks the block is byte-identical across calls.
+- The history, files and prompt aren't cached: they change on every build. The 1-hour TTL isn't used: it costs 2× to write, and the rate card has no price for it.
+- `generate: persisted` logs `cacheRead` / `cacheWrite`, and each generation stores them under `usage`.
 
 ## 8. Rate limiting
 
