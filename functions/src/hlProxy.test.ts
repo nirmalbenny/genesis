@@ -1,6 +1,23 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { routeFor, writeBody } from "./hlProxy";
+import { routeFor, upstreamError, writeBody } from "./hlProxy";
+
+// Bodies as HighLevel returned them on the sandbox (2026-11-14); the contact name is shortened.
+test("HighLevel errors become readable messages, never raw JSON", () => {
+  const duplicate = '{"statusCode":400,"message":"This location does not allow duplicated contacts.","meta":{"contactName":"Quinn Sample","contactId":"MY0dHqEsFphpCNT8JTvD","matchingField":"phone"},"traceId":"e00f"}';
+  assert.deepEqual(upstreamError(400, duplicate), {
+    code: "hl_duplicate_contact",
+    message: "A contact with this phone already exists (Quinn Sample).",
+    details: { contactId: "MY0dHqEsFphpCNT8JTvD", matchingField: "phone" },
+  });
+  const invalid = '{"message":["email must be an email","phone must be valid"],"error":"Unprocessable Entity","statusCode":422}';
+  assert.deepEqual(upstreamError(422, invalid), { code: "hl_request_failed", message: "Email must be an email; phone must be valid." });
+  const inactive = '{"message":"Calendar is inactive","error":"Bad Request","statusCode":400}';
+  assert.deepEqual(upstreamError(400, inactive), { code: "hl_request_failed", message: "Calendar is inactive." });
+  assert.deepEqual(upstreamError(404, '{"msg":"Contact not found"}'), { code: "hl_request_failed", message: "Contact not found." });
+  assert.deepEqual(upstreamError(400, "<html>Bad gateway</html>"), { code: "hl_request_failed", message: "HighLevel rejected the request (400)." });
+  assert.deepEqual(upstreamError(400, '{"statusCode":400}'), { code: "hl_request_failed", message: "HighLevel rejected the request (400)." });
+});
 
 const refused = (fn: () => unknown, status: number, code: string) =>
   assert.throws(fn, (e: { status?: number; code?: string }) => e.status === status && e.code === code);
