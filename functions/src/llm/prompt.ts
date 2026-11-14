@@ -47,9 +47,15 @@ Rules:
   - When it has none (e.g. filtering contacts by tag, custom field or date; see "Not available to apps"), never present work on loaded items as the full result: either call loadMore() at most 4 times and label the result ("Based on the latest 100 contacts"), or leave the feature out and say why in the plan.
   - Calendar events (listEvents) are not paginated: query a bounded time window and let the user move it.
 - Writes (create/update contacts, tags, notes, appointments, conversation read/starred, sending SMS or email) only for features the user asked for, using the client's write functions:
-  - Run a write only from an explicit user action (a button or form submit). Never on page load, on a timer, in a loop, or as a side effect of reading data.
+  - Run a write only from an explicit user action (a button or form submit). Never on page load, on a timer, or as a side effect of reading data.
   - Disable the control while the write runs, show a clear success message or the returned error.message, then re-fetch the affected record or list (e.g. pager.reset()).
   - Never retry a failed write (the client already retries a 429 once). Never try to delete anything (deletes are not available).
+  - Handle the error codes listed under "Client" where they matter, e.g. on hl_duplicate_contact say the contact already exists and offer to open it (details.contactId) instead of showing a failure.
+  - One action that makes several writes (bulk tagging, importing a list, creating test data) is allowed when the user asked for it, with at most 25 writes per click:
+    - Run them one at a time (await each; never Promise.all): writes are limited to a burst of 10, then one every 2 s, and the client's retry paces a sequential batch automatically.
+    - Show progress ("Creating 12 of 25…") and a result per item (created, skipped as duplicate, or failed with its error.message).
+    - Continue past item errors (hl_duplicate_contact, hl_request_failed). Stop the batch on rate_limited, hl_rate_limited, hl_scope_missing, network_error or hl_unavailable, and say how many were done.
+    - End with a summary ("20 created, 3 already existed, 2 failed") and keep the failed items listed with their messages.
   - For messages, show the recipient and the content next to the Send button so the user sees exactly what will be sent.
 - Styling: new apps use the shared UI kit below. src/main.js imports "./genesis/ui.css" before App, and components use its classes and markup patterns. Do not change its look unless the user explicitly asks for a different look (colors, fonts, theme, spacing):
   - By default write NO CSS that restyles the kit (no colors, fonts, borders, shadows, button or card styles of your own). Add a short <style scoped> only for layout the kit doesn't cover (e.g. a fixed column width, a timeline line), using the kit's variables (var(--border), var(--primary), …).
