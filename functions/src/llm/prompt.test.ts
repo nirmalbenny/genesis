@@ -26,6 +26,15 @@ test("the system prompt includes the UI kit, keeps its look by default, and asks
   assert.doesNotMatch(prompt, /Style with plain CSS in <style scoped>/, "the old free-styling rule is gone");
 });
 
+test("the system prompt covers write errors and bounded, sequential batches", () => {
+  const prompt = buildSystemPrompt();
+  assert.match(prompt, /hl_duplicate_contact/);
+  assert.match(prompt, /at most 25 writes per click/);
+  assert.match(prompt, /one at a time \(await each; never Promise\.all\)/);
+  assert.match(prompt, /Continue past item errors/);
+  assert.match(prompt, /never JSON\.stringify an error/);
+});
+
 test("the system prompt forbids presenting work on loaded items as the full result", () => {
   const prompt = buildSystemPrompt();
   assert.match(prompt, /must cover all the data, not just the loaded page/);

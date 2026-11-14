@@ -1,7 +1,8 @@
 # HighLevel API reference
 
 ## Client (`./genesis/hl.js`, provided at run time; never write it)
-Every function throws an Error with `{ code, message, status, retryAfter }`; show `error.message`. A 429 is retried once inside the client, so never add your own retries. Never fire requests on a timer faster than every 30 s. DELETE is never available.
+Every function throws an Error with `{ code, message, status, retryAfter, details }`; `message` is already readable, so show it as is (never JSON.stringify an error). A 429 is retried once inside the client, so never add your own retries. Never fire requests on a timer faster than every 30 s. DELETE is never available.
+Error codes worth handling: `hl_duplicate_contact` (the location forbids duplicates; `details.contactId` is the existing contact and `details.matchingField` is `email` or `phone`: offer to open or update it instead), `hl_request_failed` (HighLevel rejected the input, e.g. "Email must be an email", "Calendar is inactive": show it next to the item), `rate_limited` / `hl_rate_limited` (too many requests even after the retry; `retryAfter` is in seconds: stop and say when to try again), `hl_scope_missing` (reconnect HighLevel), `hl_unavailable`, `network_error`, `connection_changed` (reload the preview).
 - `LOCATION_ID` — the connected sub-account's id (the client already sends it; use it only if you call `hlGet` on a listed endpoint).
 - `LOCATION_NAME` — the connected sub-account's name (may be empty), for headings such as "Contacts · {{ LOCATION_NAME }}".
 - `usePager(kind, options)` — a paginated list as Vue refs: `{ items, total, hasMore, loading, error, loadMore(), reset() }`. Kinds and options (all optional except `conversationId`):

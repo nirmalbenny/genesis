@@ -46,7 +46,9 @@ async function request(method, path, params, body) {
       await sleep(wait * 1000)
       continue
     }
-    throw hlError(err.code || `http_${res.status}`, err.message || `Request failed (${res.status})`, res.status, err.retryAfter)
+    const e = hlError(err.code || `http_${res.status}`, err.message || `Request failed (${res.status})`, res.status, err.retryAfter)
+    if (err.details) e.details = err.details // e.g. hl_duplicate_contact: { contactId, matchingField }
+    throw e
   }
 }
 

@@ -606,7 +606,9 @@ sequenceDiagram
   - HighLevel `401` becomes `hl_unauthorized`.
   - `429` becomes `hl_rate_limited`.
   - `5xx` becomes `hl_unavailable`.
+  - Other `4xx` become a readable message taken from HighLevel's body (`message` is a string, or a list for validation errors), never the raw JSON: for example `hl_request_failed` "Email must be an email." or "Calendar is inactive.". A duplicate contact becomes `hl_duplicate_contact`, "A contact with this phone already exists (Name).", with `details: { contactId, matchingField }`, so an app can offer the existing contact. The raw body is still logged.
   - If the connection has changed since the preview token was issued, the proxy returns `connection_changed`.
+- **Errors in generated apps:** the client throws errors with `{ code, message, status, retryAfter, details }`. The prompt asks apps to show `message` as is, handle duplicates, and run multi-write actions (at most 25 writes per click) one at a time, continuing past item errors, stopping on rate limits, missing scope or outages, and ending with a per-item summary.
 - **When the preview refreshes:** after a generation finishes, after a manual save, when the preview token is about to expire, and when the user connects or switches sub-account.
 - **HighLevel client:** generated apps don't write their own fetch or pagination code. The preview injects [`src/genesis/hl.js`](../frontend/src/sandbox/genesis/hl.js) next to `hl.config.js` (never saved, so `RunView` gets it too), and the prompt tells the model to import from it:
   - `hlGet` / `hlSend` add the preview token, retry a `429` once (only when the wait is 10 seconds or less), and throw errors carrying the proxy's `{ code, message }`;

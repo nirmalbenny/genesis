@@ -246,5 +246,31 @@ async function sendUpstreamError(res: Response, upstream: globalThis.Response, p
     sendError(res, hlRateLimited(retryAfter));
   }
   else if (upstream.status >= 500) res.status(502).json(apiError("hl_unavailable", "HighLevel is temporarily unavailable."));
-  else res.status(upstream.status).json(apiError("hl_request_failed", `HighLevel returned ${upstream.status}: ${detail.slice(0, 200)}`));
+  else res.status(upstream.status).json({ error: upstreamError(upstream.status, detail) });
+}
+
+/**
+ * A readable error for a HighLevel 4xx, never its raw JSON. HighLevel sends `message` as a string or, for
+ * validation errors, a list; a duplicate contact also carries `meta` (verified on the sandbox).
+ */
+export function upstreamError(status: number, detail: string): { code: string; message: string; details?: Record<string, unknown> } {
+  let body: { message?: unknown; msg?: unknown; meta?: { contactId?: string; contactName?: string; matchingField?: string } } | null = null;
+  try {
+    body = JSON.parse(detail);
+  } catch {
+    // not JSON: fall back to the generic message below
+  }
+  const meta = body?.meta;
+  if (meta?.contactId && meta.matchingField) {
+    return {
+      code: "hl_duplicate_contact",
+      message: `A contact with this ${meta.matchingField} already exists${meta.contactName ? ` (${meta.contactName})` : ""}.`,
+      details: { contactId: meta.contactId, matchingField: meta.matchingField },
+    };
+  }
+  const raw = body?.message ?? body?.msg;
+  const text = (Array.isArray(raw) ? raw.filter((m) => typeof m === "string").join("; ") : typeof raw === "string" ? raw : "").trim();
+  if (!text) return { code: "hl_request_failed", message: `HighLevel rejected the request (${status}).` };
+  const sentence = text.charAt(0).toUpperCase() + text.slice(1, 300);
+  return { code: "hl_request_failed", message: /[.!?]$/.test(sentence) ? sentence : `${sentence}.` };
 }

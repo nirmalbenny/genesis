@@ -65,6 +65,13 @@ describe('hlGet / hlSend', () => {
     expect(calls[0].init).toMatchObject({ method: 'POST', body: '{"tags":["vip"]}' })
   })
 
+  it('passes the details of a duplicate contact through', async () => {
+    respond([400, { error: { code: 'hl_duplicate_contact', message: 'A contact with this phone already exists (Quinn Sample).', details: { contactId: 'c9', matchingField: 'phone' } } }])
+    await expect(hl.createContact({ firstName: 'Quinn', phone: '+1555' })).rejects.toMatchObject({
+      code: 'hl_duplicate_contact', status: 400, details: { contactId: 'c9', matchingField: 'phone' },
+    })
+  })
+
   it('reports a network failure as an error with a message', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch') }))
     await expect(hl.hlGet('/calendars/')).rejects.toMatchObject({ code: 'network_error' })
