@@ -47,6 +47,20 @@ test("validateOps rejects bad paths and keeps valid ops", () => {
   assert.equal(rejected.length, 4);
 });
 
+test("validateOps keeps src/genesis/ (the injected HighLevel client) system-owned", () => {
+  const { valid, rejected } = validateOps(
+    [
+      { type: "write", path: "src/genesis/hl.js", content: "x" },
+      { type: "write", path: "src/genesis/other.js", content: "x" },
+      { type: "write", path: "src/hl.config.js", content: "x" },
+      { type: "write", path: "src/genesisApp.vue", content: "x" },
+    ],
+    new Set(),
+  );
+  assert.deepEqual(valid.map((o) => o.path), ["src/genesisApp.vue"]);
+  assert.ok(rejected.every((r) => r.reason === "path is system-owned"));
+});
+
 test("refuse tag is swallowed and reported, in any chunking", () => {
   for (const size of [1, 3, 1000]) {
     const events: ParseEvent[] = [];

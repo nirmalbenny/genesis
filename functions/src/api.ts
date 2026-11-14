@@ -180,7 +180,11 @@ const previewToken: Handler = async (uid, _req, [pid]) => {
   const hl = await getUserHl(uid);
   if (!hl) throw httpError(409, "hl_not_connected", "HighLevel is not connected. Connect it to preview this app.");
   await useConnectedLocation(pid, project, hl.locationId);
-  return { ...signPreviewToken({ uid, projectId: pid, locationId: hl.locationId }), locationId: hl.locationId };
+  return {
+    ...signPreviewToken({ uid, projectId: pid, locationId: hl.locationId }),
+    locationId: hl.locationId,
+    locationName: hl.locationName, // shown by apps as LOCATION_NAME, so they never hard-code it
+  };
 };
 
 /** Removes every stored HighLevel secret for the user. Idempotent. */

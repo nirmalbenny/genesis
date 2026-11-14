@@ -1,91 +1,52 @@
-# HighLevel API reference (via proxy)
+# HighLevel API reference
 
-Base: `HL_PROXY` from `./hl.config.js`. Every request sends header `Authorization: Bearer ${PREVIEW_TOKEN}`. Reads are GET; writes are POST/PUT with a JSON body (see Writes). DELETE is never available.
-`locationId` is added automatically by the proxy, but pass `locationId=${LOCATION_ID}` anyway where listed.
-Responses are JSON. On failure the proxy returns `{ "error": { "code", "message" } }` with a non-2xx status — always show that message in the UI.
-Rate limits: a 429 (`rate_limited` or `hl_rate_limited`) carries `error.retryAfter` (seconds). The fetch helper waits that long and retries the request ONCE, then shows the message. Never retry in a loop, and never fire requests on a timer faster than every 30 s.
+## Client (`./genesis/hl.js`, provided at run time; never write it)
+Every function throws an Error with `{ code, message, status, retryAfter }`; show `error.message`. A 429 is retried once inside the client, so never add your own retries. Never fire requests on a timer faster than every 30 s. DELETE is never available.
+- `LOCATION_ID` — the connected sub-account's id (the client already sends it; use it only if you call `hlGet` on a listed endpoint).
+- `LOCATION_NAME` — the connected sub-account's name (may be empty), for headings such as "Contacts · {{ LOCATION_NAME }}".
+- `usePager(kind, options)` — a paginated list as Vue refs: `{ items, total, hasMore, loading, error, loadMore(), reset() }`. Kinds and options (all optional except `conversationId`):
+    `'contacts'` `{ query, sortBy: 'date_added'|'date_updated', order: 'asc'|'desc', limit }` (query under 3 characters lists everything);
+    `'conversations'` `{ query, status: 'all'|'read'|'unread'|'starred', contactId, limit }` (newest message first; `query` searches contact names on the server, from 2 characters, and `total` counts the matches: use it for search, never filter loaded items);
+    `'messages'` `{ conversationId, limit }` (newest first; loadMore fetches OLDER ones; for a thread shown oldest-at-top render `[...items].reverse()`; stays empty while `conversationId` is empty).
+    `limit` defaults to 20 (max 100). `options` may be a getter or a reactive object: when it changes, the list resets and page 1 loads (debounced). `total` is null when unknown (messages). `error` is null or an Error: show it with `{{ error.message }}`. `pager.reset()` reloads page 1 (use it to retry or after a write).
+- `contactName(x)` — the display name of a contact (list item or record), a conversation or anything with name fields. ALWAYS use it to show a person's name: the contacts list lowercases `firstName`/`lastName`/`contactName`.
+- `toDate(value)` — a Date (or null) from any HighLevel time: ms, ISO with offset, or "YYYY-MM-DD HH:MM:SS". Never call `new Date(startTime)` yourself (that last format fails in Safari).
+- `getContact(contactId)` → the contact record (fields under Endpoints).
+- `contactAppointments(contactId, { upcoming })` → that contact's appointments sorted by start, each with `start`/`end` Dates; `upcoming: true` keeps those not started yet. Filter by `appointmentStatus` yourself (e.g. hide `cancelled`).
+- `listCalendars({ activeOnly })` → `[{ id, name, description, isActive, slotDuration (minutes), calendarType }]`.
+- `listEvents({ from, to, calendarId })` → events across all calendars (or one), sorted by start, each with `calendarName` and `start`/`end` Dates. `from`/`to`: Date, ms or ISO string; default the next 7 days. Keep the window bounded and let the user move it.
+- `freeSlots(calendarId, { from, to, timezone })` → `[{ date: 'YYYY-MM-DD', slots: [ISO start time, …] }]`. Range defaults to 7 days, capped at 31; timezone defaults to the viewer's. Only for ACTIVE calendars (`isActive !== false`), otherwise 400 "Calendar is inactive". An empty array means no open slots: say "No open slots in this period", not an error.
+- `hlGet(path, params)` — any other read listed under Endpoints, e.g. `hlGet('/contacts/' + id)`. Resolves to the JSON body.
+- `hlSend(method, path, body)` — raw POST/PUT; prefer the named writes below.
+- `createContact({ firstName, lastName, email, phone, tags?, source? })` → the contact `{ id, … }`. If the location enforces unique email/phone, a duplicate → 400: show the message.
+- `updateContact(contactId, fields)` → the contact. Send only the fields to change. `tags` here REPLACES all tags; to add tags use `addTags`.
+- `addTags(contactId, tags)` → `{ tags (all tags now), tagsAdded }`. Adds, never removes.
+- `addNote(contactId, body)` → `{ id, body, dateAdded }`.
+- `bookAppointment({ calendarId, contactId, startTime, title?, toNotify? })` → `{ id, appointmentStatus, … }`. `startTime` must be a slot from `freeSlots`, sent exactly as returned.
+- `reschedule(eventId, startTime)` and `cancelAppointment(eventId)`. The response may omit `startTime`: re-fetch (`hlGet('/contacts/' + contactId + '/appointments')`) to show the new time.
+- `markRead(conversationId)`, `star(conversationId, on)`.
+- `sendEmail({ contactId, subject, html })` (goes to the contact's email; verified) and `sendSms({ contactId, message })` (not yet verified on the sandbox: show the returned error clearly). These reach a real person.
+Write errors: 403 `hl_scope_missing` → show the message (the user must reconnect HighLevel). Writes and sends have tighter rate limits than reads.
 
-## Contacts
-- `GET /contacts/?locationId=…&limit=20&query=<search text>&startAfterId=<id>&startAfter=<ts>`
-    Search text shorter than 3 characters returns nothing: only send `query` when it has 3+ characters (otherwise list without it).
-  → `{ contacts: [{ id, firstName, lastName, contactName, email, phone, tags, dateAdded }], meta: { total, startAfterId, startAfter, nextPageUrl } }`
-    Newest first: add `sortBy=date_added&order=desc` (only `date_added` / `date_updated` are valid sort keys).
-    Paginated (cursor) — see Pagination. `limit` max 100.
-- `GET /contacts/{contactId}` → `{ contact: {...} }`
-- `GET /contacts/{contactId}/appointments` → `{ events: [{ id, title, calendarId, startTime, endTime, appointmentStatus }] }`
-    All appointments for one contact (past and future); filter by `startTime` yourself. Not paginated.
+## Endpoints (verified response shapes; the client calls these for you)
+Fields can be null or missing: guard every one. Times: use `toDate`. Names: use `contactName`.
+Contacts
+- `GET /contacts/` (usePager 'contacts') → items `{ id, firstName, lastName, firstNameRaw, lastNameRaw, contactName, companyName, email, phone, tags, source, type ('lead'|'customer'), city, country, dnd, dateAdded, dateUpdated }`, `meta: { total }`.
+    `firstName`, `lastName`, `contactName` and `tags` come back LOWERCASED here (real case only in `firstNameRaw`/`lastNameRaw`); tags are lowercase everywhere.
+- `GET /contacts/{contactId}` (getContact) → `{ contact: { id, firstName, lastName, email, phone, companyName, tags, source, type, country, dateAdded, dateUpdated, additionalEmails, additionalPhones } }`. Names in real case; there is NO `contactName` here.
+- `GET /contacts/{contactId}/appointments` (contactAppointments) → `{ events: [{ id, title, calendarId, startTime, endTime, appointmentStatus, address }] }`. `startTime`/`endTime` are "YYYY-MM-DD HH:MM:SS" in the sub-account's local time, with no offset.
+    `appointmentStatus` (here and in calendar events): `new`, `confirmed`, `showed`, `noshow`, `cancelled`, `invalid`.
 
-## Conversations
-- `GET /conversations/search?locationId=…&limit=20&contactId=<id>&status=<all|read|unread|starred>&sortBy=last_message_date&sort=desc&startAfterDate=<sort value>`
-  → `{ conversations: [{ id, contactId, fullName, contactName, lastMessageBody, lastMessageDate, lastMessageType, unreadCount, sort }], total }`
-    Paginated (`startAfterDate`) — see Pagination.
-- `GET /conversations/{conversationId}/messages?limit=20&lastMessageId=<id>`
-  → `{ messages: { messages: [{ id, body, direction ("inbound"|"outbound"), dateAdded, messageType, status }], lastMessageId, nextPage } }`
-    Newest messages first. Paginated (`lastMessageId`) — see Pagination.
+Conversations
+- `GET /conversations/search` (usePager 'conversations') → items `{ id, contactId, fullName, contactName, email, companyName, tags, lastMessageBody, lastMessageDate (ms), lastMessageType, lastMessageDirection, unreadCount, type }`. `fullName` is in real case.
+- `GET /conversations/{conversationId}` → `{ id, contactId, unreadCount, lastMessageBody, lastMessageDate, lastMessageType, type }` (flat, not wrapped). It has NO contact name: keep the list item, or call getContact(contactId).
+- `GET /conversations/{conversationId}/messages` (usePager 'messages') → items `{ id, body, direction ('inbound'|'outbound'), dateAdded, messageType, status, meta }`.
+    `messageType` seen: `TYPE_SMS`, `TYPE_EMAIL`, and `TYPE_ACTIVITY_*` (e.g. `TYPE_ACTIVITY_APPOINTMENT`): activity entries, not messages; show them as small centered notes, not chat bubbles. Treat any other type as a plain message.
+    Email: `body` is plain text and the subject is `meta.email.subject`. `status` is often missing; when it is `failed`, show that clearly.
 
-## Calendars
-- `GET /calendars/?locationId=…` → `{ calendars: [{ id, name, description, isActive }] }` (not paginated)
-- `GET /calendars/events?locationId=…&calendarId=<id>&startTime=<ms epoch>&endTime=<ms epoch>`
-  → `{ events: [{ id, title, calendarId, contactId, startTime, endTime, appointmentStatus, address, notes }] }`
-  `startTime`/`endTime` are required, in milliseconds. `calendarId` is required: first list calendars, then fetch events per calendar and merge.
-  `startTime` / `endTime` in results are ISO-like date strings.
-  NOT paginated: every event in the window comes back at once. Keep windows bounded (a day, a week, a month) and let the user move the window (Previous / Next week, Today) instead of requesting years.
-- `GET /calendars/{calendarId}/free-slots?startDate=<ms epoch>&endDate=<ms epoch>&timezone=<IANA tz>` — open booking slots (availability)
-  → `{ "2026-11-06": { slots: ["2026-11-06T12:00:00+05:30", …] }, "2026-11-07": { … }, traceId }`
-    Keys are dates (YYYY-MM-DD); ignore any key that is not a date (e.g. `traceId`). Each slot is an ISO start time.
-    Range must be 31 days or less (longer → 400). Do NOT send `locationId` here. Pass the viewer's timezone
-    (`Intl.DateTimeFormat().resolvedOptions().timeZone`). Only query active calendars (`isActive !== false`); an
-    inactive calendar returns 400 "Calendar is inactive". A calendar with no availability configured returns no date keys:
-    show "No open slots in this period" rather than an error. Not paginated.
+Calendars
+- `GET /calendars/` (listCalendars). Several calendars can be inactive.
+- `GET /calendars/events` (listEvents) → events `{ id, title, calendarId, contactId, startTime, endTime, appointmentStatus, address }`; times are ISO with offset ("2026-11-06T14:30:00+05:30").
+- `GET /calendars/{calendarId}/free-slots` (freeSlots)
 
-## Writes (verified; POST/PUT with `Content-Type: application/json`)
-The proxy adds the location to the body where HighLevel needs it. After a successful write, re-fetch what it changed (the proxy clears its cache).
-- `POST /contacts/` `{ firstName, lastName, email, phone, tags?, source? }` → 201 `{ contact: { id, firstName, lastName, email, tags, … } }`
-    If the location enforces unique email/phone, a duplicate → 400: show the message.
-- `PUT /contacts/{contactId}` with only the fields to change → `{ succeeded, contact }`. Sending `tags` here REPLACES all tags; to add tags use:
-- `POST /contacts/{contactId}/tags` `{ tags: ["vip"] }` → 201 `{ tags (all tags now), tagsAdded }` — adds, never removes.
-- `POST /contacts/{contactId}/notes` `{ body }` → 201 `{ note: { id, body, dateAdded } }`
-- `POST /calendars/events/appointments` `{ calendarId, contactId, startTime, title?, toNotify? }` → 201 `{ id, appointmentStatus, … }`
-    `startTime` must be a slot returned by free-slots for an ACTIVE calendar (send it exactly as returned, with its offset).
-- `PUT /calendars/events/appointments/{eventId}` `{ startTime }` reschedules, `{ appointmentStatus: "cancelled" }` cancels → 200.
-    The response may omit `startTime`: re-fetch (`GET /contacts/{contactId}/appointments`) to show the new time.
-- `PUT /conversations/{conversationId}` `{ unreadCount: 0 }` marks read, `{ starred: true|false }` stars → `{ success, conversation }`
-- `POST /conversations/messages` → 201 `{ conversationId, messageId, msg }`
-    Email: `{ type: "Email", contactId, subject, html }` (goes to the contact's email; verified). SMS: `{ type: "SMS", contactId, message }` (per HighLevel's docs; not yet verified on the sandbox, so show the returned error clearly if it fails).
-    Only `Email` and `SMS` are allowed. This reaches a real person.
-Write errors: 403 `hl_scope_missing` → show the message (the user must reconnect HighLevel). Writes and sends have tighter rate limits; on 429 apply the retry rule above.
-
-## Pagination (verified behaviour — follow exactly)
-Each list endpoint returns one page. Page with these cursors; never guess offsets or page numbers.
-`hlGet(path, params)` below stands for the app's own small fetch helper (adds the Authorization header, builds the query string, throws the proxy's error.message). Writes use a sibling helper, e.g. `hlSend(method, path, body)`.
-
-Contacts — cursor from `meta`:
-```js
-const params = { locationId: LOCATION_ID, limit: 20 }            // add query / sortBy+order as needed
-if (cursor) { params.startAfterId = cursor.startAfterId; params.startAfter = cursor.startAfter }
-const { contacts = [], meta = {} } = await hlGet('/contacts/', params)
-// append, skipping ids already shown
-cursor = { startAfterId: meta.startAfterId, startAfter: meta.startAfter }
-hasMore = contacts.length === params.limit && !!meta.startAfterId   // NOTE: meta.nextPageUrl stays set on the last page — do not rely on it
-total = meta.total
-```
-
-Conversations — `startAfterDate` = the `sort` value of the LAST conversation received (an array: send its first element):
-```js
-const params = { locationId: LOCATION_ID, limit: 20, sortBy: 'last_message_date', sort: 'desc' }
-if (lastSort != null) params.startAfterDate = lastSort
-const { conversations = [], total } = await hlGet('/conversations/search', params)
-const last = conversations[conversations.length - 1]
-lastSort = last ? (Array.isArray(last.sort) ? last.sort[0] : last.lastMessageDate) : lastSort
-hasMore = conversations.length === params.limit && shownCount < total
-```
-
-Messages — `lastMessageId` from the previous page, while `nextPage` is true (pages go back in time):
-```js
-const params = { limit: 20 }
-if (lastMessageId) params.lastMessageId = lastMessageId
-const { messages: page = {} } = await hlGet(`/conversations/${id}/messages`, params)
-// page.messages is newest-first: prepend older pages ABOVE the thread when displaying oldest-at-top
-lastMessageId = page.lastMessageId
-hasMore = page.nextPage === true && (page.messages || []).length > 0
-```
+Not available to apps (no endpoint): filtering contacts by tag, custom field or date; opportunities/pipelines; tasks; users; custom field definitions; marking a conversation unread.
