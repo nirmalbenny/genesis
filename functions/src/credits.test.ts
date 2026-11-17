@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { chargeable, creditsFor, toTokenUsage, worstCaseCredits } from "./credits";
+import { addUsage, chargeable, creditsFor, toTokenUsage, worstCaseCredits } from "./credits";
 
 const usage = (inputTokens: number, outputTokens: number, cacheReadTokens = 0, cacheWriteTokens = 0) =>
   ({ inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens });
@@ -47,4 +47,15 @@ test("charges round up once per build", () => {
 test("API usage maps to token usage, missing fields count as zero", () => {
   assert.deepEqual(toTokenUsage({ input_tokens: 5, output_tokens: 7 }), usage(5, 7));
   assert.deepEqual(toTokenUsage(undefined), usage(0, 0));
+});
+
+test("a build's turns add up, and holding each extra turn's input covers a multi-turn build", () => {
+  const turns = [usage(2_000, 300, 6_000, 0), usage(500, 200, 0, 8_000), usage(400, 9_000, 8_000, 900)];
+  const total = turns.reduce(addUsage);
+  assert.deepEqual(total, usage(2_900, 9_500, 14_000, 8_900));
+  // First hold: turn 1's input + the whole output cap. Each extra turn: its whole input at the dearest rate.
+  const input = (u: ReturnType<typeof usage>) => u.inputTokens + u.cacheReadTokens + u.cacheWriteTokens;
+  const held = worstCaseCredits("claude-sonnet-5-5", input(turns[0]!), 16_000)
+    + turns.slice(1).reduce((n, t) => n + worstCaseCredits("claude-sonnet-5-5", input(t), 0), 0);
+  assert.ok(creditsFor("claude-sonnet-5-5", total) <= held);
 });

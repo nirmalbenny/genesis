@@ -25,6 +25,8 @@ const props = defineProps<{
   plan: string
   error: string
   building: { path: string; done: boolean }[]
+  /** Files the model is reading before it writes (large apps). */
+  reading?: string[]
   /** AI credits the last build used, and the balance after it. */
   lastCredits?: { charged: number; balance: number | null } | null
 }>()
@@ -122,7 +124,7 @@ watch(() => [items.value.length, props.plan, props.building.length], async () =>
             <span class="grid size-4 place-items-center rounded-[4px] bg-ink-100"><i class="size-1.5 rotate-45 rounded-[1px] bg-[#4ade80]" /></span>Genesis
           </div>
           <p class="text-sm leading-[22px]">
-            <span class="whitespace-pre-wrap">{{ plan || 'Reading your app and planning the change' }}</span>
+            <span class="whitespace-pre-wrap">{{ plan || (reading?.length ? `Reading ${reading.map((p) => p.split('/').pop()).join(', ')}` : 'Reading your app and planning the change') }}</span>
             <span class="ml-px inline-block h-[15px] w-[7px] align-[-2px] bg-signal-500" />
           </p>
           <div v-if="building.length" class="flex flex-wrap gap-1.5">

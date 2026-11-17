@@ -25,6 +25,8 @@ export function useGeneration(h: Handlers) {
   const building = ref<{ path: string; done: boolean }[]>([])
   /** AI credits charged for the last build and the balance after it (from the server's done/error event). */
   const lastCredits = ref<BuildCredits | null>(null)
+  /** Files the model is reading before it writes (large apps), from the server's `status` event; cleared when it writes. */
+  const reading = ref<string[]>([])
   /** True between pressing Stop and the server confirming the build stopped. */
   const stopping = ref(false)
   let abort: AbortController | null = null
@@ -35,6 +37,7 @@ export function useGeneration(h: Handlers) {
     error.value = ''
     declined.value = ''
     building.value = []
+    reading.value = []
     plan.value = ''
     lastCredits.value = null
     stopping.value = false
@@ -60,7 +63,10 @@ export function useGeneration(h: Handlers) {
       started = true
       await readSse(res, ({ event, data }) => {
         const d = data as Record<string, unknown>
-        if (event === 'token') {
+        if (event !== 'status' && reading.value.length) reading.value = []
+        if (event === 'status') {
+          if (d.phase === 'reading') reading.value = (d.paths as string[] | undefined) ?? []
+        } else if (event === 'token') {
           const path = d.path as string | null
           if (path) h.onToken(path, d.text as string)
           else plan.value += d.text as string
@@ -99,6 +105,7 @@ export function useGeneration(h: Handlers) {
     } finally {
       streaming.value = false
       stopping.value = false
+      reading.value = []
       abort = null
       running = null
       // After a dropped connection the server may still be saving partial results.
@@ -123,5 +130,5 @@ export function useGeneration(h: Handlers) {
     }
   }
 
-  return { streaming, stopping, error, plan, declined, building, lastCredits, start, stop }
+  return { streaming, stopping, error, plan, declined, building, reading, lastCredits, start, stop }
 }

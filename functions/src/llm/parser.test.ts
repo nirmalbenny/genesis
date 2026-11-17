@@ -106,3 +106,14 @@ test("validateOps with `seen` rejects rewriting an existing file the model wasn'
   // Without `seen` (templates, older callers) nothing changes.
   assert.equal(validateOps(ops, existing).rejected.length, 0);
 });
+
+test("a file still open when the model calls a tool is dropped, and the next turn starts outside it", () => {
+  const events: ParseEvent[] = [];
+  const p = createParser((e) => events.push(e));
+  p.push('<plan>Plan.</plan>\n<file path="src/App.vue">\n<template>half');
+  assert.equal(p.discardOpenFile(), "src/App.vue");
+  assert.equal(p.discardOpenFile(), null);
+  p.push('<file path="src/B.vue">\nb\n</file>');
+  assert.equal(p.end(), null);
+  assert.deepEqual(events.filter((e) => e.type === "file_end"), [{ type: "file_end", path: "src/B.vue", content: "b" }]);
+});

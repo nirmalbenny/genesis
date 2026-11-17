@@ -56,6 +56,7 @@ jobs:
           HL_REDIRECT_URI=http://127.0.0.1:5001/demo-genesis/us-central1/hlAuthCallback
           APP_URL=http://localhost:5173
           LOCAL_TOKEN_KEK=$(openssl rand -base64 32)
+          CONTEXT_TOOLS=on
           EOF
           cat > functions/.secret.local <<EOF
           ANTHROPIC_API_KEY=placeholder

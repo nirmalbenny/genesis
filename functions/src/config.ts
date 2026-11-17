@@ -11,6 +11,8 @@ export const HL_REDIRECT_URI = defineString("HL_REDIRECT_URI");
 export const APP_URL = defineString("APP_URL");
 /** Where project files live: `firestore` (one document per file, the original) or `blobs` (Cloud Storage + manifest). */
 export const FILE_STORE = defineString("FILE_STORE", { default: "firestore" });
+/** `on`: large apps get a file index and the read_files tool (llm/tools.ts); `off`: files left out are only listed. */
+export const CONTEXT_TOOLS = defineString("CONTEXT_TOOLS", { default: "off" });
 
 /**
  * Browser origins allowed to call api, generate and hlAuthStart: the app's Firebase Hosting domains and the

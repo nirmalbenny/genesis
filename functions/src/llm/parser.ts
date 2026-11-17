@@ -99,6 +99,18 @@ export function createParser(emit: (e: ParseEvent) => void) {
       buf += text;
       while (step());
     },
+    /**
+     * Drops a <file> that is still open (the model called a tool mid-file) and returns its path, so the next
+     * turn's text starts outside any file. Null when no file is open.
+     */
+    discardOpenFile(): string | null {
+      if (filePath === null) return null;
+      const path = filePath;
+      filePath = null;
+      content = "";
+      buf = "";
+      return path;
+    },
     /** Flush at end of stream. Returns the path of a <file> that was never closed, if any. */
     end(): string | null {
       if (filePath !== null) {

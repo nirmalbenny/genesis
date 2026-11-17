@@ -1,6 +1,8 @@
+import crypto from "node:crypto";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildSystemPrompt, systemBlocks } from "./prompt";
+import { READ_FILES_TOOL } from "./tools";
 
 test("the system prompt is one cached block, byte-identical on every call", () => {
   const blocks = systemBlocks();
@@ -40,4 +42,18 @@ test("the system prompt forbids presenting work on loaded items as the full resu
   assert.match(prompt, /must cover all the data, not just the loaded page/);
   assert.match(prompt, /never present work on loaded items as the full result/);
   assert.match(prompt, /Not available to apps \(no endpoint\)/, "the reference lists what has no endpoint");
+});
+
+test("the read_files tool definition is frozen and identical on every build (it is part of the cached prefix)", () => {
+  assert.ok(Object.isFrozen(READ_FILES_TOOL) && Object.isFrozen(READ_FILES_TOOL.input_schema));
+  assert.throws(() => { (READ_FILES_TOOL as { name: string }).name = "x"; }, TypeError);
+  assert.equal(JSON.stringify(READ_FILES_TOOL), JSON.stringify(READ_FILES_TOOL));
+  // A snapshot of the bytes: changing the definition is deliberate (it starts a new prompt cache).
+  assert.equal(crypto.createHash("sha256").update(JSON.stringify(READ_FILES_TOOL)).digest("hex").slice(0, 12), "f502bd4dda09");
+});
+
+test("the system prompt tells the model to read listed files before writing anything", () => {
+  const prompt = buildSystemPrompt();
+  assert.match(prompt, /call it BEFORE writing any output/);
+  assert.match(prompt, /Never rewrite a file you haven't been shown/);
 });

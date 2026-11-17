@@ -33,6 +33,16 @@ export function toTokenUsage(u: Partial<Usage> | undefined | null): TokenUsage {
   };
 }
 
+/** The usage of several model calls (a build's turns) as one. */
+export function addUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
+  return {
+    inputTokens: a.inputTokens + b.inputTokens,
+    outputTokens: a.outputTokens + b.outputTokens,
+    cacheWriteTokens: a.cacheWriteTokens + b.cacheWriteTokens,
+    cacheReadTokens: a.cacheReadTokens + b.cacheReadTokens,
+  };
+}
+
 /** Exact (fractional) credits for one model call; round once per build with chargeable(). */
 export function creditsFor(model: string, u: TokenUsage): number {
   const r = rateFor(model);
@@ -100,6 +110,26 @@ export async function holdCredits(uid: string, generationId: string, credits: nu
         `This build needs up to ${credits} AI credits and you have ${Math.max(0, available)} available.`);
     }
     tx.set(ledger(uid).doc(`${generationId}-hold`), { type: "hold", credits, generationId, createdAt: FieldValue.serverTimestamp() });
+    tx.set(userRef(uid), { credits: { ...s, reserved: s.reserved + credits } }, { merge: true });
+  });
+}
+
+/**
+ * Holds more credits for a build's extra turn `n` (after a read_files call), or refuses with 402. Its own ledger
+ * entry (`{gid}-hold-{n}`); settleCredits releases the build's total hold. Idempotent per turn.
+ */
+export async function extendHold(uid: string, generationId: string, n: number, credits: number): Promise<void> {
+  await db.runTransaction(async (tx) => {
+    const entry = ledger(uid).doc(`${generationId}-hold-${n}`);
+    const [user, existing] = [await tx.get(userRef(uid)), await tx.get(entry)];
+    if (existing.exists) return;
+    const s = stateOf(user.data());
+    const available = s.balance - s.reserved;
+    if (available < credits) {
+      throw httpError(402, "insufficient_credits",
+        `Reading more files needs up to ${credits} more AI credits and you have ${Math.max(0, available)} available.`);
+    }
+    tx.set(entry, { type: "hold", credits, generationId, turn: n, createdAt: FieldValue.serverTimestamp() });
     tx.set(userRef(uid), { credits: { ...s, reserved: s.reserved + credits } }, { merge: true });
   });
 }

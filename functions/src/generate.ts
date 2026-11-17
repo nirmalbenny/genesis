@@ -1,9 +1,10 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { FieldValue } from "firebase-admin/firestore";
 import { onRequest, type Request } from "firebase-functions/v2/https";
-import { ANTHROPIC_API_KEY, ANTHROPIC_MODEL, ANTHROPIC_SUMMARY_MODEL, APP_ORIGINS } from "./config";
+import { ANTHROPIC_API_KEY, ANTHROPIC_MODEL, ANTHROPIC_SUMMARY_MODEL, APP_ORIGINS, CONTEXT_TOOLS } from "./config";
 import {
-  chargeable, creditsFor, holdCredits, releaseBuildSlot, reserveBuildSlot, settleCredits, toTokenUsage, worstCaseCredits,
+  chargeable, creditsFor, extendHold, holdCredits, releaseBuildSlot, reserveBuildSlot, settleCredits, toTokenUsage,
+  worstCaseCredits,
   type TokenUsage,
 } from "./credits";
 import { fileStore, projectRef } from "./files";
@@ -12,23 +13,35 @@ import { createParser } from "./llm/parser";
 import { summarizeChange } from "./llm/summary";
 import { renderContext, selectContext } from "./llm/context";
 import { RECENT_MESSAGES, SINGLE_FILE_LIMIT_CHARS, systemBlocks } from "./llm/prompt";
+import { READ_FILES_TOOL, runReadFiles } from "./llm/tools";
+import { runTurns, type TurnStream } from "./llm/turns";
 import { checkPath, NOT_READ, validateOps, type FileOp, type Rejection } from "./llm/validate";
 import { assertEditable, getOwnedProject, getUserHl, useConnectedLocation } from "./projects";
 
 const MAX_PROMPT_CHARS = 4000;
 const MAX_HINT_PATHS = 10; // active + open editor tabs sent as context hints
 const RECENT_GENERATIONS = 2; // files changed by these rank first in a large app's context
-const MAX_OUTPUT_TOKENS = 16000;
+const MAX_OUTPUT_TOKENS = 16000; // for the whole build, across its turns
+const MAX_READ_TURNS = 2; // read_files calls per build; the turn after the last one must answer
 const HEARTBEAT_MS = 15_000;
 // Worst case for the one-line Haiku snapshot summary, included in every build's hold.
 const SUMMARY_ALLOWANCE: TokenUsage = { inputTokens: 1000, outputTokens: 60, cacheWriteTokens: 0, cacheReadTokens: 0 };
-// Rough chars-per-token, used only when token counting is unavailable or a stream is cut off.
-const CHARS_PER_TOKEN = 3.5;
+// Rough chars-per-token, used only when token counting is unavailable. Low on purpose: code tokenizes densely,
+// and an estimate that is too low would under-hold credits.
+const CHARS_PER_TOKEN = 2.5;
 
 type Status = "done" | "partial" | "error" | "cancelled";
 
 const DECLINED_MESSAGE =
   "I can't fulfill this request. Genesis only builds and edits apps that show your HighLevel data, and it can't help with harmful or unrelated requests. Describe a change to your app and I'll take it from there.";
+
+/** Exact input tokens of a request (free API call), or a conservative estimate when counting fails. */
+function countInput(client: Anthropic, p: Pick<Anthropic.MessageCountTokensParams, "model" | "system" | "tools" | "tool_choice" | "messages">): Promise<number> {
+  const params = { model: p.model, system: p.system, tools: p.tools, tool_choice: p.tool_choice, messages: p.messages };
+  return client.messages.countTokens(params)
+    .then((r) => r.input_tokens)
+    .catch(() => Math.ceil(JSON.stringify(params).length / CHARS_PER_TOKEN));
+}
 
 async function precheck(req: Request) {
   if (req.method !== "POST") throw httpError(405, "method_not_allowed", "POST only");
@@ -80,22 +93,25 @@ export const generate = onRequest(
       // Content is read only for the files sent in full.
       const selection = selectContext(manifest, { activePath, openPaths, recentPaths, prompt });
       const files = await store.read(pid, selection.full);
+      // With context tools, every build sends the same tool (one shared prompt cache); the conversation itself is
+      // cached only when files were left out, i.e. when a read turn is likely (docs/plans/filestore-and-context.md R3).
+      const tools = CONTEXT_TOOLS.value() === "on";
+      const cacheConversation = tools && selection.index.length > 0;
       const history = recent.docs
         .reverse()
         .map((d) => ({ role: d.get("role") as "user" | "assistant", content: d.get("content") as string }));
       const request = {
         model,
         system: systemBlocks(),
+        ...(tools ? { tools: [READ_FILES_TOOL] } : {}),
         messages: [
           ...history,
-          { role: "user" as const, content: `Current project files:\n${renderContext(files, manifest, selection.index, false)}\n\nRequest: ${prompt}` },
+          { role: "user" as const, content: `Current project files:\n${renderContext(files, manifest, selection.index, tools)}\n\nRequest: ${prompt}` },
         ],
       };
 
       // Hold the worst case: exact input tokens priced as a cache miss, the full output cap and the summary allowance.
-      const inputTokens = await client.messages.countTokens(request)
-        .then((r) => r.input_tokens)
-        .catch(() => Math.ceil(JSON.stringify(request).length / CHARS_PER_TOKEN));
+      const inputTokens = await countInput(client, request);
       const held = chargeable(
         worstCaseCredits(model, inputTokens, MAX_OUTPUT_TOKENS) + creditsFor(summaryModel, SUMMARY_ALLOWANCE),
       );
@@ -103,13 +119,14 @@ export const generate = onRequest(
       // The prompt and chat messages are saved only after the model accepts the request,
       // so declined (off-topic or harmful) requests never enter history or later model context.
       await genRef.set({ status: "streaming", createdAt: FieldValue.serverTimestamp() });
-      ctx = { uid, pid, prompt, proj, store, manifest, seen: new Set(selection.full), request, genRef, held };
+      ctx = { uid, pid, prompt, proj, store, manifest, seen: new Set(selection.full), request, cacheConversation, genRef, held };
     } catch (err) {
       if (slot) await releaseBuildSlot(slot.uid, slot.generationId).catch((e) => console.error("generate: slot release failed", e));
       sendError(res, err);
       return;
     }
-    const { uid, pid, prompt, proj, store, manifest, seen, request, genRef, held } = ctx;
+    const { uid, pid, prompt, proj, store, manifest, seen, request, cacheConversation, genRef } = ctx;
+    let held = ctx.held; // grows when a read turn holds more
     const generationId = genRef.id;
 
     // ---- SSE setup ----
@@ -131,7 +148,7 @@ export const generate = onRequest(
     const ops: FileOp[] = [];
     const planParts: string[] = [];
     let refused = false;
-    let streamedChars = 0;
+    const rejected: Rejection[] = [];
     const parser = createParser((e) => {
       if (e.type === "token") {
         send("token", { text: e.text, path: e.path });
@@ -146,42 +163,61 @@ export const generate = onRequest(
       } else ops.push({ type: "delete", path: e.path });
     });
 
-    const stream = client.messages.stream({ ...request, max_tokens: MAX_OUTPUT_TOKENS });
-    res.on("close", () => {
-      if (!res.writableFinished) { clientGone = true; stream.abort(); }
-    });
     // Stop requests (POST .../generations/:gid/cancel) arrive as a flag on the generation doc, so they reach
     // this instance whichever instance served them. Once the model has finished, a late stop is ignored.
+    let current: TurnStream | null = null;
     let cancelled = false;
     let streamEnded = false;
-    const stopWatching = genRef.onSnapshot((s) => {
-      if (s.get("cancelRequested") && !streamEnded && !cancelled) { cancelled = true; stream.abort(); }
-    }, () => {});
-    stream.on("text", (t) => {
-      streamedChars += t.length;
-      parser.push(t);
+    res.on("close", () => {
+      if (!res.writableFinished) { clientGone = true; current?.abort(); }
     });
+    const stopWatching = genRef.onSnapshot((s) => {
+      if (s.get("cancelRequested") && !streamEnded && !cancelled) { cancelled = true; current?.abort(); }
+    }, () => {});
 
+    const turns = await runTurns({
+      stream: (params) => client.messages.stream(params),
+      request,
+      maxOutputTokens: MAX_OUTPUT_TOKENS,
+      maxReadTurns: MAX_READ_TURNS,
+      cacheConversation,
+      onText: (t) => parser.push(t),
+      onStream: (s) => { current = s; },
+      runTool: (block) => block.name === READ_FILES_TOOL.name
+        ? runReadFiles(block.input, manifest, (paths) => store.read(pid, paths), seen)
+        : Promise.resolve({ content: `Unknown tool ${block.name}.`, is_error: true, read: [] }),
+      // Each extra turn re-sends the conversation: hold its input at the dearest rate (the output cap is already held).
+      beforeTurn: async (turn, params) => {
+        const extra = chargeable(worstCaseCredits(model, await countInput(client, params), 0));
+        await extendHold(uid, generationId, turn, extra);
+        held += extra;
+      },
+      onRead: (paths, openFile) => {
+        if (openFile) rejected.push({ path: openFile, reason: "the model stopped writing it to read files" });
+        send("status", { phase: "reading", paths });
+      },
+      discardOpenFile: () => parser.discardOpenFile(),
+      stopped: () => cancelled || clientGone,
+    });
+    const buildUsage = turns.usage;
     let failure: { code: string; message: string } | null = null;
-    let buildUsage: TokenUsage;
     let summaryUsage: TokenUsage | null = null;
-    try {
-      const final = await stream.finalMessage();
-      buildUsage = toTokenUsage(final.usage);
+    const final = turns.message;
+    if (turns.error || turns.stoppedBetweenTurns) {
+      const e = turns.error as { status?: number; code?: string; message?: string } | null;
+      failure = cancelled
+        ? { code: "cancelled", message: "Stopped." }
+        : clientGone
+        ? { code: "disconnected", message: "Connection to the client was lost." }
+        : e?.status === 402
+        ? { code: "insufficient_credits", message: e.message ?? "Not enough AI credits to read more files." }
+        : { code: "llm_error", message: turns.error instanceof Error ? turns.error.message : "The model request failed." };
+    } else if (final) {
       // Harmful requests can be refused by the API itself: empty content with this stop reason.
       if ((final.stop_reason as string) === "refusal") refused = true;
       if (final.stop_reason === "max_tokens") {
         failure = { code: "truncated", message: "The model hit its output limit; the last file was cut off." };
       }
-    } catch (err) {
-      failure = cancelled
-        ? { code: "cancelled", message: "Stopped." }
-        : clientGone
-        ? { code: "disconnected", message: "Connection to the client was lost." }
-        : { code: "llm_error", message: err instanceof Error ? err.message : "The model request failed." };
-      // A cut-off stream has no final usage: take what the stream reported and estimate output from the text received.
-      buildUsage = toTokenUsage(stream.currentMessage?.usage);
-      buildUsage.outputTokens = Math.max(buildUsage.outputTokens, Math.ceil(streamedChars / CHARS_PER_TOKEN));
     }
     streamEnded = true;
     stopWatching();
@@ -201,7 +237,6 @@ export const generate = onRequest(
     };
     console.info("generate: stream ended", { generationId, clientGone, failure: failure?.code ?? null });
     const unclosed = parser.end();
-    const rejected: Rejection[] = [];
     if (unclosed) rejected.push({ path: unclosed, reason: "file was never closed (output incomplete)" });
 
     // ---- Declined: nothing is stored in history; the client shows a transient notice ----
@@ -272,7 +307,7 @@ export const generate = onRequest(
 
     const credits = await settle(buildUsage);
     console.info("generate: persisted", {
-      generationId, status, applied: applied.length, credits: credits.charged,
+      generationId, status, applied: applied.length, credits: credits.charged, readTurns: turns.readTurns,
       cacheRead: buildUsage.cacheReadTokens, cacheWrite: buildUsage.cacheWriteTokens, // system prompt cache hit / miss
     });
     if (status === "cancelled") {

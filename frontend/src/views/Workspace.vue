@@ -179,6 +179,7 @@ onMounted(async () => {
           :plan="gen.plan.value"
           :error="gen.error.value"
           :building="gen.building.value"
+          :reading="gen.reading.value"
           :last-credits="gen.lastCredits.value"
           :locked="locked"
           @send="send"
@@ -208,6 +209,7 @@ onMounted(async () => {
           :building="gen.streaming.value"
           :building-file="currentFile"
           :files-done="gen.building.value.filter((b) => b.done).length"
+          :building-reading="gen.reading.value"
           @connect="hlState.connect()"
           @show-code="center = 'code'; mobileChat = false"
         />
