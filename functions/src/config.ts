@@ -13,6 +13,8 @@ export const APP_URL = defineString("APP_URL");
 export const FILE_STORE = defineString("FILE_STORE", { default: "firestore" });
 /** `on`: large apps get a file index and the read_files tool (llm/tools.ts); `off`: files left out are only listed. */
 export const CONTEXT_TOOLS = defineString("CONTEXT_TOOLS", { default: "off" });
+/** The daily cleanup of unreferenced file content: `dry-run` (default) only logs, `delete` deletes. */
+export const BLOB_CLEANUP = defineString("BLOB_CLEANUP", { default: "dry-run" });
 
 /**
  * Browser origins allowed to call api, generate and hlAuthStart: the app's Firebase Hosting domains and the
