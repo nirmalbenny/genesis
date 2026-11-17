@@ -140,7 +140,7 @@ A scheduled function lists `users/*/blobs/*`, builds the set of hashes reference
 | 4. Migration | done: unit 48/48; e2e 42/42 (`blobs`), 39/39 + 3 skipped (`firestore`) | see change log | `files/{migrate,manifestStore,firestoreStore,blobStore,index}.ts`, `scripts/migrate-files-to-storage.ts` (under `functions/src`), `package.json` (`migrate:files`), e2e helpers | `e2e/migrate.e2e.ts` (3: lazy conversion with concurrent first access + legacy snapshot restore; Firestore-store change drops a stale manifest; backfill dry run / real run with verification / resumable re-run) |
 | 5. Index + ranking | done: functions unit 52/52, e2e 42/42 (`blobs`); frontend lint, 35/35, build | see change log | `llm/context.ts` (new), `llm/prompt.ts` (`renderFiles` removed), `generate.ts`, `frontend/src/composables/useGeneration.ts`, `frontend/src/views/Workspace.vue` | `llm/context.test.ts` (5: everything fits = identical output, ranking order, common words, budget filling + index, index lines); `useGeneration.test.ts` (hints in the request body) |
 | 6. `read_files` + turns | done: functions unit 66/66, e2e 42/42 (`blobs`, `CONTEXT_TOOLS=on`); frontend lint, 36/36, build. **Not run against real Claude yet** (needs your approval, Step 7) | see change log | `llm/{tools,turns,prompt,parser}.ts`, `credits.ts`, `config.ts` (`CONTEXT_TOOLS`), `generate.ts`, `deploy.yml`, `.env.example`; frontend `useGeneration.ts`, `ChatPanel.vue`, `BuildingOverlay.vue`, `PreviewPanel.vue`, `Workspace.vue` | `tools.test.ts` (2), `turns.test.ts` (8: read then write, read cap with `tool_choice: none`, stop between turns, 402 on an extra hold, refusal on turn 2, open file dropped + unread overwrite rejected, cut-off turn usage, moving cache point), `credits.test.ts` (multi-turn hold covers the total), `prompt.test.ts` (frozen tool, byte snapshot, read rule), `parser.test.ts` (discard open file), `useGeneration.test.ts` (reading state) |
-| 7. Cleanup, diff, measurement, docs | todo | | | |
+| 7. Cleanup, diff, measurement, docs | in progress: cleanup done; measurement script done (emulator numbers in §8); diff endpoint skipped (optional); docs next; real-Claude measurement waits for your approval | see change log | `files/cleanup.ts`, `scripts/measure-filestore.ts`, `index.ts`, `config.ts` (`BLOB_CLEANUP`) | `e2e/cleanup.e2e.ts` (1), `files/cleanup.test.ts` (2) |
 
 ## 6. Change log
 
@@ -154,6 +154,7 @@ _One entry per commit._
 - Step 5 context: `llm/context.ts` ranks files (entry files → active tab → open tabs → files changed by the last 2 builds → files the prompt names → their imports and importers → the rest), fills the 60,000-character budget in that order, and lists the rest as index lines (size, lines, props, emits, client helpers). `generate` reads the manifest, the last 2 generations' `files` and the editor hints, and loads content only for the selected files. The frontend sends `activePath` and `openPaths`. Not covered by e2e: reaching context selection needs a build that would call Claude.
 - Step 6 read_files + turns: `llm/tools.ts` (frozen `READ_FILES_TOOL`, ≤5 paths; `runReadFiles` checks paths, existence, size, already-seen, per-call budget, adds to `seen`); `llm/turns.ts` (`runTurns`: injectable stream, text-only to the parser, ≤2 read turns then `tool_choice: none`, output cap shared across turns, stop checked between turns, a file open at a tool call is dropped and rejected, a cut-off turn's usage estimated, moving cache point via `withCachePoint` only when an index is present); `credits.ts` (`addUsage`, `extendHold` with `{gid}-hold-{n}`); `generate.ts` keeps orchestration: holds each extra turn's input (token-counted) before it starts, ends cleanly on 402 keeping completed files, sends SSE `status {phase: "reading", paths}`, logs `readTurns`. System prompt gained one static rule. Frontend shows "Reading …" in the chat and the building overlay. Why: confirmed plan Step 6.
 - Step 7 cleanup: `files/cleanup.ts` (`cleanupBlobs`, scheduled `cleanupFileBlobs` daily 03:30 UTC): references read first (project + snapshot manifests, soft-deleted projects included), then lists blobs; deletes a blob only if unreferenced and untouched for 7 days, with `ifMetagenerationMatch`; dry run by default. Tests: `e2e/cleanup.e2e.ts` (referenced kept, young kept, dry run deletes nothing, real run deletes the orphan), `files/cleanup.test.ts` (precondition).
+- Step 7 measurement: `npm run measure:files` times both stores on the emulators (cached and cold blob reads), counts uploads and snapshot documents, sizes manifests and the large-app context. Results in §8.
 - Step 3 sign-off: the Storage tests find the default bucket by probing `<project>.firebasestorage.app` then `<project>.appspot.com` (the emulator can't list buckets; the real project uses the first, demo projects probably the second), and check the denial against an admin control request.
 
 ## 7. Deviations and open questions
@@ -177,6 +178,7 @@ _One entry per commit._
 - D16: `CONTEXT_TOOLS` defaults to `off` in code (production unchanged until you turn it on) and is `on` in the emulator and CI.
 - D17 (emulator limit): the Storage emulator ignores `ifGenerationMatch: 0`, does not store `customTime`, and ignores `ifMetagenerationMatch` on delete (probed 2026-11-17). Create-only uploads, the reuse touch and the delete precondition therefore can't be tested end to end locally; `deleteIfUnchanged` is unit-tested with a fake file and relies on Cloud Storage's documented preconditions. On the emulator, `put` simply overwrites identical content (harmless) and age falls back to `timeCreated`.
 - D18: The cleanup job defaults to dry run (`BLOB_CLEANUP=dry-run`, logs only); `delete` must be set deliberately. It is scoped by user prefix (`uids`) in tests.
+- D19: The optional diff endpoint was not built (time); listed as follow-up F3.
 - D5: An unseen file that is over the 20,000-character limit is rejected with "too large for the AI to edit; split it or edit it by hand" instead of the generic "file was not read" (R10).
 
 ### Open questions (not blocking)
@@ -189,8 +191,42 @@ _One entry per commit._
 ### Follow-ups (later releases)
 
 - F1: Remove the Firestore file data once every project has a manifest and `FILE_STORE=blobs` has run in production for a while: delete `projects/*/files/*` and `projects/*/snapshots/*/files/*`, remove the Firestore store and the `FILE_STORE` flag, the stale-manifest drop, the migrator's Firestore reads, and the files part of `firestore.rules` and `rules.e2e.ts`.
+- F3: Diff endpoint: compare a snapshot's manifest with the previous snapshot's (changed paths, and the content of changed files from blobs). Cheap now that snapshots are manifests.
 - F2: A reverse export (blobs → Firestore files) if a rollback after the cutover is ever needed (Q2).
 
 ## 8. Measurements
 
-_Collected in Step 7._
+Script: `npm run measure:files` (`functions/src/scripts/measure-filestore.ts`), on the local emulators (2026-11-17), median of 5 runs. **Emulator timings only compare the two stores with each other; they are not production latencies.** Apps: the largest ready-made template (11 files, 22,869 characters) and a large app made of four copies of it (44 files, 91,476 characters, over the 60,000 budget).
+
+### File store operations (ms, emulator)
+
+| Operation | Firestore, 11 files | Blobs, 11 files (cached / cold) | Firestore, 44 files | Blobs, 44 files (cached / cold) |
+|---|---:|---:|---:|---:|
+| Create (write all files) | 2 | 19 / 15 | 3 | 17 / 15 |
+| Save one file | 1 | 9 / 7 | 1 | 9 / 8 |
+| Read all | 4 | 2 / 5 | 5 | 2 / 12 |
+| Read one | 2 | 2 / 3 | 2 | 2 / 3 |
+| Snapshot | 7 | 3 / 3 | 9 | 4 / 4 |
+| Restore | 20 | 13 / 11 | 23 | 13 / 12 |
+| Copy | 6 | 7 / 6 | 8 | 7 / 6 |
+
+### Writes and sizes
+
+| | Firestore store | Blobs + manifest |
+|---|---|---|
+| Create (N files) | N file docs + 1 project update | 1 transaction + one upload per distinct content (44 files → 11 uploads: identical copies are stored once) |
+| Save one file | 1 file doc + 1 project update | 1 upload + 1 transaction |
+| Snapshot | 1 doc + N file docs (11 / 44) | 1 doc holding the manifest (2.6 KB / 10.7 KB) |
+| Restore | N writes and deletes + a snapshot (N + 1) | 1 transaction + 1 snapshot doc |
+| Copy | N file docs | 1 transaction (no uploads) |
+| Manifest on the project doc | none | 2.5 KB (11 files, about 227 bytes per file) / 10.5 KB (44 files); confirms R9's estimate |
+
+Reading: writes are slower with blobs (an upload plus a transaction, about +7 ms on the emulator), and reads, snapshots, restores and copies are cheaper. Snapshots and restores no longer scale with the number of files.
+
+### Context (large app, no Claude)
+
+The 44-file app: 30 files sent in full and 14 indexed; 62,494 characters in the files section, of which the index is 1,154 characters (about 80 characters per indexed file). Before, the same app sent the alphabetically first files up to the budget and listed the rest as `[omitted: too large for context]`, with no information about them and no way to read them.
+
+### Tokens and credits with real Claude
+
+Not measured yet: this needs your approval (it calls Claude and spends credits). Proposed run, on the emulators with `CONTEXT_TOOLS=on` vs `off`: a small app build (expected identical input and cost) and a change to a file outside the context of a large app (expected: one read turn; the extra cost is the read turn's cached input plus the read file).
