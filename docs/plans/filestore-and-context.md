@@ -2,7 +2,18 @@
 
 Branch `feat/filestore-context` (from `main` at `03bd8f7`). Not pushed, never deployed.
 
-Status: **Phase 3, Step 7**.
+Status: **Steps 0–7 done**, except the token/credit measurement with real Claude, which waits for your approval (§8). Not pushed, not deployed.
+
+### Final verify (2026-11-17)
+
+| Step | Result |
+|---|---|
+| Functions lint / unit tests | pass, 68/68 (baseline 38) |
+| Integration tests, `FILE_STORE=blobs`, `CONTEXT_TOOLS=on` | pass, 43/43 (baseline 32) |
+| Integration tests, `FILE_STORE=firestore` | pass, 40/40 + 3 skipped (blobs-only tests) |
+| Frontend lint / tests / build | pass, 36/36 (baseline 34), build ok |
+| Docs check | pass: markdownlint, 90 local links, 7 Mermaid diagrams rendered |
+| Manual check | emulator measurements (§8). **Not done:** a build with real Claude (needs approval), a UI screenshot of the "Reading …" state (it appears only during a real build), production paths (Cloud Storage preconditions and `customTime`, which the emulator ignores; Cloud Scheduler).
 
 ## Contents
 
@@ -140,7 +151,7 @@ A scheduled function lists `users/*/blobs/*`, builds the set of hashes reference
 | 4. Migration | done: unit 48/48; e2e 42/42 (`blobs`), 39/39 + 3 skipped (`firestore`) | see change log | `files/{migrate,manifestStore,firestoreStore,blobStore,index}.ts`, `scripts/migrate-files-to-storage.ts` (under `functions/src`), `package.json` (`migrate:files`), e2e helpers | `e2e/migrate.e2e.ts` (3: lazy conversion with concurrent first access + legacy snapshot restore; Firestore-store change drops a stale manifest; backfill dry run / real run with verification / resumable re-run) |
 | 5. Index + ranking | done: functions unit 52/52, e2e 42/42 (`blobs`); frontend lint, 35/35, build | see change log | `llm/context.ts` (new), `llm/prompt.ts` (`renderFiles` removed), `generate.ts`, `frontend/src/composables/useGeneration.ts`, `frontend/src/views/Workspace.vue` | `llm/context.test.ts` (5: everything fits = identical output, ranking order, common words, budget filling + index, index lines); `useGeneration.test.ts` (hints in the request body) |
 | 6. `read_files` + turns | done: functions unit 66/66, e2e 42/42 (`blobs`, `CONTEXT_TOOLS=on`); frontend lint, 36/36, build. **Not run against real Claude yet** (needs your approval, Step 7) | see change log | `llm/{tools,turns,prompt,parser}.ts`, `credits.ts`, `config.ts` (`CONTEXT_TOOLS`), `generate.ts`, `deploy.yml`, `.env.example`; frontend `useGeneration.ts`, `ChatPanel.vue`, `BuildingOverlay.vue`, `PreviewPanel.vue`, `Workspace.vue` | `tools.test.ts` (2), `turns.test.ts` (8: read then write, read cap with `tool_choice: none`, stop between turns, 402 on an extra hold, refusal on turn 2, open file dropped + unread overwrite rejected, cut-off turn usage, moving cache point), `credits.test.ts` (multi-turn hold covers the total), `prompt.test.ts` (frozen tool, byte snapshot, read rule), `parser.test.ts` (discard open file), `useGeneration.test.ts` (reading state) |
-| 7. Cleanup, diff, measurement, docs | in progress: cleanup done; measurement script done (emulator numbers in §8); diff endpoint skipped (optional); docs next; real-Claude measurement waits for your approval | see change log | `files/cleanup.ts`, `scripts/measure-filestore.ts`, `index.ts`, `config.ts` (`BLOB_CLEANUP`) | `e2e/cleanup.e2e.ts` (1), `files/cleanup.test.ts` (2) |
+| 7. Cleanup, diff, measurement, docs | done, except the real-Claude measurement (waits for approval); diff endpoint skipped (optional, F3) | see change log | `files/cleanup.ts`, `scripts/measure-filestore.ts`, `index.ts`, `config.ts` (`BLOB_CLEANUP`), `docs/ARCHITECTURE.md`, `README.md`, `functions/README.md` | `e2e/cleanup.e2e.ts` (1), `files/cleanup.test.ts` (2) |
 
 ## 6. Change log
 
@@ -155,6 +166,7 @@ _One entry per commit._
 - Step 6 read_files + turns: `llm/tools.ts` (frozen `READ_FILES_TOOL`, ≤5 paths; `runReadFiles` checks paths, existence, size, already-seen, per-call budget, adds to `seen`); `llm/turns.ts` (`runTurns`: injectable stream, text-only to the parser, ≤2 read turns then `tool_choice: none`, output cap shared across turns, stop checked between turns, a file open at a tool call is dropped and rejected, a cut-off turn's usage estimated, moving cache point via `withCachePoint` only when an index is present); `credits.ts` (`addUsage`, `extendHold` with `{gid}-hold-{n}`); `generate.ts` keeps orchestration: holds each extra turn's input (token-counted) before it starts, ends cleanly on 402 keeping completed files, sends SSE `status {phase: "reading", paths}`, logs `readTurns`. System prompt gained one static rule. Frontend shows "Reading …" in the chat and the building overlay. Why: confirmed plan Step 6.
 - Step 7 cleanup: `files/cleanup.ts` (`cleanupBlobs`, scheduled `cleanupFileBlobs` daily 03:30 UTC): references read first (project + snapshot manifests, soft-deleted projects included), then lists blobs; deletes a blob only if unreferenced and untouched for 7 days, with `ifMetagenerationMatch`; dry run by default. Tests: `e2e/cleanup.e2e.ts` (referenced kept, young kept, dry run deletes nothing, real run deletes the orphan), `files/cleanup.test.ts` (precondition).
 - Step 7 measurement: `npm run measure:files` times both stores on the emulators (cached and cold blob reads), counts uploads and snapshot documents, sizes manifests and the large-app context. Results in §8.
+- Docs: ARCHITECTURE §2 (diagram: Storage, files module, cleanup function), §3 + new §3.1 (manifest, blobs, snapshots, migration, cleanup), §4 (request hints, `status` event, `insufficient_credits`), §5.3 diagram, §6 (ranking, index, step 3a read turns, guard), §7 (extra holds, ledger entry, ÷2.5 estimate, read-turn charges), §7.8 (tool in the prefix, moving cache point), §11 (server-only Storage), §13 (tests). README: decisions 3 and 8, AI and security rows, flags, scripts, layout, deployment and the switch-over procedure, improvement 1. `functions/README.md` layout.
 - Step 3 sign-off: the Storage tests find the default bucket by probing `<project>.firebasestorage.app` then `<project>.appspot.com` (the emulator can't list buckets; the real project uses the first, demo projects probably the second), and check the denial against an admin control request.
 
 ## 7. Deviations and open questions
@@ -187,6 +199,14 @@ _One entry per commit._
 - Q2 (R7): Should `blobs` mode also write the Firestore files for a while (dual-write) so that switching back to `firestore` is safe, at the cost of doubled writes?
 - Q4 (resolved): you allowed me to restart the local emulators; they now run with Storage and `FILE_STORE=blobs`.
 - Q3 (R1): Should `deploy.yml` deploy with an explicit `--only functions,hosting,firestore,storage`, so that new targets are opted in deliberately?
+
+### Manual steps for you (production, when you decide to ship)
+
+1. Enable Firebase Storage on `genesisaibuilder` (creates the default bucket) and give the `github-deployer` service account permission to deploy Storage rules; enable Cloud Scheduler (for `cleanupFileBlobs`). Do this **before** merging to `main`: CI's `firebase deploy` will deploy `storage.rules` (R1).
+2. Merge with the code defaults (`FILE_STORE=firestore`, `CONTEXT_TOOLS=off`, `BLOB_CLEANUP=dry-run`): no user-visible change.
+3. Optionally run the backfill, then set `FILE_STORE=blobs` in a separate deploy (README "Switching project files to Cloud Storage").
+4. After a week of dry-run logs, set `BLOB_CLEANUP=delete`. Turn on `CONTEXT_TOOLS=on` when ready (ideally after the real-Claude measurement).
+5. Later release: delete the old Firestore file data (F1).
 
 ### Follow-ups (later releases)
 
