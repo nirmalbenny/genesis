@@ -63,8 +63,12 @@ jobs:
           HL_CLIENT_SECRET=placeholder
           PREVIEW_TOKEN_SECRET=$(openssl rand -hex 32)
           EOF
-          npx --yes firebase-tools@15.35.0 emulators:exec --only auth,firestore,functions --project demo-genesis \
-            "npm --prefix functions run test:e2e"
+          # Once per file store: blobs (Cloud Storage + manifest) and firestore (the original, kept for rollback).
+          for store in blobs firestore; do
+            sed -i '/^FILE_STORE=/d' functions/.env.local && echo "FILE_STORE=$store" >> functions/.env.local
+            npx --yes firebase-tools@15.35.0 emulators:exec --only auth,firestore,functions,storage --project demo-genesis \
+              "npm --prefix functions run test:e2e"
+          done
 
       - name: Frontend — write production env
         working-directory: frontend

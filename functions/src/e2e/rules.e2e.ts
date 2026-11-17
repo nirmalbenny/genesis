@@ -53,6 +53,8 @@ test("HighLevel tokens and OAuth states are never readable by clients, not even 
 
 test("apps and their files are readable by their owner only", async () => {
   const { owner, other, app } = await setup();
+  // A file document as the Firestore store keeps it (with FILE_STORE=blobs, apps keep only data from before the migration).
+  await db.doc(`projects/${app}/files/${encodeURIComponent("src/App.vue")}`).set({ path: "src/App.vue", content: "x" });
   assert.equal(await asUser(owner, "GET", `/projects/${app}`), 200);
   assert.equal(await asUser(other, "GET", `/projects/${app}`), 403);
   assert.equal(await asUser(null, "GET", `/projects/${app}`), 403);

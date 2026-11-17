@@ -9,6 +9,8 @@ export const ANTHROPIC_MODEL = defineString("ANTHROPIC_MODEL");
 export const ANTHROPIC_SUMMARY_MODEL = defineString("ANTHROPIC_SUMMARY_MODEL", { default: "claude-haiku-5-5" });
 export const HL_REDIRECT_URI = defineString("HL_REDIRECT_URI");
 export const APP_URL = defineString("APP_URL");
+/** Where project files live: `firestore` (one document per file, the original) or `blobs` (Cloud Storage + manifest). */
+export const FILE_STORE = defineString("FILE_STORE", { default: "firestore" });
 
 /**
  * Browser origins allowed to call api, generate and hlAuthStart: the app's Firebase Hosting domains and the

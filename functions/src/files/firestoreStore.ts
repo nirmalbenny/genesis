@@ -1,7 +1,7 @@
 import { FieldValue, type WriteBatch } from "firebase-admin/firestore";
 import { db } from "../admin";
 import type { FileOp } from "../llm/validate";
-import { contentHash } from "./describe";
+import { contentHash, describeFile } from "./describe";
 import type { FileStore, Manifest, ProjectFile, SnapshotInfo, SnapshotReason } from "./index";
 
 /**
@@ -66,7 +66,7 @@ async function replace(pid: string, files: ProjectFile[]): Promise<void> {
 export const firestoreFileStore: FileStore = {
   async manifest(pid): Promise<Manifest> {
     const files = await readAll(pid);
-    return Object.fromEntries(files.map((f) => [f.path, { hash: contentHash(f.content), size: Buffer.byteLength(f.content) }]));
+    return Object.fromEntries(files.map((f) => [f.path, { hash: contentHash(f.content), ...describeFile(f.path, f.content) }]));
   },
 
   async read(pid, paths) {

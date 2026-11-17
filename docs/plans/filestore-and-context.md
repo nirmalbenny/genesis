@@ -2,7 +2,7 @@
 
 Branch `feat/filestore-context` (from `main` at `03bd8f7`). Not pushed, never deployed.
 
-Status: **Phase 3, Step 3**.
+Status: **Phase 3, Step 3: paused.** The `blobs`-mode integration tests need the local emulators restarted with Storage (see open question Q4).
 
 ## Contents
 
@@ -136,7 +136,7 @@ A scheduled function lists `users/*/blobs/*`, builds the set of hashes reference
 | 0. Tracking doc + design | done | `57a1744` | `docs/plans/filestore-and-context.md` | |
 | 1. FileStore interface | done | see change log | `functions/src/files/{index,firestoreStore,describe}.ts`, `api.ts`, `generate.ts`, `templates.ts` | none (no behavior change; existing 38 unit + 32 e2e pass unchanged) |
 | 2. Overwrite guard + changed files | done | see change log | `llm/validate.ts`, `llm/prompt.ts` (`renderFiles` returns `{ text, full }`), `generate.ts` | `parser.test.ts`: guard (seen / unseen / new / delete / two-argument form); `prompt.test.ts`: `renderFiles` reports full files |
-| 3. Content-addressed storage | todo | | | |
+| 3. Content-addressed storage | in progress: code and tests written; `firestore`-mode e2e green; **`blobs`-mode e2e not run yet** (needs the emulators restarted with Storage) | see change log | `firebase.json`, `storage.rules`, `admin.ts`, `config.ts` (`FILE_STORE`), `files/{describe,blobStore,manifestStore,index,firestoreStore}.ts`, `e2e/{env,helpers,rules}.ts`, `deploy.yml`, verify skill | `files/describe.test.ts` (4), `files/manifestStore.test.ts` (4: manifest ops, dedupe, entries, cache); `e2e/filestore.e2e.ts` (5: apply/versions/dedupe, concurrent + strict version, snapshot/restore, legacy snapshot, copy); `e2e/storage.e2e.ts` (2: blobs + manifest via the API, client Storage access refused) |
 | 4. Migration | todo | | | |
 | 5. Index + ranking | todo | | | |
 | 6. `read_files` + turns | todo | | | |
@@ -149,6 +149,7 @@ _One entry per commit._
 - `57a1744` Plan: tracking doc with verification log, baseline, evaluation and design.
 - Step 1 `FileStore` interface: `functions/src/files.ts` moved to `files/firestoreStore.ts` behind a `FileStore` interface (`files/index.ts`): `manifest`, `read`, `readAll`, `apply`, `snapshot`, `restore`, `copy`, `listSnapshots`, plus a `replaceFiles(store, …)` helper for template upgrades. Every caller now goes through `fileStore()`, including `readFile`, `saveFile`, `listSnapshots` and `duplicateProject` (now `copy` + `snapshot`). `saveFile` now writes the file and then `updatedAt` (was one batch). Why: one seam for the storage change.
 - Step 2 overwrite guard: `validateOps(ops, existing, seen?)` rejects rewriting an existing file not in `seen` ("file was not read; ask to include it"); new files and deletes stay allowed; two-argument calls are unchanged. `renderFiles` returns the set of files sent in full, which `generate` passes as `seen`. Generation docs now store `files: applied`. Why: an omitted file could be overwritten blindly (finding 7); `files` feeds context ranking in Step 5.
+- Step 3 content-addressed storage: Storage in `firebase.json` (rules + emulator on 9199), deny-all `storage.rules`, `bucket()` in `admin.ts`, `FILE_STORE` param (default `firestore`). `files/describe.ts` (hash + regex metadata: size, lines, props, emits, imports, client helpers), `files/blobStore.ts` (create-only upload with `ifGenerationMatch: 0`, `customTime` bump on reuse, 32 MB LRU), `files/manifestStore.ts` (upload first, then one transaction switches the manifest; snapshot = manifest copy in one write; restore = transactional manifest replace + `restore` snapshot, legacy snapshots converted on restore; copy = manifest copy within one account; `listSnapshots` skips manifests via `select`). Uploads skip any content the current manifest already references. e2e: emulator hosts moved to `e2e/env.ts`, loaded first (functions code creates its clients on import); `rules.e2e` seeds a legacy file doc. CI runs the e2e suite once per store with the Storage emulator. Why: confirmed decisions 1–3.
 
 ## 7. Deviations and open questions
 
@@ -164,6 +165,7 @@ _One entry per commit._
 
 - Q1 (R4): Keep `tool_choice: none` on the final turn (simple, costs about 30 credits more when it happens), or keep `auto` with an instruction to stop reading and answer a third read with an error (cache-friendly, but the model may need one more turn)?
 - Q2 (R7): Should `blobs` mode also write the Firestore files for a while (dual-write) so that switching back to `firestore` is safe, at the cost of doubled writes?
+- Q4 (blocking Step 3 sign-off): the local emulators were started earlier without Storage, and stopping them was not permitted from this session. They need a restart with `firebase emulators:start --only auth,functions,firestore,storage` and `FILE_STORE=blobs` in `functions/.env.local`.
 - Q3 (R1): Should `deploy.yml` deploy with an explicit `--only functions,hosting,firestore,storage`, so that new targets are opted in deliberately?
 
 ## 8. Measurements

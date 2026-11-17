@@ -1,6 +1,10 @@
 import { db } from "../admin";
+import { FILE_STORE } from "../config";
 import type { FileOp } from "../llm/validate";
+import { createStorageBlobStore } from "./blobStore";
+import type { FileMeta } from "./describe";
 import { firestoreFileStore } from "./firestoreStore";
+import { createManifestStore } from "./manifestStore";
 
 /**
  * Project files. Every read and write of a project's files, snapshots and restores goes through a FileStore,
@@ -9,7 +13,7 @@ import { firestoreFileStore } from "./firestoreStore";
 export type ProjectFile = { path: string; content: string };
 
 /** What the store knows about one file without reading its content. */
-export type FileEntry = { hash: string; size: number };
+export type FileEntry = { hash: string } & FileMeta;
 /** path → entry, for every file of a project (or of a snapshot). */
 export type Manifest = Record<string, FileEntry>;
 
@@ -24,7 +28,11 @@ export interface FileStore {
   read(pid: string, paths: string[]): Promise<ProjectFile[]>;
   /** Every file, sorted by path. */
   readAll(pid: string): Promise<ProjectFile[]>;
-  apply(pid: string, ops: FileOp[]): Promise<void>;
+  /**
+   * Applies writes and deletes. With `expectedVersion`, fails with 409 `files_changed` if the files changed since
+   * that version; without it, concurrent changes are merged (each path's last write wins).
+   */
+  apply(pid: string, ops: FileOp[], opts?: { expectedVersion?: number }): Promise<void>;
   snapshot(pid: string, generationId: string | null, reason: SnapshotReason, summary?: string | null): Promise<string>;
   /** Replaces the files with the snapshot's, then records a `restore` snapshot. Null when the snapshot doesn't exist. */
   restore(pid: string, sid: string): Promise<string | null>;
@@ -49,8 +57,12 @@ export const projectRef = (pid: string) => db.doc(`projects/${pid}`);
 
 export const writeOps = (files: ProjectFile[]): FileOp[] => files.map((f) => ({ type: "write", path: f.path, content: f.content }));
 
+let manifestStore: FileStore | null = null;
+
+/** The store selected by FILE_STORE: `firestore` (original, default) or `blobs` (Cloud Storage + manifest). */
 export function fileStore(): FileStore {
-  return firestoreFileStore;
+  if (FILE_STORE.value() !== "blobs") return firestoreFileStore;
+  return (manifestStore ??= createManifestStore(createStorageBlobStore()));
 }
 
 /** Makes the project's file set exactly `files`: writes them all and deletes anything else. */
