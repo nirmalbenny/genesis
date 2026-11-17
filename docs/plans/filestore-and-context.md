@@ -4,7 +4,7 @@ Branch `feat/filestore-context` (from `main` at `03bd8f7`). Not pushed, never de
 
 Status: **Steps 0–7 done**, except the token/credit measurement with real Claude, which waits for your approval (§8). Not pushed, not deployed.
 
-### Final verify (2026-11-17)
+**Final verify (2026-11-17):**
 
 | Step | Result |
 |---|---|
@@ -13,7 +13,7 @@ Status: **Steps 0–7 done**, except the token/credit measurement with real Clau
 | Integration tests, `FILE_STORE=firestore` | pass, 40/40 + 3 skipped (blobs-only tests) |
 | Frontend lint / tests / build | pass, 36/36 (baseline 34), build ok |
 | Docs check | pass: markdownlint, 90 local links, 7 Mermaid diagrams rendered |
-| Manual check | emulator measurements (§8). **Not done:** a build with real Claude (needs approval), a UI screenshot of the "Reading …" state (it appears only during a real build), production paths (Cloud Storage preconditions and `customTime`, which the emulator ignores; Cloud Scheduler).
+| Manual check | emulator measurements (§8). **Not done:** a build with real Claude (needs approval), a UI screenshot of the "Reading …" state (it appears only during a real build), production paths (Cloud Storage preconditions and `customTime`, which the emulator ignores; Cloud Scheduler). |
 
 ## Contents
 
