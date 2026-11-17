@@ -4,23 +4,11 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { call, connectHl, createApp, db, FILE_STORE, newUser, PROJECT, STORAGE_HOST } from "./helpers";
+import { bucketHolding, call, connectHl, createApp, db, FILE_STORE, newUser, STORAGE_HOST } from "./helpers";
 import { contentHash } from "../files/describe";
 
 const blobs = FILE_STORE === "blobs";
 const STORAGE = `http://${STORAGE_HOST}`;
-
-/**
- * The functions' default bucket: `<project>.firebasestorage.app` for current projects, `<project>.appspot.com` for
- * older and demo ones. The emulator can't list buckets, so find the one holding a known object.
- */
-async function bucketHolding(object: string): Promise<string> {
-  for (const bucket of [`${PROJECT}.firebasestorage.app`, `${PROJECT}.appspot.com`]) {
-    const res = await fetch(`${STORAGE}/storage/v1/b/${bucket}/o/${encodeURIComponent(object)}`);
-    if (res.ok) return bucket;
-  }
-  throw new Error(`no bucket holds ${object}`);
-}
 
 test("files are stored as per-user blobs plus a manifest; snapshots keep only the manifest", { skip: !blobs && "FILE_STORE is not blobs" }, async () => {
   const u = await newUser();

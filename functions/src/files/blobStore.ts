@@ -1,4 +1,5 @@
-import { bucket } from "../admin";
+import { getStorage } from "firebase-admin/storage";
+import { bucket as defaultBucket } from "../admin";
 import { contentHash } from "./describe";
 
 /**
@@ -48,8 +49,11 @@ const CACHE_BYTES = 32 * 1024 * 1024; // per instance; generate has 512 MiB
  * `customTime` instead: the cleanup job deletes only blobs that are unreferenced AND untouched for 7 days, with a
  * metageneration precondition, so a blob re-referenced while cleanup runs is never deleted (docs/plans, R2).
  */
-export function createStorageBlobStore(): BlobStore {
-  const cache = createLru(CACHE_BYTES);
+export function createStorageBlobStore(opts: { bucket?: string; cache?: boolean } = {}): BlobStore {
+  // `bucket` and `cache: false` are for the migration script: an explicit bucket outside Cloud Functions, and
+  // verification that re-downloads what it just uploaded.
+  const bucket = () => (opts.bucket ? getStorage().bucket(opts.bucket) : defaultBucket());
+  const cache = createLru(opts.cache === false ? 0 : CACHE_BYTES);
   return {
     async put(uid, content) {
       const hash = contentHash(content);

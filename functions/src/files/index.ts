@@ -5,6 +5,7 @@ import { createStorageBlobStore } from "./blobStore";
 import type { FileMeta } from "./describe";
 import { firestoreFileStore } from "./firestoreStore";
 import { createManifestStore } from "./manifestStore";
+import { createMigrator } from "./migrate";
 
 /**
  * Project files. Every read and write of a project's files, snapshots and restores goes through a FileStore,
@@ -62,7 +63,11 @@ let manifestStore: FileStore | null = null;
 /** The store selected by FILE_STORE: `firestore` (original, default) or `blobs` (Cloud Storage + manifest). */
 export function fileStore(): FileStore {
   if (FILE_STORE.value() !== "blobs") return firestoreFileStore;
-  return (manifestStore ??= createManifestStore(createStorageBlobStore()));
+  if (!manifestStore) {
+    const blobs = createStorageBlobStore();
+    manifestStore = createManifestStore(blobs, createMigrator(blobs));
+  }
+  return manifestStore;
 }
 
 /** Makes the project's file set exactly `files`: writes them all and deletes anything else. */

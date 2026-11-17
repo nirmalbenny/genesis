@@ -2,7 +2,7 @@
 
 Branch `feat/filestore-context` (from `main` at `03bd8f7`). Not pushed, never deployed.
 
-Status: **Phase 3, Step 4**.
+Status: **Phase 3, Step 5**.
 
 ## Contents
 
@@ -137,7 +137,7 @@ A scheduled function lists `users/*/blobs/*`, builds the set of hashes reference
 | 1. FileStore interface | done | see change log | `functions/src/files/{index,firestoreStore,describe}.ts`, `api.ts`, `generate.ts`, `templates.ts` | none (no behavior change; existing 38 unit + 32 e2e pass unchanged) |
 | 2. Overwrite guard + changed files | done | see change log | `llm/validate.ts`, `llm/prompt.ts` (`renderFiles` returns `{ text, full }`), `generate.ts` | `parser.test.ts`: guard (seen / unseen / new / delete / two-argument form); `prompt.test.ts`: `renderFiles` reports full files |
 | 3. Content-addressed storage | done: unit 48/48; e2e 39/39 with `blobs`, 37/37 + 2 skipped with `firestore` | see change log | `firebase.json`, `storage.rules`, `admin.ts`, `config.ts` (`FILE_STORE`), `files/{describe,blobStore,manifestStore,index,firestoreStore}.ts`, `e2e/{env,helpers,rules}.ts`, `deploy.yml`, verify skill | `files/describe.test.ts` (4), `files/manifestStore.test.ts` (4: manifest ops, dedupe, entries, cache); `e2e/filestore.e2e.ts` (5: apply/versions/dedupe, concurrent + strict version, snapshot/restore, legacy snapshot, copy); `e2e/storage.e2e.ts` (2: blobs + manifest via the API, client Storage access refused) |
-| 4. Migration | todo | | | |
+| 4. Migration | done: unit 48/48; e2e 42/42 (`blobs`), 39/39 + 3 skipped (`firestore`) | see change log | `files/{migrate,manifestStore,firestoreStore,blobStore,index}.ts`, `scripts/migrate-files-to-storage.ts` (under `functions/src`), `package.json` (`migrate:files`), e2e helpers | `e2e/migrate.e2e.ts` (3: lazy conversion with concurrent first access + legacy snapshot restore; Firestore-store change drops a stale manifest; backfill dry run / real run with verification / resumable re-run) |
 | 5. Index + ranking | todo | | | |
 | 6. `read_files` + turns | todo | | | |
 | 7. Cleanup, diff, measurement, docs | todo | | | |
@@ -150,6 +150,7 @@ _One entry per commit._
 - Step 1 `FileStore` interface: `functions/src/files.ts` moved to `files/firestoreStore.ts` behind a `FileStore` interface (`files/index.ts`): `manifest`, `read`, `readAll`, `apply`, `snapshot`, `restore`, `copy`, `listSnapshots`, plus a `replaceFiles(store, …)` helper for template upgrades. Every caller now goes through `fileStore()`, including `readFile`, `saveFile`, `listSnapshots` and `duplicateProject` (now `copy` + `snapshot`). `saveFile` now writes the file and then `updatedAt` (was one batch). Why: one seam for the storage change.
 - Step 2 overwrite guard: `validateOps(ops, existing, seen?)` rejects rewriting an existing file not in `seen` ("file was not read; ask to include it"); new files and deletes stay allowed; two-argument calls are unchanged. `renderFiles` returns the set of files sent in full, which `generate` passes as `seen`. Generation docs now store `files: applied`. Why: an omitted file could be overwritten blindly (finding 7); `files` feeds context ranking in Step 5.
 - Step 3 content-addressed storage: Storage in `firebase.json` (rules + emulator on 9199), deny-all `storage.rules`, `bucket()` in `admin.ts`, `FILE_STORE` param (default `firestore`). `files/describe.ts` (hash + regex metadata: size, lines, props, emits, imports, client helpers), `files/blobStore.ts` (create-only upload with `ifGenerationMatch: 0`, `customTime` bump on reuse, 32 MB LRU), `files/manifestStore.ts` (upload first, then one transaction switches the manifest; snapshot = manifest copy in one write; restore = transactional manifest replace + `restore` snapshot, legacy snapshots converted on restore; copy = manifest copy within one account; `listSnapshots` skips manifests via `select`). Uploads skip any content the current manifest already references. e2e: emulator hosts moved to `e2e/env.ts`, loaded first (functions code creates its clients on import); `rules.e2e` seeds a legacy file doc. CI runs the e2e suite once per store with the Storage emulator. Why: confirmed decisions 1–3.
+- Step 4 migration: `files/migrate.ts` converts a project (files → blobs + manifest, set in a transaction only if still absent, version bumped) and a legacy snapshot. The manifest store calls it when it meets a project without a manifest (no extra read otherwise) and when restoring a legacy snapshot. Backfill `migrate:files`: `--bucket`, `--project`, `--dry-run`; refuses to run without emulator hosts unless `--allow-production`; resumable (skips projects and snapshots that have manifests); verifies every file by re-downloading without cache and comparing hashes with Firestore. The Firestore store drops stale manifests (D7). Local emulator `FILE_STORE=blobs`; CI runs both. Firestore file data is never deleted. Why: confirmed plan Step 4.
 - Step 3 sign-off: the Storage tests find the default bucket by probing `<project>.firebasestorage.app` then `<project>.appspot.com` (the emulator can't list buckets; the real project uses the first, demo projects probably the second), and check the denial against an admin control request.
 
 ## 7. Deviations and open questions
@@ -160,6 +161,9 @@ _One entry per commit._
 - D2: The moving cache point is used only when an index is present (R3).
 - D3: `apply` is read-modify-write in a transaction; the strict version check is optional (R11).
 - D4: Step 1 (a refactor with no behavior change) was committed before Step 2, although confirmed decision 6 puts the guard first. Step 2 doesn't depend on it and nothing shipped in between, so I kept the order instead of rewriting history.
+- D6: The backfill script lives in `functions/src/scripts/migrate-files-to-storage.ts` (run with `npm run migrate:files`), not the repo-root `scripts/`: it reuses the functions' file-store code and is compiled with it. It also converts legacy snapshots, which first access leaves for restore time.
+- D7 (adopted, new hazard H1): a backfill run while production still uses `firestore` would leave manifests that later edits make stale. Every Firestore-store change now also deletes the project's manifest (and bumps `manifestVersion`) in the same batch, so a stale manifest can never be served.
+- D8: "templates.ts seeds manifests directly" needed no template-specific code: seeding goes through the selected store, so with `blobs` it writes manifests and never touches Firestore files.
 - D5: An unseen file that is over the 20,000-character limit is rejected with "too large for the AI to edit; split it or edit it by hand" instead of the generic "file was not read" (R10).
 
 ### Open questions (not blocking)
@@ -168,6 +172,11 @@ _One entry per commit._
 - Q2 (R7): Should `blobs` mode also write the Firestore files for a while (dual-write) so that switching back to `firestore` is safe, at the cost of doubled writes?
 - Q4 (resolved): you allowed me to restart the local emulators; they now run with Storage and `FILE_STORE=blobs`.
 - Q3 (R1): Should `deploy.yml` deploy with an explicit `--only functions,hosting,firestore,storage`, so that new targets are opted in deliberately?
+
+### Follow-ups (later releases)
+
+- F1: Remove the Firestore file data once every project has a manifest and `FILE_STORE=blobs` has run in production for a while: delete `projects/*/files/*` and `projects/*/snapshots/*/files/*`, remove the Firestore store and the `FILE_STORE` flag, the stale-manifest drop, the migrator's Firestore reads, and the files part of `firestore.rules` and `rules.e2e.ts`.
+- F2: A reverse export (blobs → Firestore files) if a rollback after the cutover is ever needed (Q2).
 
 ## 8. Measurements
 

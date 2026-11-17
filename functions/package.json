@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "npm run build && node --test lib/*.test.js lib/llm/*.test.js lib/hl/*.test.js lib/files/*.test.js",
     "test:e2e": "npm run build && node --test --test-concurrency=1 lib/e2e/*.e2e.js",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "migrate:files": "npm run build && node lib/scripts/migrate-files-to-storage.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.5.0",

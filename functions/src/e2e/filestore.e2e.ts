@@ -9,6 +9,7 @@ import { db, newUser } from "./helpers";
 import { contentHash } from "../files/describe";
 import type { BlobStore } from "../files/blobStore";
 import { createManifestStore } from "../files/manifestStore";
+import { createMigrator } from "../files/migrate";
 
 function memoryBlobs() {
   const blobs = new Map<string, string>();
@@ -107,7 +108,7 @@ test("a snapshot is one document holding the manifest; restoring replaces the fi
 test("a snapshot from before the migration (files subcollection) can still be restored", async () => {
   const { uid } = await newUser();
   const { store, blobs } = memoryBlobs();
-  const files = createManifestStore(store);
+  const files = createManifestStore(store, createMigrator(store));
   const pid = await newProject(uid);
   await files.apply(pid, [w("src/App.vue", "current")]);
   const legacy = db.collection(`projects/${pid}/snapshots`).doc();

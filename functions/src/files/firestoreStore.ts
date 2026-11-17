@@ -7,6 +7,9 @@ import type { FileStore, Manifest, ProjectFile, SnapshotInfo, SnapshotReason } f
 /**
  * The original storage: one Firestore document per file under projects/{pid}/files, and a full copy of every
  * file under each snapshot. Kept as the fallback while FILE_STORE=firestore.
+ *
+ * Every change also drops the project's manifest (if the backfill already made one): the manifest would be stale,
+ * and without it the blob store converts the project again on first access.
  */
 const BATCH_LIMIT = 400;
 
@@ -35,14 +38,18 @@ function writeFileDoc(pid: string, path: string, content: string) {
   return (b: WriteBatch) => b.set(ref, { path, content, updatedAt: FieldValue.serverTimestamp() });
 }
 
+const dropManifest = (pid: string) => (b: WriteBatch) =>
+  b.update(project(pid), { manifest: FieldValue.delete(), manifestVersion: FieldValue.increment(1) });
+
 async function apply(pid: string, ops: FileOp[]): Promise<void> {
-  await commitInChunks(
-    ops.map((op) =>
+  await commitInChunks([
+    ...ops.map((op) =>
       op.type === "write"
         ? writeFileDoc(pid, op.path, op.content)
         : (b: WriteBatch) => b.delete(filesOf(pid).doc(fileId(op.path))),
     ),
-  );
+    dropManifest(pid),
+  ]);
 }
 
 async function snapshot(pid: string, generationId: string | null, reason: SnapshotReason, summary: string | null = null): Promise<string> {
@@ -60,6 +67,7 @@ async function replace(pid: string, files: ProjectFile[]): Promise<void> {
   await commitInChunks([
     ...current.filter((f) => !keep.has(f.path)).map((f) => (b: WriteBatch) => b.delete(filesOf(pid).doc(fileId(f.path)))),
     ...files.map((f) => writeFileDoc(pid, f.path, f.content)),
+    dropManifest(pid),
   ]);
 }
 

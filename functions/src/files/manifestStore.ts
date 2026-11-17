@@ -1,10 +1,11 @@
-import { FieldValue, type DocumentReference } from "firebase-admin/firestore";
+import { FieldValue } from "firebase-admin/firestore";
 import { db } from "../admin";
 import { httpError } from "../http";
 import type { FileOp } from "../llm/validate";
 import type { BlobStore } from "./blobStore";
 import { contentHash, describeFile } from "./describe";
-import type { FileEntry, FileStore, Manifest, ProjectFile, SnapshotInfo, SnapshotReason } from "./index";
+import type { FileEntry, FileStore, Manifest, SnapshotInfo, SnapshotReason } from "./index";
+import type { Migrator } from "./migrate";
 
 /**
  * Files as content-addressed blobs (blobStore) plus a manifest (path → hash + metadata) on the project
@@ -49,10 +50,15 @@ function loaded(pid: string, data: FirebaseFirestore.DocumentData | undefined): 
   return { uid: data.ownerId as string, manifest: (data.manifest as Manifest | undefined) ?? {}, version: (data.manifestVersion as number | undefined) ?? 0 };
 }
 
-/** `ensure` (Step 4 migration) runs before any access, so a project still in Firestore is converted first. */
-export function createManifestStore(blobs: BlobStore, ensure: (pid: string) => Promise<void> = async () => {}): FileStore {
-  const load = async (pid: string) => {
-    await ensure(pid);
+/**
+ * `migrate` converts a project that has no manifest yet (still in Firestore) on first access, and an old
+ * snapshot when it's restored. Without it, a project without a manifest is treated as empty.
+ */
+export function createManifestStore(blobs: BlobStore, migrate?: Migrator): FileStore {
+  const load = async (pid: string): Promise<Loaded> => {
+    const data = (await project(pid).get()).data();
+    if (!migrate || !data || data.manifest !== undefined) return loaded(pid, data);
+    await migrate.project(pid, data.ownerId as string);
     return loaded(pid, (await project(pid).get()).data());
   };
 
@@ -81,18 +87,6 @@ export function createManifestStore(blobs: BlobStore, ensure: (pid: string) => P
     return ref.id;
   }
 
-  /** A snapshot taken before the migration has its files in a subcollection: upload them and keep its manifest. */
-  async function legacySnapshotManifest(uid: string, ref: DocumentReference): Promise<Manifest> {
-    const files = (await ref.collection("files").get()).docs.map((d) => d.data() as ProjectFile);
-    const entries = await Promise.all(files.map(async (f) => {
-      await blobs.put(uid, f.content);
-      return [f.path, entryFor(f.path, f.content)] as const;
-    }));
-    const manifest = Object.fromEntries(entries);
-    await ref.update({ manifest });
-    return manifest;
-  }
-
   return {
     async manifest(pid) {
       return (await load(pid)).manifest;
@@ -118,7 +112,7 @@ export function createManifestStore(blobs: BlobStore, ensure: (pid: string) => P
       const ref = snapshots(pid).doc(sid);
       const snap = await ref.get();
       if (!snap.exists) return null;
-      const manifest = (snap.get("manifest") as Manifest | undefined) ?? (await legacySnapshotManifest(uid, ref));
+      const manifest = (snap.get("manifest") as Manifest | undefined) ?? (await migrate?.snapshot(uid, ref)) ?? {};
       await db.runTransaction(async (tx) => {
         const current = loaded(pid, (await tx.get(project(pid))).data());
         tx.update(project(pid), { manifest, manifestVersion: current.version + 1 });

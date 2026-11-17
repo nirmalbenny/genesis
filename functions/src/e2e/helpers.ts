@@ -75,3 +75,15 @@ export async function createApp(u: TestUser, name = "E2E app"): Promise<string> 
   if (r.status !== 200) throw new Error(`createApp failed: ${r.status} ${JSON.stringify(r.body)}`);
   return r.body.id as string;
 }
+
+/**
+ * The functions' default bucket: `<project>.firebasestorage.app` for current projects, `<project>.appspot.com` for
+ * older and demo ones. The emulator can't list buckets, so find the one holding a known object.
+ */
+export async function bucketHolding(object: string): Promise<string> {
+  for (const bucket of [`${PROJECT}.firebasestorage.app`, `${PROJECT}.appspot.com`]) {
+    const res = await fetch(`http://${STORAGE_HOST}/storage/v1/b/${bucket}/o/${encodeURIComponent(object)}`);
+    if (res.ok) return bucket;
+  }
+  throw new Error(`no bucket holds ${object}`);
+}
