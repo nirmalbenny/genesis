@@ -77,6 +77,7 @@ This is the short version. The **[detailed architecture diagram](docs/ARCHITECTU
 .
 ├── functions/                 Cloud Functions (TypeScript), see functions/README.md
 │   ├── src/                   api · generate (SSE) · hlProxy · hl/ (OAuth, token refresh) · files/ (Storage + manifests)
+│   │                          observability/ (Langfuse build traces, structured logs)
 │   │                          llm/ (prompt, context, read_files turns, parser, validator) · scripts/ (backfill, measurements)
 │   │   ├── *.test.ts          unit tests (npm test)
 │   │   └── e2e/               integration tests against the emulators (npm run test:e2e)
@@ -121,7 +122,9 @@ This is the short version. The **[detailed architecture diagram](docs/ARCHITECTU
    #                           APP_URL=http://localhost:5173
    #                           LOCAL_TOKEN_KEK=<openssl rand -base64 32>
    #                           FILE_STORE=blobs  CONTEXT_TOOLS=on   (files in the Storage emulator; read_files for large apps)
+   #                           TRACING=off  (or langfuse, with LANGFUSE_BASE_URL and the two keys below)
    # functions/.secret.local   ANTHROPIC_API_KEY=…  HL_CLIENT_ID=…  HL_CLIENT_SECRET=…  PREVIEW_TOKEN_SECRET=<openssl rand -hex 32>
+   #                           LANGFUSE_PUBLIC_KEY=…  LANGFUSE_SECRET_KEY=…   (any value works while TRACING=off)
    cp frontend/.env.example frontend/.env.local      # Firebase web config; VITE_USE_EMULATORS=true
    ```
 
@@ -158,7 +161,11 @@ Ctrl+C stops both. `npm run dev:local` runs plain Vite without a tunnel. Deploye
 | `CONTEXT_TOOLS` | `functions/.env.local` · GitHub variable | `on` (default): a large app's build gets a file index and the `read_files` tool. `off` is a kill switch. |
 | `BLOB_CLEANUP` | GitHub variable | `dry-run` (default: the daily cleanup only logs) or `delete` |
 
-In production these three come from GitHub **repository variables** of the same names (CI writes them into `functions/.env.<project-id>`, which it creates on every deploy). Unset means the default. To change one, set the variable and re-run the deploy.
+| `TRACING` | `functions/.env.local` · GitHub variable | `off` (default) or `langfuse`: one trace per build to Langfuse ([ARCHITECTURE §14](docs/ARCHITECTURE.md#14-observability)) |
+| `LANGFUSE_BASE_URL` | `functions/.env.local` · GitHub variable | Langfuse region: `https://cloud.langfuse.com` (EU, default) or `https://us.cloud.langfuse.com` (US) |
+| `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` | secret | Langfuse project keys. Required by every deploy, even while tracing is off |
+
+In production these flags come from GitHub **repository variables** of the same names (CI writes them into `functions/.env.<project-id>`, which it creates on every deploy). Unset means the default. To change one, set the variable and re-run the deploy.
 | `VITE_FIREBASE_*` | `frontend/.env.local` · `.env.production` | Firebase web app config (public by design) |
 | `VITE_FUNCTIONS_BASE_URL` | `frontend/.env.*` | Functions base URL. In dev it's set automatically by `npm run dev`. |
 | `VITE_USE_EMULATORS` | `frontend/.env.*` | `true` locally, `false` in production |
@@ -222,6 +229,7 @@ Secrets go in `functions/.secret.local` for the emulator and in **Secret Manager
 | Safety | Off-topic, harmful or rule-breaking prompts get a `<refuse>` reply (or the API's refusal) and are **never stored**, so they can't steer later prompts. User text is treated as a request to evaluate, never as instructions. |
 | Cost control | **AI credits** (1 credit = $0.001 of Claude list price): each build reserves its worst case using an exact token count, then pays for what it used. Exact **build limits** stop runaway spending before Claude is called. |
 | Resilience | Interrupted or truncated streams keep every finished file, and each build ends in a snapshot that can be restored. |
+| Observability | One [Langfuse](https://langfuse.com) trace per build for the team: each request to Claude with tokens and cost, each file read, the files saved or rejected, grouped by app so follow-ups read as a conversation. Prompts and plans only, never code. Plus structured logs in Cloud Logging. Off with `TRACING=off`. |
 
 Details: the [generation pipeline](docs/ARCHITECTURE.md#6-generation-pipeline), [AI credits](docs/ARCHITECTURE.md#7-ai-credits), [rate limiting](docs/ARCHITECTURE.md#8-rate-limiting) and [declined requests](docs/ARCHITECTURE.md#55-declined-requests) in ARCHITECTURE.
 
@@ -233,6 +241,7 @@ Details: the [generation pipeline](docs/ARCHITECTURE.md#6-generation-pipeline), 
 | HighLevel tokens | Never sent to the browser; stored with **Cloud KMS envelope encryption** (AES-256-GCM, bound to the user); refreshed safely under concurrency |
 | Generated apps | Run in a **sandboxed iframe on another origin**; reach HighLevel only through `hlProxy` with a **15-minute HMAC preview token** (method and path allowlist with no deletes, forced location, app ownership and write scopes checked) |
 | Data access | Firestore rules allow **owner-only reads** and **no client writes**; Storage rules deny **all** client access to file content; every change goes through Cloud Functions, which check ownership |
+| Observability data | Langfuse receives prompts, plans, file names, tokens and costs, **never file contents or code**, and never a declined prompt; tracing can't fail or stall a build |
 | Secrets | **Secret Manager** in production, git-ignored files locally; CI deploys **without keys** (Workload Identity Federation) |
 | Abuse and cost | **AI credits** with worst-case holds, exact **build limits**, per-user rate limits, CORS restricted to the app's origins |
 | Verification | Integration tests cover the auth gate, isolation between users, the proxy's checks, token encryption and the **security rules** |
@@ -285,7 +294,8 @@ Checks run cheapest first, so a refused build never counts tokens, holds credits
 ```bash
 firebase use <project-id>
 # Secrets → Secret Manager (prompts for each value)
-firebase functions:secrets:set ANTHROPIC_API_KEY      # also HL_CLIENT_ID, HL_CLIENT_SECRET, PREVIEW_TOKEN_SECRET
+firebase functions:secrets:set ANTHROPIC_API_KEY      # also HL_CLIENT_ID, HL_CLIENT_SECRET, PREVIEW_TOKEN_SECRET,
+                                                      # LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY
 # Production params (git-ignored):
 #   functions/.env.<project-id>   HL_REDIRECT_URI=https://us-central1-<project-id>.cloudfunctions.net/hlAuthCallback
 #                                 APP_URL=https://<project-id>.web.app
@@ -294,6 +304,8 @@ firebase functions:secrets:set ANTHROPIC_API_KEY      # also HL_CLIENT_ID, HL_CL
 (cd frontend && npm run build)
 firebase deploy --only functions,hosting,firestore,storage   # what CI deploys
 ```
+
+**Build tracing (Langfuse):** create a Langfuse project (the free plan works), store its two keys as the secrets above, and set the GitHub variables `TRACING=langfuse` and, for the US region, `LANGFUSE_BASE_URL=https://us.cloud.langfuse.com`. To turn it off, set `TRACING=off` and re-run the deploy. Prompts and plans are processed by Langfuse, so list it in your privacy policy.
 
 **Manual steps after the first deploy:**
 

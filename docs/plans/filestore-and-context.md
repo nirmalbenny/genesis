@@ -2,7 +2,7 @@
 
 Branch `feat/filestore-context` (from `main` at `03bd8f7`). Not pushed, never deployed.
 
-Status: **Steps 0–7 done**, including the real-Claude measurement (§8). Q1–Q3 decided (2026-11-17). Branch pushed to GitHub; not merged, not deployed.
+Status: **Shipped.** Merged as `3f08450` (PR #4) and deployed 2026-11-17; `FILE_STORE=blobs` switched on in production the same day (GitHub variable + redeploy). Verified on production apps: first-open conversion, a build, copying a ready-made app and a change to the copy (counts and field names only).
 
 **Final verify (2026-11-17):**
 
@@ -204,9 +204,9 @@ _One entry per commit._
 ### Manual steps for you (production, when you decide to ship)
 
 1. ~~Enable Firebase Storage.~~ Done 2026-11-18.
-2. Review and merge the branch (pull request from `feat/filestore-context`). Users see no change except that large apps get the file index and `read_files`; files stay in Firestore; `storage.rules` (deny all, same as live) is deployed.
+2. ~~Review and merge the branch.~~ Done (PR #4). Users see no change except that large apps get the file index and `read_files`; files stay in Firestore; `storage.rules` (deny all, same as live) is deployed.
 3. For the daily cleanup: ~~enable the Cloud Scheduler API~~ (done 2026-11-18); ~~grant `roles/cloudscheduler.admin` to `github-deployer`~~ (done 2026-11-18 by re-running `setup-github-deploy.sh`).
-4. Optionally run the backfill, then set the repository variable `FILE_STORE=blobs` and re-run the deploy (README "Switching project files to Cloud Storage").
+4. ~~Set the repository variable `FILE_STORE=blobs` and re-run the deploy~~ (done 2026-11-17, no backfill: apps convert on first open) (README "Switching project files to Cloud Storage").
 5. After a week of dry-run logs, set the repository variable `BLOB_CLEANUP=delete`.
 6. Later release: delete the old Firestore file data (F1).
 

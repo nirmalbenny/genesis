@@ -63,6 +63,8 @@ jobs:
           HL_CLIENT_ID=placeholder-id
           HL_CLIENT_SECRET=placeholder
           PREVIEW_TOKEN_SECRET=$(openssl rand -hex 32)
+          LANGFUSE_PUBLIC_KEY=placeholder
+          LANGFUSE_SECRET_KEY=placeholder
           EOF
           # Once per file store: blobs (Cloud Storage + manifest) and firestore (the original, kept for rollback).
           for store in blobs firestore; do
@@ -136,6 +138,8 @@ jobs:
           FILE_STORE=${{ vars.FILE_STORE || 'firestore' }}
           CONTEXT_TOOLS=${{ vars.CONTEXT_TOOLS || 'on' }}
           BLOB_CLEANUP=${{ vars.BLOB_CLEANUP || 'dry-run' }}
+          TRACING=${{ vars.TRACING || 'off' }}
+          LANGFUSE_BASE_URL=${{ vars.LANGFUSE_BASE_URL || 'https://cloud.langfuse.com' }}
           EOF
 
       - uses: google-github-actions/auth@v2

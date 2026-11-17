@@ -19,6 +19,7 @@ This document covers the product goals, the system design, the data model, and e
 11. [Security model](#11-security-model)
 12. [Frontend structure](#12-frontend-structure)
 13. [Testing](#13-testing)
+14. [Observability](#14-observability)
 
 ---
 
@@ -67,6 +68,7 @@ flowchart TB
     LIMITS["<b>rateLimits</b><br/>build slots · token buckets"]
     VAULT["<b>tokenVault</b><br/>AES-256-GCM envelope<br/>decrypt cache"]
     PTOKEN["<b>previewToken</b><br/>HMAC-SHA256 · 15 min"]
+    OBS["<b>observability</b><br/>build trace · structured logs"]
   end
 
   subgraph STORES["Google Cloud data and keys"]
@@ -79,6 +81,7 @@ flowchart TB
 
   CLAUDE["<b>Anthropic API</b> (external)<br/>Sonnet: builds · Haiku: summaries"]
   HIGHLEVEL["<b>HighLevel</b> (external)<br/>OAuth · Contacts · Conversations · Calendars"]
+  LANGFUSE["<b>Langfuse</b> (external, team only)<br/>one trace per build · no code"]
 
   GITHUB -. "⑤ deploy hosting" .-> BROWSER
   GITHUB -. "⑤ deploy functions + rules (Workload Identity, no keys)" .-> FUNCTIONS
@@ -101,6 +104,7 @@ flowchart TB
   CALLBACK <-- "② code + state ⇄ tokens" --> HIGHLEVEL
   SPA -. "② redirect: pick a sub-account" .-> HIGHLEVEL
   GENERATE -- "③ stream" --> CLAUDE
+  GENERATE -. "③ build trace (TRACING=langfuse)" .-> LANGFUSE
   PROXY -- "④ reads and writes with the real token" --> HIGHLEVEL
 ```
 
@@ -685,6 +689,7 @@ sequenceDiagram
 - **Bot sign-ups:** Firebase Auth (Identity Platform) scores every email/password sign-up and sign-in with reCAPTCHA Enterprise and rejects low scores or missing tokens. The check happens in Auth itself, so calling the public sign-up API directly doesn't skip it; the web SDK attaches the token without any app code. Accounts that get through still can't use anything until their email is verified (§5.1). Setup: [`scripts/setup-bot-protection.sh`](../scripts/setup-bot-protection.sh).
 - **Prompt-injection resistance:** the system prompt treats user text as a request to evaluate, never as instructions. Requests that are off-topic or try to override the rules are declined and never stored.
 - **Generated code is sandboxed:** it runs in the Sandpack iframe on another origin, with a fixed dependency set.
+- **What leaves Google Cloud for observability:** with `TRACING=langfuse`, each build's prompt, Claude's plan, file names, token counts, costs and timings go to Langfuse (§14). File contents and generated code never do (the trace is built from names and counts, and a mask removes any file block as a second line of defence), and a declined prompt is never sent. The Langfuse keys are Firebase secrets like the others.
 
 ### 11.1 HighLevel tokens at rest
 
@@ -751,6 +756,7 @@ Everything below is in the repo and runs in CI on every push and pull request.
   - Context: everything-fits output identical to before, ranking order, distinctive names only, budget filling and index lines.
   - `read_files` and the turn loop with a fake Claude: read then write, the read cap with `tool_choice: none`, stop between turns, a refused extra hold, a refusal on turn 2, unread overwrites rejected, a cut-off turn's usage, the moving cache point; the tool definition is frozen and its bytes pinned.
   - Credits: the rate card, unknown models billed at the highest rate, rounding, usage mapping, and that a multi-turn build's holds cover its cost.
+  - Observability (§14): through the real Langfuse span processor with an in-memory exporter: the trace shape, types and nesting; user, session and tags on every observation; tokens, cost and time to first token; the conversation each request saw; warnings for cut-off requests; declined prompts not sent; file contents masked; a failing or hanging Langfuse never throws and is cut off at 3 seconds.
   - Token encryption: round trip, a fresh key and IV per record, tampering and user-swapping rejected, and the decryption cache.
   - Rate limits: the token bucket, build slots, slot expiry and the build-start log, with a fake clock.
   - Every ready-made template is valid, has unique slugs, and has a known category.
@@ -766,3 +772,47 @@ Everything below is in the repo and runs in CI on every push and pull request.
 - **Frontend unit tests** (`cd frontend && npm test`, Vitest): the SSE reader (any chunking, heartbeats, CRLF, malformed events) and `useGeneration` (tokens into files, credits, refusals before streaming, declined requests, broken streams, Stop, editor hints in the request, the "reading" state).
 - **Lint:** ESLint with the recommended TypeScript rules (functions) and Vue + TypeScript rules (frontend). The generated shadcn-vue components and the ready-made apps' browser code are excluded.
 - **Manual end-to-end checks** were also run during development against a real HighLevel sandbox and real Claude (OAuth connect and refresh, generation, partial results, cancellation, pagination, rate limits), with headless-browser screenshots. These need real credentials and spend credits, so they aren't automated.
+
+## 14. Observability
+
+Two outputs per build, both written after the build has saved its files and settled its credits ([`observability/`](../functions/src/observability/langfuse.ts)). Neither can fail or stall a build: errors are caught and logged, and sending to Langfuse is capped at 3 seconds (tested with a failing and a hanging Langfuse).
+
+### 14.1 Build traces in Langfuse
+
+With `TRACING=langfuse`, every build becomes one [Langfuse](https://langfuse.com) trace, for the team only. Langfuse's Sessions view groups an app's builds in order (follow-ups read as a conversation), and every trace is tagged with the user.
+
+```text
+build-app                (agent)       input: the prompt · output: the plan and files changed · ERROR/WARNING on failure
+├── prepare-context      (span)        files sent in full, files only listed, characters
+├── generate-changes     (generation)  one per request to Claude: the conversation it saw (earlier turns, file names; system
+│                                      prompt and file contents as "(not traced)"), model, tokens incl. cache, cost, time to first token
+├── read-files           (tool)        one per read_files call: paths asked, read, not read
+└── save-changes         (span)        written (path, bytes), deleted, rejected (path, reason), snapshot
+    └── summarize-change (generation)  the snapshot summary
+```
+
+- **Session** = the app's ID; **user** = the Firebase uid; **tags**: the outcome (`done`, `partial`, `error`, `cancelled`, `declined`), `first-build` or `follow-up`, `large-app`, `read-files`. Set on every observation, as Langfuse needs for filtering.
+- **Cost** comes from Genesis's rate card (§7.1), so it matches what the user was charged (before rounding up).
+- **Built after the fact** from timings `generate` records, with explicit start and end times, so tracing never touches the stream. The tracer provider is isolated and the Anthropic client's own OpenTelemetry is off, so the SDK adds no duplicate spans (they would carry full messages, including code).
+- **Content:** the prompt and plan only; never file contents or code; a declined prompt is not sent.
+- Instrumented with the [Langfuse agent skill](../.claude/skills/langfuse/SKILL.md) and audited against real traces (record in [docs/plans/observability.md](plans/observability.md)).
+
+### 14.2 Structured logs
+
+In Cloud Logging (`jsonPayload`), tagged with `generationId`, `uid` and `projectId`, metadata only, never text:
+
+| Event | Fields |
+|---|---|
+| `build.round` | round number, tokens (input, output, cache read and write), stop reason, time to first token, duration, tool calls (paths asked and read) |
+| `build.rejected` | path and reason, one per rejected file |
+| `build.end` | outcome, error code and step, totals, credits held and charged, files sent and listed, files written/deleted/rejected, follow-up or not, timings, `traceId` (the Langfuse trace) |
+
+### 14.3 Settings and the off switch
+
+| Setting | Where | Default |
+|---|---|---|
+| `TRACING` | GitHub variable (production) · `functions/.env.local` | `off`; `langfuse` sends traces |
+| `LANGFUSE_BASE_URL` | GitHub variable · `functions/.env.local` | `https://cloud.langfuse.com` (EU); `https://us.cloud.langfuse.com` (US) |
+| `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` | Secret Manager · `functions/.secret.local` | required for every deploy, even with tracing off |
+
+To stop sending traces, set the GitHub variable `TRACING=off` and re-run the deploy: Langfuse is then never contacted. Logs are unaffected. Local builds are tagged with the `development` environment, production builds with `production`.

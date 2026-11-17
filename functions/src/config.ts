@@ -16,6 +16,12 @@ export const FILE_STORE = defineString("FILE_STORE", { default: "firestore" });
  * left out are only listed, and changes to them are rejected by the unread-file guard.
  */
 export const CONTEXT_TOOLS = defineString("CONTEXT_TOOLS", { default: "on" });
+/** Build traces to Langfuse: `langfuse` (needs the two LANGFUSE_* secrets) or `off` (default). */
+export const TRACING = defineString("TRACING", { default: "off" });
+/** Langfuse region: https://cloud.langfuse.com (EU, default) or https://us.cloud.langfuse.com (US). */
+export const LANGFUSE_BASE_URL = defineString("LANGFUSE_BASE_URL", { default: "https://cloud.langfuse.com" });
+export const LANGFUSE_PUBLIC_KEY = defineSecret("LANGFUSE_PUBLIC_KEY");
+export const LANGFUSE_SECRET_KEY = defineSecret("LANGFUSE_SECRET_KEY");
 /** The daily cleanup of unreferenced file content: `dry-run` (default) only logs, `delete` deletes. */
 export const BLOB_CLEANUP = defineString("BLOB_CLEANUP", { default: "dry-run" });
 

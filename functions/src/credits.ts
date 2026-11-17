@@ -51,6 +51,19 @@ export function creditsFor(model: string, u: TokenUsage): number {
 
 export const chargeable = (credits: number) => Math.ceil(credits);
 
+/** One call's cost in US dollars per token type, from the rate card (1 credit = $0.001). For observability. */
+export function costUsd(model: string, u: TokenUsage): { input: number; output: number; cache_creation_input_tokens: number; cache_read_input_tokens: number; total: number } {
+  const r = rateFor(model);
+  const usd = (tokens: number, perMillion: number) => (tokens * perMillion) / 1e6 / 1000;
+  const parts = {
+    input: usd(u.inputTokens, r.input),
+    output: usd(u.outputTokens, r.output),
+    cache_creation_input_tokens: usd(u.cacheWriteTokens, r.cacheWrite),
+    cache_read_input_tokens: usd(u.cacheReadTokens, r.cacheRead),
+  };
+  return { ...parts, total: parts.input + parts.output + parts.cache_creation_input_tokens + parts.cache_read_input_tokens };
+}
+
 /**
  * The most one model call can cost: every input token at the dearest input rate (a cache write, 1.25x, when the
  * cached prefix has expired) plus the full output cap. Builds hold this, so a cache miss is never under-charged.

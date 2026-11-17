@@ -1,7 +1,10 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { FieldValue } from "firebase-admin/firestore";
 import { onRequest, type Request } from "firebase-functions/v2/https";
-import { ANTHROPIC_API_KEY, ANTHROPIC_MODEL, ANTHROPIC_SUMMARY_MODEL, APP_ORIGINS, CONTEXT_TOOLS } from "./config";
+import {
+  ANTHROPIC_API_KEY, ANTHROPIC_MODEL, ANTHROPIC_SUMMARY_MODEL, APP_ORIGINS, CONTEXT_TOOLS, FILE_STORE, LANGFUSE_BASE_URL,
+  LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, TRACING,
+} from "./config";
 import {
   chargeable, creditsFor, extendHold, holdCredits, releaseBuildSlot, reserveBuildSlot, settleCredits, toTokenUsage,
   worstCaseCredits,
@@ -16,6 +19,8 @@ import { RECENT_MESSAGES, SINGLE_FILE_LIMIT_CHARS, systemBlocks } from "./llm/pr
 import { READ_FILES_TOOL, runReadFiles } from "./llm/tools";
 import { runTurns, type TurnStream } from "./llm/turns";
 import { checkPath, NOT_READ, validateOps, type FileOp, type Rejection } from "./llm/validate";
+import { logBuild, type BuildTraceInput } from "./observability/buildTrace";
+import { ensureLangfuse, sendBuildTrace } from "./observability/langfuse";
 import { assertEditable, getOwnedProject, getUserHl, useConnectedLocation } from "./projects";
 
 const MAX_PROMPT_CHARS = 4000;
@@ -56,7 +61,7 @@ async function precheck(req: Request) {
   const hl = await getUserHl(uid);
   if (!hl) throw httpError(409, "hl_not_connected", "HighLevel is not connected. Connect it before generating.");
   await useConnectedLocation(pid, project, hl.locationId);
-  return { uid, pid, prompt, ...editorHints(req.body) };
+  return { uid, pid, prompt, projectName: project.name, ...editorHints(req.body) };
 }
 
 /** The editor's active and open tabs: hints for ranking context only, so invalid paths are dropped, not refused. */
@@ -68,17 +73,25 @@ function editorHints(body: Record<string, unknown> | undefined): { activePath: s
 }
 
 export const generate = onRequest(
-  { cors: APP_ORIGINS, secrets: [ANTHROPIC_API_KEY], timeoutSeconds: 540, memory: "512MiB" },
+  {
+    cors: APP_ORIGINS, secrets: [ANTHROPIC_API_KEY, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY], timeoutSeconds: 540, memory: "512MiB",
+  },
   async (req, res) => {
+    const startedAt = Date.now();
+    if (TRACING.value() === "langfuse") {
+      ensureLangfuse({ publicKey: LANGFUSE_PUBLIC_KEY.value(), secretKey: LANGFUSE_SECRET_KEY.value(), baseUrl: LANGFUSE_BASE_URL.value() });
+    }
     // ---- Pre-stream: checks, context and the credit hold. Failures here are plain JSON errors. ----
-    const client = new Anthropic({ apiKey: ANTHROPIC_API_KEY.value() });
+    // The SDK's own OpenTelemetry spans are off: they would duplicate the Langfuse trace and carry file contents.
+    const client = new Anthropic({ apiKey: ANTHROPIC_API_KEY.value(), openTelemetry: false });
     const model = ANTHROPIC_MODEL.value();
     const summaryModel = ANTHROPIC_SUMMARY_MODEL.value();
     let ctx;
     let slot: { uid: string; generationId: string } | null = null;
     try {
-      const { uid, pid, prompt, activePath, openPaths } = await precheck(req);
+      const { uid, pid, prompt, projectName, activePath, openPaths } = await precheck(req);
       const proj = projectRef(pid);
+      const checksDone = Date.now();
       // Rate limit first, so a refused build costs no token count, no credit hold and no Claude call.
       const genRef = proj.collection("generations").doc();
       await reserveBuildSlot(uid, pid, genRef.id);
@@ -100,15 +113,17 @@ export const generate = onRequest(
       const history = recent.docs
         .reverse()
         .map((d) => ({ role: d.get("role") as "user" | "assistant", content: d.get("content") as string }));
+      const filesText = renderContext(files, manifest, selection.index, tools);
       const request = {
         model,
         system: systemBlocks(),
         ...(tools ? { tools: [READ_FILES_TOOL] } : {}),
         messages: [
           ...history,
-          { role: "user" as const, content: `Current project files:\n${renderContext(files, manifest, selection.index, tools)}\n\nRequest: ${prompt}` },
+          { role: "user" as const, content: `Current project files:\n${filesText}\n\nRequest: ${prompt}` },
         ],
       };
+      const contextDone = Date.now();
 
       // Hold the worst case: exact input tokens priced as a cache miss, the full output cap and the summary allowance.
       const inputTokens = await countInput(client, request);
@@ -119,13 +134,20 @@ export const generate = onRequest(
       // The prompt and chat messages are saved only after the model accepts the request,
       // so declined (off-topic or harmful) requests never enter history or later model context.
       await genRef.set({ status: "streaming", createdAt: FieldValue.serverTimestamp() });
-      ctx = { uid, pid, prompt, proj, store, manifest, seen: new Set(selection.full), request, cacheConversation, genRef, held };
+      const trace = {
+        projectName, fileStore: FILE_STORE.value(), contextTools: tools,
+        followUp: { previousGenerationId: lastBuilds.docs[0]?.id ?? null, historyMessages: history.length },
+        history,
+        context: { full: selection.full, indexed: selection.index, chars: filesText.length, activePath, openPaths, recentPaths },
+        checksMs: checksDone - startedAt, contextMs: contextDone - checksDone, holdMs: Date.now() - contextDone,
+      };
+      ctx = { uid, pid, prompt, proj, store, manifest, seen: new Set(selection.full), request, cacheConversation, genRef, held, trace };
     } catch (err) {
       if (slot) await releaseBuildSlot(slot.uid, slot.generationId).catch((e) => console.error("generate: slot release failed", e));
       sendError(res, err);
       return;
     }
-    const { uid, pid, prompt, proj, store, manifest, seen, request, cacheConversation, genRef } = ctx;
+    const { uid, pid, prompt, proj, store, manifest, seen, request, cacheConversation, genRef, trace } = ctx;
     let held = ctx.held; // grows when a read turn holds more
     const generationId = genRef.id;
 
@@ -159,7 +181,7 @@ export const generate = onRequest(
         send("file_end", { path: e.path, bytes: Buffer.byteLength(e.content) });
       } else if (e.type === "refuse") {
         refused = true;
-        console.info("generate: request declined by model:", e.reason.slice(0, 200));
+        console.info("generate: request declined by model:", e.reason.slice(0, 200)); // the reason, never the prompt
       } else ops.push({ type: "delete", path: e.path });
     });
 
@@ -175,13 +197,18 @@ export const generate = onRequest(
       if (s.get("cancelRequested") && !streamEnded && !cancelled) { cancelled = true; current?.abort(); }
     }, () => {});
 
+    let firstTokenAt: number | null = null;
+    const streamStarted = Date.now();
     const turns = await runTurns({
       stream: (params) => client.messages.stream(params),
       request,
       maxOutputTokens: MAX_OUTPUT_TOKENS,
       maxReadTurns: MAX_READ_TURNS,
       cacheConversation,
-      onText: (t) => parser.push(t),
+      onText: (t) => {
+        firstTokenAt ??= Date.now();
+        parser.push(t);
+      },
       onStream: (s) => { current = s; },
       runTool: (block) => block.name === READ_FILES_TOOL.name
         ? runReadFiles(block.input, manifest, (paths) => store.read(pid, paths), seen)
@@ -199,6 +226,7 @@ export const generate = onRequest(
       discardOpenFile: () => parser.discardOpenFile(),
       stopped: () => cancelled || clientGone,
     });
+    const streamMs = Date.now() - streamStarted;
     const buildUsage = turns.usage;
     let failure: { code: string; message: string } | null = null;
     let summaryUsage: TokenUsage | null = null;
@@ -235,7 +263,22 @@ export const generate = onRequest(
       await genRef.update({ credits: charged, usage: { model, ...usage }, ...(summaryUsage ? { summaryUsage } : {}) }).catch(() => {});
       return { charged, balance };
     };
-    console.info("generate: stream ended", { generationId, clientGone, failure: failure?.code ?? null });
+    /** Logs the build and sends its trace (observability/), before the response ends. Never throws. */
+    let saveStarted = Date.now();
+    const observe = async (status: string, failure: { code: string; message: string } | null, actions: BuildTraceInput["actions"], charged: number) => {
+      const input: BuildTraceInput = {
+        generationId, uid, projectId: pid, projectName: trace.projectName, startedAt, endedAt: Date.now(),
+        status, error: failure, prompt, plan: planParts.join("").trim(), followUp: trace.followUp, history: trace.history,
+        model, summaryModel, fileStore: trace.fileStore, contextTools: trace.contextTools, context: trace.context,
+        rounds: turns.rounds, actions, credits: { held, extraHolds: held - ctx.held, charged }, summaryUsage,
+        timings: {
+          checksMs: trace.checksMs, contextMs: trace.contextMs, holdMs: trace.holdMs,
+          firstTokenMs: firstTokenAt === null ? null : firstTokenAt - startedAt, streamMs, saveMs: Date.now() - saveStarted,
+        },
+      };
+      const traceId = await sendBuildTrace(input);
+      logBuild(input, traceId);
+    };
     const unclosed = parser.end();
     if (unclosed) rejected.push({ path: unclosed, reason: "file was never closed (output incomplete)" });
 
@@ -243,6 +286,7 @@ export const generate = onRequest(
     if (refused && !ops.length && !unclosed) {
       await genRef.update({ status: "declined" }).catch(() => {});
       const credits = await settle({ ...buildUsage, outputTokens: 0 }); // declined requests pay for input only
+      await observe("declined", null, { written: [], deleted: [], rejected: [], snapshotId: null, summary: null }, credits.charged);
       send("error", { code: "declined", message: DECLINED_MESSAGE, partial: false, credits });
       clearInterval(heartbeat);
       if (!clientGone) res.end();
@@ -253,12 +297,16 @@ export const generate = onRequest(
     let status: Status = "error";
     let snapshotId: string | null = null;
     let applied: string[] = [];
+    let validOps: FileOp[] = [];
+    let summaryText: string | null = null;
+    saveStarted = Date.now();
     try {
       const existing = new Set(Object.keys(manifest));
       const tooLarge = new Set(Object.keys(manifest).filter((p) => manifest[p]!.size > SINGLE_FILE_LIMIT_CHARS));
       const result = validateOps(ops, existing, seen);
       rejected.push(...result.rejected.map((r) =>
         r.reason === NOT_READ && tooLarge.has(r.path) ? { ...r, reason: "too large for the AI to edit; split it or edit it by hand" } : r));
+      validOps = result.valid;
       if (result.valid.length) {
         await store.apply(pid, result.valid);
         applied = result.valid.map((o) => o.path);
@@ -267,6 +315,7 @@ export const generate = onRequest(
           ? { summary: "Stopped before finishing", usage: null }
           : await summarizeChange(client, summaryModel, { prompt, plan: planParts.join("").trim(), files: applied });
         if (summarized.usage) summaryUsage = toTokenUsage(summarized.usage);
+        summaryText = summarized.summary;
         snapshotId = await store.snapshot(pid, generationId, "generation", summarized.summary);
       }
 
@@ -306,10 +355,13 @@ export const generate = onRequest(
     }
 
     const credits = await settle(buildUsage);
-    console.info("generate: persisted", {
-      generationId, status, applied: applied.length, credits: credits.charged, readTurns: turns.readTurns,
-      cacheRead: buildUsage.cacheReadTokens, cacheWrite: buildUsage.cacheWriteTokens, // system prompt cache hit / miss
-    });
+    await observe(status, failure, {
+      written: validOps.flatMap((o) => (o.type === "write" ? [{ path: o.path, bytes: Buffer.byteLength(o.content) }] : [])),
+      deleted: validOps.flatMap((o) => (o.type === "delete" ? [o.path] : [])),
+      rejected,
+      snapshotId,
+      summary: summaryText,
+    }, credits.charged);
     if (status === "cancelled") {
       send("cancelled", { generationId, snapshotId, files: applied, unfinished: unclosed, credits });
     } else if (failure) send("error", { ...failure, partial: applied.length > 0, credits });
