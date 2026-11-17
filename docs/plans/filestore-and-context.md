@@ -205,7 +205,7 @@ _One entry per commit._
 
 1. ~~Enable Firebase Storage.~~ Done 2026-11-18.
 2. Review and merge the branch (pull request from `feat/filestore-context`). Users see no change except that large apps get the file index and `read_files`; files stay in Firestore; `storage.rules` (deny all, same as live) is deployed.
-3. For the daily cleanup: ~~enable the Cloud Scheduler API~~ (done 2026-11-18); grant `roles/cloudscheduler.admin` to `github-deployer` (**before merging**: the `cleanupFileBlobs` export is enabled, so the deploy creates a scheduler job).
+3. For the daily cleanup: ~~enable the Cloud Scheduler API~~ (done 2026-11-18); ~~grant `roles/cloudscheduler.admin` to `github-deployer`~~ (done 2026-11-18 by re-running `setup-github-deploy.sh`).
 4. Optionally run the backfill, then set the repository variable `FILE_STORE=blobs` and re-run the deploy (README "Switching project files to Cloud Storage").
 5. After a week of dry-run logs, set the repository variable `BLOB_CLEANUP=delete`.
 6. Later release: delete the old Firestore file data (F1).
