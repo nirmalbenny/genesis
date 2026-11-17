@@ -23,6 +23,8 @@ test("the system prompt carries no sub-account name or id, and points the model 
 test("the system prompt includes the UI kit, keeps its look by default, and asks for small files", () => {
   const prompt = buildSystemPrompt();
   assert.match(prompt, /# UI kit \(`\.\/genesis\/ui\.css`/, "uiKit.md is included (and copied into lib/ by the build)");
+  assert.match(prompt, /<plan>[\s\S]*<file path="src\/App.vue">[\s\S]*<\/file>[\s\S]*<delete path=/, "the output format");
+  assert.match(prompt, /<refuse>/);
   assert.match(prompt, /Do not change its look unless the user explicitly asks/);
   assert.match(prompt, /each under about 150 lines/);
   assert.doesNotMatch(prompt, /Style with plain CSS in <style scoped>/, "the old free-styling rule is gone");

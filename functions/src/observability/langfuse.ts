@@ -186,8 +186,8 @@ export async function sendBuildTrace(t: BuildTraceInput): Promise<string | null>
 
       const save = under(root, () => startObservation("save-changes", {
         input: { proposed: [...files, ...t.actions.deleted, ...t.actions.rejected.map((x) => x.path)] },
-        output: { written: t.actions.written, deleted: t.actions.deleted, rejected: t.actions.rejected, snapshotId: t.actions.snapshotId },
-        level: t.actions.rejected.length ? "WARNING" : "DEFAULT",
+        output: { written: t.actions.written, deleted: t.actions.deleted, rejected: t.actions.rejected, fixups: t.fixups, snapshotId: t.actions.snapshotId },
+        level: t.actions.rejected.length || t.fixups.length ? "WARNING" : "DEFAULT",
       }, { startTime: at(saveStart) }));
       const summaryUsage = t.summaryUsage;
       if (summaryUsage) {

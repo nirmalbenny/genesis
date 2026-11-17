@@ -113,10 +113,12 @@ export const generate = onRequest(
       // Content is read only for the files sent in full.
       const selection = selectContext(manifest, { activePath, openPaths, recentPaths, prompt });
       const files = await time("readFiles", () => store.read(pid, selection.full));
-      // With context tools, every build sends the same tool (one shared prompt cache); the conversation itself is
-      // cached only when files were left out, i.e. when a read turn is likely (docs/plans/filestore-and-context.md R3).
-      const tools = CONTEXT_TOOLS.value() === "on";
-      const cacheConversation = tools && selection.index.length > 0;
+      // The read_files tool is sent only when files were left out (it's useless otherwise). A tool definition in the
+      // request made Claude leak tool-call markup into files (measured 2026-11-18: 6/18 files with it, 0/18 without),
+      // so most builds, which send every file, go without it. The two variants are two prompt caches; the
+      // conversation itself is cached only when files were left out (docs/plans/filestore-and-context.md R3).
+      const tools = CONTEXT_TOOLS.value() === "on" && selection.index.length > 0;
+      const cacheConversation = tools;
       const history = recent.docs
         .reverse()
         .map((d) => ({ role: d.get("role") as "user" | "assistant", content: d.get("content") as string }));
@@ -178,6 +180,7 @@ export const generate = onRequest(
     const planParts: string[] = [];
     let refused = false;
     const rejected: Rejection[] = [];
+    const fixups: { path: string; fix: string }[] = [];
     const parser = createParser((e) => {
       if (e.type === "token") {
         send("token", { text: e.text, path: e.path });
@@ -189,7 +192,8 @@ export const generate = onRequest(
       } else if (e.type === "refuse") {
         refused = true;
         console.info("generate: request declined by model:", e.reason.slice(0, 200)); // the reason, never the prompt
-      } else ops.push({ type: "delete", path: e.path });
+      } else if (e.type === "fixup") fixups.push({ path: e.path, fix: e.fix });
+      else ops.push({ type: "delete", path: e.path });
     });
 
     // Stop requests (POST .../generations/:gid/cancel) arrive as a flag on the generation doc, so they reach
@@ -277,7 +281,7 @@ export const generate = onRequest(
         generationId, uid, projectId: pid, projectName: trace.projectName, startedAt, endedAt: Date.now(),
         status, error: failure, prompt, plan: planParts.join("").trim(), followUp: trace.followUp, history: trace.history,
         model, summaryModel, fileStore: trace.fileStore, contextTools: trace.contextTools, context: trace.context,
-        rounds: turns.rounds, actions, credits: { held, extraHolds: held - ctx.held, charged }, summaryUsage,
+        rounds: turns.rounds, actions, fixups, credits: { held, extraHolds: held - ctx.held, charged }, summaryUsage,
         timings: {
           checksMs: trace.checksMs, contextMs: trace.contextMs, holdMs: trace.holdMs,
           firstTokenMs: firstTokenAt === null ? null : firstTokenAt - startedAt, streamMs, saveMs: Date.now() - saveStarted,
@@ -287,7 +291,9 @@ export const generate = onRequest(
       const traceId = await sendBuildTrace(input);
       logBuild(input, traceId);
     };
-    const unclosed = parser.end();
+    // A file left open when the model finished its turn on its own is a forgotten close tag, not a cut-off file.
+    const finishedNormally = final?.stop_reason === "end_turn" && !failure && !cancelled && !clientGone;
+    const unclosed = parser.end({ complete: finishedNormally });
     if (unclosed) rejected.push({ path: unclosed, reason: "file was never closed (output incomplete)" });
 
     // ---- Declined: nothing is stored in history; the client shows a transient notice ----
