@@ -121,7 +121,7 @@ Everything runs in one Firebase project in `us-central1`. Clients never write to
 | `api` | Firebase ID token | A small router for projects, files, snapshots, ready-made apps, pinning, preview tokens and disconnect (see §4). |
 | `generate` | Firebase ID token | Streaming generation over SSE (see §6), with the credit hold (§7) and build limits (§8). |
 | `hlProxy` | Preview token | Forwards allowlisted GET requests to HighLevel using the user's real token (see §10). |
-| `cleanupFileBlobs` | Scheduled, daily | Deletes file content no manifest references, after a 7-day grace period (§3.1). Dry run unless `BLOB_CLEANUP=delete`. Deployed only once files move to Cloud Storage (its export is enabled then). |
+| `cleanupFileBlobs` | Scheduled, daily | Deletes file content no manifest references, after a 7-day grace period (§3.1). Dry run unless `BLOB_CLEANUP=delete`. Needs the Cloud Scheduler API and the deploy account's scheduler role. |
 
 ## 3. Data model
 

@@ -189,7 +189,7 @@ _One entry per commit._
 - D14: A file already shown in full is not sent again by `read_files` ("already shown in full above"), and one call returns at most the 60,000-character budget.
 - D15: The fallback token estimate (when `countTokens` fails) is now characters ÷ 2.5 instead of ÷ 3.5 for holds, so it errs high (R12). The cut-off-stream output estimate keeps ÷ 3.5 (it should not overcharge).
 - D16: `CONTEXT_TOOLS` defaults to `on` (your decision after the real-Claude builds: with the guard, `off` makes large-app edits outside the context fail). Production flags come from GitHub repository variables `FILE_STORE`, `CONTEXT_TOOLS`, `BLOB_CLEANUP` (defaults `firestore`, `on`, `dry-run`), because CI writes `functions/.env.<project>` from scratch on every deploy.
-- D20: `cleanupFileBlobs` is not exported (not deployed) until the switch to Cloud Storage: deploying a scheduled function needs the Cloud Scheduler API and a scheduler role the deploy account lacks today. `setup-github-deploy.sh` now grants `roles/cloudscheduler.admin`.
+- D20 (superseded 2026-11-18: the export is enabled again after the Scheduler API was turned on): `cleanupFileBlobs` was not exported until the switch to Cloud Storage: deploying a scheduled function needs the Cloud Scheduler API and a scheduler role the deploy account lacks today. `setup-github-deploy.sh` now grants `roles/cloudscheduler.admin`.
 - D17 (emulator limit): the Storage emulator ignores `ifGenerationMatch: 0`, does not store `customTime`, and ignores `ifMetagenerationMatch` on delete (probed 2026-11-17). Create-only uploads, the reuse touch and the delete precondition therefore can't be tested end to end locally; `deleteIfUnchanged` is unit-tested with a fake file and relies on Cloud Storage's documented preconditions. On the emulator, `put` simply overwrites identical content (harmless) and age falls back to `timeCreated`.
 - D18: The cleanup job defaults to dry run (`BLOB_CLEANUP=dry-run`, logs only); `delete` must be set deliberately. It is scoped by user prefix (`uids`) in tests.
 - D19: The optional diff endpoint was not built (time); listed as follow-up F3.
@@ -205,7 +205,7 @@ _One entry per commit._
 
 1. ~~Enable Firebase Storage.~~ Done 2026-11-18.
 2. Review and merge the branch (pull request from `feat/filestore-context`). Users see no change except that large apps get the file index and `read_files`; files stay in Firestore; `storage.rules` (deny all, same as live) is deployed.
-3. For the daily cleanup: enable the Cloud Scheduler API on `genesisaibuilder`, re-run `./scripts/setup-github-deploy.sh genesisaibuilder nirmalbenny/genesis` (adds the scheduler role), then enable the `cleanupFileBlobs` export in `functions/src/index.ts` and deploy.
+3. For the daily cleanup: ~~enable the Cloud Scheduler API~~ (done 2026-11-18); grant `roles/cloudscheduler.admin` to `github-deployer` (**before merging**: the `cleanupFileBlobs` export is enabled, so the deploy creates a scheduler job).
 4. Optionally run the backfill, then set the repository variable `FILE_STORE=blobs` and re-run the deploy (README "Switching project files to Cloud Storage").
 5. After a week of dry-run logs, set the repository variable `BLOB_CLEANUP=delete`.
 6. Later release: delete the old Firestore file data (F1).

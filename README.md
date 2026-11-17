@@ -276,7 +276,7 @@ Checks run cheapest first, so a refused build never counts tokens, holds credits
 **Switching project files to Cloud Storage** (in this order, each step a separate deploy):
 
 1. Merge the code. With the defaults (`FILE_STORE` unset = `firestore`), files stay in Firestore; `read_files` is on.
-2. One-time setup: Cloud Storage and Cloud Scheduler as above, then enable the `cleanupFileBlobs` export in `functions/src/index.ts` and deploy: the daily cleanup (dry run) goes live; users see no change.
+2. One-time setup: Cloud Storage and Cloud Scheduler as above. The daily cleanup (dry run) deploys with the functions; users see no change.
 3. Optional: backfill so no app is converted on first open: `GCLOUD_PROJECT=<project-id> npm run migrate:files -- --bucket <bucket> --dry-run`, then the same with `--allow-production`. Re-running is safe. Changes made meanwhile drop the affected manifest, so it can't go stale.
 4. Set the repository variable `FILE_STORE=blobs` and re-run the deploy at a quiet time. Apps not yet converted are converted when first opened.
 5. After a week, check the cleanup's dry-run logs, then set `BLOB_CLEANUP=delete`.
