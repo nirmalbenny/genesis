@@ -76,7 +76,8 @@ export async function runTurns(o: TurnsOptions): Promise<TurnsResult> {
     const lastTurn = readTurns >= o.maxReadTurns;
     const params: Anthropic.MessageStreamParams = {
       ...o.request,
-      messages: o.cacheConversation ? withCachePoint(messages) : messages,
+      // No cache point on the last turn: nothing comes after it to read the cache back.
+      messages: o.cacheConversation && !lastTurn ? withCachePoint(messages) : messages,
       max_tokens: remaining,
       // After the read turns the model must answer with what it has (tools and system stay cached).
       ...(o.request.tools && lastTurn && turn > 0 ? { tool_choice: { type: "none" as const } } : {}),

@@ -154,9 +154,11 @@ Ctrl+C stops both. `npm run dev:local` runs plain Vite without a tunnel. Deploye
 | `HL_CLIENT_ID`, `HL_CLIENT_SECRET` | secret | HighLevel Marketplace app credentials |
 | `PREVIEW_TOKEN_SECRET` | secret | HMAC key for the 15-minute preview tokens that generated apps use |
 | `LOCAL_TOKEN_KEK` | `functions/.env.local` | Emulator-only key that encrypts stored HighLevel tokens (`openssl rand -base64 32`). Production uses Cloud KMS instead. |
-| `FILE_STORE` | `functions/.env.local` · `.env.<project-id>` | `firestore` (default: one document per file) or `blobs` (Cloud Storage + manifest). See [ARCHITECTURE §3.1](docs/ARCHITECTURE.md#31-project-files-blobs-and-a-manifest). |
-| `CONTEXT_TOOLS` | `functions/.env.local` · `.env.<project-id>` | `off` (default) or `on`: a large app's build gets a file index and the `read_files` tool |
-| `BLOB_CLEANUP` | `functions/.env.<project-id>` | `dry-run` (default: the daily cleanup only logs) or `delete` |
+| `FILE_STORE` | `functions/.env.local` · GitHub variable | `firestore` (default: one document per file) or `blobs` (Cloud Storage + manifest). See [ARCHITECTURE §3.1](docs/ARCHITECTURE.md#31-project-files-blobs-and-a-manifest). |
+| `CONTEXT_TOOLS` | `functions/.env.local` · GitHub variable | `on` (default): a large app's build gets a file index and the `read_files` tool. `off` is a kill switch. |
+| `BLOB_CLEANUP` | GitHub variable | `dry-run` (default: the daily cleanup only logs) or `delete` |
+
+In production these three come from GitHub **repository variables** of the same names (CI writes them into `functions/.env.<project-id>`, which it creates on every deploy). Unset means the default. To change one, set the variable and re-run the deploy.
 | `VITE_FIREBASE_*` | `frontend/.env.local` · `.env.production` | Firebase web app config (public by design) |
 | `VITE_FUNCTIONS_BASE_URL` | `frontend/.env.*` | Functions base URL. In dev it's set automatically by `npm run dev`. |
 | `VITE_USE_EMULATORS` | `frontend/.env.*` | `true` locally, `false` in production |
@@ -269,16 +271,16 @@ Checks run cheapest first, so a refused build never counts tokens, holds credits
 - **Authentication:** enable Email/Password, then turn on bot protection with `./scripts/setup-bot-protection.sh <project-id>`. It upgrades Auth to Identity Platform (free up to 50k monthly users; the upgrade can't be undone) and has Firebase score every email/password sign-up and sign-in with reCAPTCHA Enterprise, blocking scores ≤ 0.3. Run it with `AUDIT` as the second argument to score without blocking, or `OFF` to turn it off.
 - **Firestore:** Standard edition, Native mode.
 - **Hosting:** serves `frontend/dist`. `firebase.json` rewrites every path to `index.html`.
-- **Cloud Storage** (before the first deploy that includes `storage` in `firebase.json`, because `firebase deploy` deploys `storage.rules`): enable Firebase Storage to create the default bucket, and give the deploy service account permission to deploy rules (Firebase Rules Admin). Cloud Scheduler must be enabled for the daily `cleanupFileBlobs` job.
+- **Cloud Storage** (only when switching files to it, below): enable Firebase Storage to create the default bucket, enable the Cloud Scheduler API, and re-run `./scripts/setup-github-deploy.sh` so the deploy account gets the scheduler role. CI deploys only `functions,hosting,firestore` until `storage` is added to its `--only` list.
 
 **Switching project files to Cloud Storage** (in this order, each step a separate deploy):
 
-1. Deploy the code with `FILE_STORE=firestore` (the default) and `BLOB_CLEANUP=dry-run`. Nothing changes for users.
-2. Optional: backfill so no app is converted on first open: `GCLOUD_PROJECT=<project-id> npm run migrate:files -- --bucket <bucket> --dry-run`, then the same with `--allow-production`. Re-running is safe. Changes made meanwhile drop the affected manifest, so it can't go stale.
-3. Set `FILE_STORE=blobs` in `functions/.env.<project-id>` and deploy at a quiet time. Apps not yet converted are converted when first opened.
-4. After a week, check the cleanup's dry-run logs, then set `BLOB_CLEANUP=delete`.
-5. Turn on `CONTEXT_TOOLS=on` when ready.
-6. Later, a separate release removes the old Firestore file data and the `firestore` store. Switching back to `firestore` after step 3 would show files as they were before the switch.
+1. Merge the code. With the defaults (`FILE_STORE` unset = `firestore`), files stay in Firestore; `read_files` is on.
+2. One-time setup: Cloud Storage as above. In the same change, add `storage` to the `--only` list in `deploy.yml` and enable the `cleanupFileBlobs` export in `functions/src/index.ts`. Deploy: Storage rules and the daily cleanup (dry run) go live; users see no change.
+3. Optional: backfill so no app is converted on first open: `GCLOUD_PROJECT=<project-id> npm run migrate:files -- --bucket <bucket> --dry-run`, then the same with `--allow-production`. Re-running is safe. Changes made meanwhile drop the affected manifest, so it can't go stale.
+4. Set the repository variable `FILE_STORE=blobs` and re-run the deploy at a quiet time. Apps not yet converted are converted when first opened.
+5. After a week, check the cleanup's dry-run logs, then set `BLOB_CLEANUP=delete`.
+6. Later, a separate release removes the old Firestore file data and the `firestore` store. Switching back to `firestore` after step 4 would show files as they were before the switch.
 
 ```bash
 firebase use <project-id>
@@ -290,7 +292,7 @@ firebase functions:secrets:set ANTHROPIC_API_KEY      # also HL_CLIENT_ID, HL_CL
 #   frontend/.env.production      Firebase web config, VITE_FUNCTIONS_BASE_URL=https://us-central1-<project-id>.cloudfunctions.net,
 #                                 VITE_USE_EMULATORS=false
 (cd frontend && npm run build)
-firebase deploy                                       # Firestore and Storage rules, indexes, functions, hosting
+firebase deploy --only functions,hosting,firestore     # what CI deploys; add storage once it's set up (below)
 ```
 
 **Manual steps after the first deploy:**
@@ -308,7 +310,7 @@ firebase deploy                                       # Firestore and Storage ru
 [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) runs on every push and pull request:
 
 - **Check:** lint and unit tests for both packages, the integration tests against the emulators (a `demo-` project, so no credentials), then the frontend type-check and production build. Pull requests stop here.
-- **Deploy** (pushes to `main` only, after the check passes): `firebase deploy` of rules, functions and hosting. Pushes that change only Markdown, `docs/` or `.env.example` don't trigger a run.
+- **Deploy** (pushes to `main` only, after the check passes): `firebase deploy --only functions,hosting,firestore`. Targets are listed on purpose, so a new one in `firebase.json` goes live only once it's added there. Pushes that change only Markdown, `docs/` or `.env.example` don't trigger a run.
 
 It authenticates with **Workload Identity Federation**, so there are no keys. Config comes from GitHub **repository variables**: `FIREBASE_PROJECT_ID`, `VITE_FIREBASE_*`, `ANTHROPIC_MODEL`, `ANTHROPIC_SUMMARY_MODEL`, `WIF_PROVIDER` and `DEPLOY_SERVICE_ACCOUNT`. The secrets stay in Secret Manager.
 

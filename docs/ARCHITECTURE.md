@@ -121,7 +121,7 @@ Everything runs in one Firebase project in `us-central1`. Clients never write to
 | `api` | Firebase ID token | A small router for projects, files, snapshots, ready-made apps, pinning, preview tokens and disconnect (see §4). |
 | `generate` | Firebase ID token | Streaming generation over SSE (see §6), with the credit hold (§7) and build limits (§8). |
 | `hlProxy` | Preview token | Forwards allowlisted GET requests to HighLevel using the user's real token (see §10). |
-| `cleanupFileBlobs` | Scheduled, daily | Deletes file content no manifest references, after a 7-day grace period (§3.1). Dry run unless `BLOB_CLEANUP=delete`. |
+| `cleanupFileBlobs` | Scheduled, daily | Deletes file content no manifest references, after a 7-day grace period (§3.1). Dry run unless `BLOB_CLEANUP=delete`. Deployed only once files move to Cloud Storage (its export is enabled then). |
 
 ## 3. Data model
 
@@ -335,7 +335,7 @@ The chat shows the notice for that session only, so a declined request never aff
    - [`uiKit.md`](../functions/src/llm/uiKit.md), the classes of the injected UI kit (§10). Apps use the kit's look unless the user explicitly asks for another, and are split into components of about 150 lines, so a follow-up rewrites only the component it touches;
    - deliberately **not** the connected location's name or ID: apps read them at run time (`LOCATION_NAME`, `LOCATION_ID`, injected by the preview), so the model has nothing to hard-code;
    - the current files, within a 60,000-character budget ([`llm/context.ts`](../functions/src/llm/context.ts)). When every file fits (most apps), all are sent in full, alphabetically, exactly as before. Otherwise files are ranked: `src/main.js`, `src/App.vue`, `src/utils.js`; the editor's active tab; its open tabs; files changed by the last 2 builds (`generations.files`); files the prompt names (path, file name, or a distinctive component name such as `ContactList`); their imports and importers; then the rest. The budget is filled in that order; files over 20,000 characters and those past the budget are listed in an index, one line each from the manifest (size, lines, props, emits, client helpers). Content is read only for the files sent in full;
-   - the `read_files` tool (when `CONTEXT_TOOLS=on`; [`llm/tools.ts`](../functions/src/llm/tools.ts)), so the model can read indexed files (step 3a);
+   - the `read_files` tool ([`llm/tools.ts`](../functions/src/llm/tools.ts); on by default, `CONTEXT_TOOLS=off` is a kill switch), so the model can read indexed files (step 3a);
    - the last 6 chat messages.
 3. **Output format:**
 
@@ -497,7 +497,7 @@ The system prompt (rules, UI kit and HighLevel reference: about 5,500 tokens) is
 - The charge always follows Claude's reported usage, so caching can't over-charge. The hold prices all input as a cache miss, so it can't under-charge either.
 - Nothing per-user may be added to the system prompt: that would split the cache, and the cache is shared by every user of the API key. A test checks the block is byte-identical across calls.
 - **The `read_files` tool definition** is part of the cached prefix: tools render before the system prompt. It is frozen and byte-identical on every build (a test pins its hash), and with `CONTEXT_TOOLS=on` every build sends it, even when nothing is indexed, so all builds share one cache entry. Changing the definition, like changing the prompt, starts a new cache.
-- **Moving cache point (read turns):** when files were indexed, the latest user turn also gets a `cache_control` marker, so a read turn re-reads the conversation at 0.05× instead of paying it again. It is added only then: on a build that ends in one turn, it would only add the 1.25× write. The last turn's `tool_choice: none` keeps the tools and system cache but invalidates the messages cache, so that turn pays the conversation again (open question Q1 in the plan).
+- **Moving cache point (read turns):** when files were indexed, the latest user turn also gets a `cache_control` marker, so a read turn re-reads the conversation at 0.05× instead of paying it again. It is added only then: on a build that ends in one turn, it would only add the 1.25× write. The last turn's `tool_choice: none` keeps the tools and system cache but invalidates the messages cache, so that turn pays the conversation again, at the normal input rate: it carries no cache point, since nothing comes after it. This happens only in builds that read twice; a note instead of the switch would keep the cache, at the price of an extra turn when the model ignores it (decided against for now; revisit if logs show many two-read builds).
 - The history, files and prompt aren't cached otherwise: they change on every build. The 1-hour TTL isn't used: it costs 2× to write, and the rate card has no price for it.
 - `generate: persisted` logs `cacheRead` / `cacheWrite`, and each generation stores them under `usage`.
 

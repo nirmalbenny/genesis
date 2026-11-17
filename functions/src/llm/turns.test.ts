@@ -103,6 +103,13 @@ test("after two read turns the model must answer: tool_choice none on the last t
   assert.equal(r.message?.stop_reason, "end_turn");
 });
 
+test("the conversation gets a cache point on every turn except the last, which nothing reads back", async () => {
+  const h = harness([{ reads: [["src/A.vue"]] }, { reads: [["src/B.vue"]] }, { text: "<plan>Done.</plan>" }], { cacheConversation: true });
+  await h.run();
+  const marked = h.claude.requests.map((r) => JSON.stringify(r.messages).includes('"cache_control"'));
+  assert.deepEqual(marked, [true, true, false]);
+});
+
 test("a stop between turns ends the build before the next turn starts", async () => {
   let stopped = false;
   const h = harness([{ reads: [["src/A.vue"]] }, { text: "never" }], { stopped: () => stopped, onRead: () => { stopped = true; } });

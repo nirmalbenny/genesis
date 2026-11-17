@@ -133,6 +133,9 @@ jobs:
           cat > ".env.${PROJECT_ID}" <<EOF
           HL_REDIRECT_URI=https://us-central1-${PROJECT_ID}.cloudfunctions.net/hlAuthCallback
           APP_URL=https://${PROJECT_ID}.web.app
+          FILE_STORE=${{ vars.FILE_STORE || 'firestore' }}
+          CONTEXT_TOOLS=${{ vars.CONTEXT_TOOLS || 'on' }}
+          BLOB_CLEANUP=${{ vars.BLOB_CLEANUP || 'dry-run' }}
           EOF
 
       - uses: google-github-actions/auth@v2
@@ -140,5 +143,7 @@ jobs:
           workload_identity_provider: ${{ vars.WIF_PROVIDER }}
           service_account: ${{ vars.DEPLOY_SERVICE_ACCOUNT }}
 
-      - name: Deploy (Firestore rules, functions, hosting)
-        run: npx --yes firebase-tools@15.35.0 deploy --project "$PROJECT_ID" --non-interactive
+      # Targets are listed on purpose: a new target in firebase.json (e.g. storage) is deployed only once it is added
+      # here, after its one-time setup (docs/plans/filestore-and-context.md, "Manual steps").
+      - name: Deploy (Firestore rules and indexes, functions, hosting)
+        run: npx --yes firebase-tools@15.35.0 deploy --only functions,hosting,firestore --project "$PROJECT_ID" --non-interactive

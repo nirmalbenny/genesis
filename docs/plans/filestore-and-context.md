@@ -2,7 +2,7 @@
 
 Branch `feat/filestore-context` (from `main` at `03bd8f7`). Not pushed, never deployed.
 
-Status: **Steps 0–7 done**, including the real-Claude measurement (§8). Open: Q1, Q3. Not pushed, not deployed.
+Status: **Steps 0–7 done**, including the real-Claude measurement (§8). Q1–Q3 decided (2026-11-17). Branch pushed to GitHub; not merged, not deployed.
 
 **Final verify (2026-11-17):**
 
@@ -138,7 +138,7 @@ A scheduled function lists `users/*/blobs/*`, builds the set of hashes reference
 | Flag | Values | Code default (prod) | Emulator / CI |
 |---|---|---|---|
 | `FILE_STORE` | `firestore` \| `blobs` | `firestore` | `blobs` (after Step 4) |
-| `CONTEXT_TOOLS` | `on` \| `off` | `off` | `on` (after Step 6) |
+| `CONTEXT_TOOLS` | `on` \| `off` | `on` (decided 2026-11-17; `off` is a kill switch) | `on` |
 
 ## 5. Step checklist
 
@@ -167,6 +167,7 @@ _One entry per commit._
 - Step 7 cleanup: `files/cleanup.ts` (`cleanupBlobs`, scheduled `cleanupFileBlobs` daily 03:30 UTC): references read first (project + snapshot manifests, soft-deleted projects included), then lists blobs; deletes a blob only if unreferenced and untouched for 7 days, with `ifMetagenerationMatch`; dry run by default. Tests: `e2e/cleanup.e2e.ts` (referenced kept, young kept, dry run deletes nothing, real run deletes the orphan), `files/cleanup.test.ts` (precondition).
 - Step 7 measurement: `npm run measure:files` times both stores on the emulators (cached and cold blob reads), counts uploads and snapshot documents, sizes manifests and the large-app context. Results in §8.
 - Docs: ARCHITECTURE §2 (diagram: Storage, files module, cleanup function), §3 + new §3.1 (manifest, blobs, snapshots, migration, cleanup), §4 (request hints, `status` event, `insufficient_credits`), §5.3 diagram, §6 (ranking, index, step 3a read turns, guard), §7 (extra holds, ledger entry, ÷2.5 estimate, read-turn charges), §7.8 (tool in the prefix, moving cache point), §11 (server-only Storage), §13 (tests). README: decisions 3 and 8, AI and security rows, flags, scripts, layout, deployment and the switch-over procedure, improvement 1. `functions/README.md` layout.
+- Decisions applied (2026-11-17): no cache point on the last turn (test added); `CONTEXT_TOOLS` default `on`; CI deploys `--only functions,hosting,firestore` and writes the three flags from repository variables; `cleanupFileBlobs` export deferred; deploy account gets the scheduler role in the setup script.
 - Step 3 sign-off: the Storage tests find the default bucket by probing `<project>.firebasestorage.app` then `<project>.appspot.com` (the emulator can't list buckets; the real project uses the first, demo projects probably the second), and check the denial against an admin control request.
 
 ## 7. Deviations and open questions
@@ -187,7 +188,8 @@ _One entry per commit._
 - D13: Eager input streaming is off for `read_files`: its input is a few paths, so the API's own schema validation is kept; `runReadFiles` validates again.
 - D14: A file already shown in full is not sent again by `read_files` ("already shown in full above"), and one call returns at most the 60,000-character budget.
 - D15: The fallback token estimate (when `countTokens` fails) is now characters ÷ 2.5 instead of ÷ 3.5 for holds, so it errs high (R12). The cut-off-stream output estimate keeps ÷ 3.5 (it should not overcharge).
-- D16: `CONTEXT_TOOLS` defaults to `off` in code (production unchanged until you turn it on) and is `on` in the emulator and CI.
+- D16: `CONTEXT_TOOLS` defaults to `on` (your decision after the real-Claude builds: with the guard, `off` makes large-app edits outside the context fail). Production flags come from GitHub repository variables `FILE_STORE`, `CONTEXT_TOOLS`, `BLOB_CLEANUP` (defaults `firestore`, `on`, `dry-run`), because CI writes `functions/.env.<project>` from scratch on every deploy.
+- D20: `cleanupFileBlobs` is not exported (not deployed) until the switch to Cloud Storage: deploying a scheduled function needs the Cloud Scheduler API and a scheduler role the deploy account lacks today. `setup-github-deploy.sh` now grants `roles/cloudscheduler.admin`.
 - D17 (emulator limit): the Storage emulator ignores `ifGenerationMatch: 0`, does not store `customTime`, and ignores `ifMetagenerationMatch` on delete (probed 2026-11-17). Create-only uploads, the reuse touch and the delete precondition therefore can't be tested end to end locally; `deleteIfUnchanged` is unit-tested with a fake file and relies on Cloud Storage's documented preconditions. On the emulator, `put` simply overwrites identical content (harmless) and age falls back to `timeCreated`.
 - D18: The cleanup job defaults to dry run (`BLOB_CLEANUP=dry-run`, logs only); `delete` must be set deliberately. It is scoped by user prefix (`uids`) in tests.
 - D19: The optional diff endpoint was not built (time); listed as follow-up F3.
@@ -195,17 +197,16 @@ _One entry per commit._
 
 ### Open questions (not blocking)
 
-- Q1 (R4): Keep `tool_choice: none` on the final turn (simple, costs about 30 credits more when it happens), or keep `auto` with an instruction to stop reading and answer a third read with an error (cache-friendly, but the model may need one more turn)?
+- Q1 (R4), **decided:** keep at most two read turns and `tool_choice: none` on the last one; the last turn carries no cache point (nothing reads it back), which saves about 15 credits when it happens. A note instead of the switch is the fallback if logs show many two-read builds.
 - Q2 (R7), **decided: not needed** (2026-11-17). No dual-write; switching back after the cutover needs a reverse export (F2).
-- Q4 (resolved): you allowed me to restart the local emulators; they now run with Storage and `FILE_STORE=blobs`.
-- Q3 (R1): Should `deploy.yml` deploy with an explicit `--only functions,hosting,firestore,storage`, so that new targets are opted in deliberately?
+- Q3 (R1), **decided:** CI deploys `--only functions,hosting,firestore`; `storage` is added with the switch to Cloud Storage.
 
 ### Manual steps for you (production, when you decide to ship)
 
-1. Enable Firebase Storage on `genesisaibuilder` (creates the default bucket) and give the `github-deployer` service account permission to deploy Storage rules; enable Cloud Scheduler (for `cleanupFileBlobs`). Do this **before** merging to `main`: CI's `firebase deploy` will deploy `storage.rules` (R1).
-2. Merge with the code defaults (`FILE_STORE=firestore`, `CONTEXT_TOOLS=off`, `BLOB_CLEANUP=dry-run`): no user-visible change.
-3. Optionally run the backfill, then set `FILE_STORE=blobs` in a separate deploy (README "Switching project files to Cloud Storage").
-4. After a week of dry-run logs, set `BLOB_CLEANUP=delete`. Turn on `CONTEXT_TOOLS=on` when ready (ideally after the real-Claude measurement).
+1. Review and merge the branch (pull request from `feat/filestore-context`). With the defaults nothing changes for users except that large apps get the file index and `read_files`; files stay in Firestore; Storage isn't deployed.
+2. When moving files to Cloud Storage: enable Firebase Storage and the Cloud Scheduler API on `genesisaibuilder`, re-run `./scripts/setup-github-deploy.sh` (adds the scheduler role), add `storage` to `--only` in `deploy.yml` and enable the `cleanupFileBlobs` export in `functions/src/index.ts`; deploy.
+3. Optionally run the backfill, then set the repository variable `FILE_STORE=blobs` and re-run the deploy (README "Switching project files to Cloud Storage").
+4. After a week of dry-run logs, set the repository variable `BLOB_CLEANUP=delete`.
 5. Later release: delete the old Firestore file data (F1).
 
 ### Follow-ups (later releases)
