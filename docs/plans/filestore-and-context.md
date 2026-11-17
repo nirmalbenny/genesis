@@ -199,15 +199,18 @@ _One entry per commit._
 
 - Q1 (R4), **decided:** keep at most two read turns and `tool_choice: none` on the last one; the last turn carries no cache point (nothing reads it back), which saves about 15 credits when it happens. A note instead of the switch is the fallback if logs show many two-read builds.
 - Q2 (R7), **decided: not needed** (2026-11-17). No dual-write; switching back after the cutover needs a reverse export (F2).
-- Q3 (R1), **decided:** CI deploys `--only functions,hosting,firestore`; `storage` is added with the switch to Cloud Storage.
+- Q3 (R1), **decided:** CI deploys an explicit `--only` list. `storage` was added on 2026-11-18, after you enabled Storage (production mode; live rules deny all, bucket `genesisaibuilder.firebasestorage.app` in `us-east1`, empty; the deploy account has the rules permissions; the functions' account can read and write the bucket).
 
 ### Manual steps for you (production, when you decide to ship)
 
-1. Review and merge the branch (pull request from `feat/filestore-context`). With the defaults nothing changes for users except that large apps get the file index and `read_files`; files stay in Firestore; Storage isn't deployed.
-2. When moving files to Cloud Storage: enable Firebase Storage and the Cloud Scheduler API on `genesisaibuilder`, re-run `./scripts/setup-github-deploy.sh` (adds the scheduler role), add `storage` to `--only` in `deploy.yml` and enable the `cleanupFileBlobs` export in `functions/src/index.ts`; deploy.
-3. Optionally run the backfill, then set the repository variable `FILE_STORE=blobs` and re-run the deploy (README "Switching project files to Cloud Storage").
-4. After a week of dry-run logs, set the repository variable `BLOB_CLEANUP=delete`.
-5. Later release: delete the old Firestore file data (F1).
+1. ~~Enable Firebase Storage.~~ Done 2026-11-18.
+2. Review and merge the branch (pull request from `feat/filestore-context`). Users see no change except that large apps get the file index and `read_files`; files stay in Firestore; `storage.rules` (deny all, same as live) is deployed.
+3. For the daily cleanup: enable the Cloud Scheduler API on `genesisaibuilder`, re-run `./scripts/setup-github-deploy.sh genesisaibuilder nirmalbenny/genesis` (adds the scheduler role), then enable the `cleanupFileBlobs` export in `functions/src/index.ts` and deploy.
+4. Optionally run the backfill, then set the repository variable `FILE_STORE=blobs` and re-run the deploy (README "Switching project files to Cloud Storage").
+5. After a week of dry-run logs, set the repository variable `BLOB_CLEANUP=delete`.
+6. Later release: delete the old Firestore file data (F1).
+
+Note: the bucket is in `us-east1` and the functions in `us-central1` (a default bucket's location can't be changed). Each uncached file read or write crosses regions: a few tens of milliseconds and inter-region transfer at about $0.01/GB, negligible at these file sizes.
 
 ### Follow-ups (later releases)
 

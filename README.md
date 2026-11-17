@@ -271,12 +271,12 @@ Checks run cheapest first, so a refused build never counts tokens, holds credits
 - **Authentication:** enable Email/Password, then turn on bot protection with `./scripts/setup-bot-protection.sh <project-id>`. It upgrades Auth to Identity Platform (free up to 50k monthly users; the upgrade can't be undone) and has Firebase score every email/password sign-up and sign-in with reCAPTCHA Enterprise, blocking scores ≤ 0.3. Run it with `AUDIT` as the second argument to score without blocking, or `OFF` to turn it off.
 - **Firestore:** Standard edition, Native mode.
 - **Hosting:** serves `frontend/dist`. `firebase.json` rewrites every path to `index.html`.
-- **Cloud Storage** (only when switching files to it, below): enable Firebase Storage to create the default bucket, enable the Cloud Scheduler API, and re-run `./scripts/setup-github-deploy.sh` so the deploy account gets the scheduler role. CI deploys only `functions,hosting,firestore` until `storage` is added to its `--only` list.
+- **Cloud Storage:** enable Firebase Storage (production mode) to create the default bucket; CI deploys `storage.rules` with the rest. For the daily cleanup job, also enable the Cloud Scheduler API and re-run `./scripts/setup-github-deploy.sh` so the deploy account gets the scheduler role.
 
 **Switching project files to Cloud Storage** (in this order, each step a separate deploy):
 
 1. Merge the code. With the defaults (`FILE_STORE` unset = `firestore`), files stay in Firestore; `read_files` is on.
-2. One-time setup: Cloud Storage as above. In the same change, add `storage` to the `--only` list in `deploy.yml` and enable the `cleanupFileBlobs` export in `functions/src/index.ts`. Deploy: Storage rules and the daily cleanup (dry run) go live; users see no change.
+2. One-time setup: Cloud Storage and Cloud Scheduler as above, then enable the `cleanupFileBlobs` export in `functions/src/index.ts` and deploy: the daily cleanup (dry run) goes live; users see no change.
 3. Optional: backfill so no app is converted on first open: `GCLOUD_PROJECT=<project-id> npm run migrate:files -- --bucket <bucket> --dry-run`, then the same with `--allow-production`. Re-running is safe. Changes made meanwhile drop the affected manifest, so it can't go stale.
 4. Set the repository variable `FILE_STORE=blobs` and re-run the deploy at a quiet time. Apps not yet converted are converted when first opened.
 5. After a week, check the cleanup's dry-run logs, then set `BLOB_CLEANUP=delete`.
@@ -292,7 +292,7 @@ firebase functions:secrets:set ANTHROPIC_API_KEY      # also HL_CLIENT_ID, HL_CL
 #   frontend/.env.production      Firebase web config, VITE_FUNCTIONS_BASE_URL=https://us-central1-<project-id>.cloudfunctions.net,
 #                                 VITE_USE_EMULATORS=false
 (cd frontend && npm run build)
-firebase deploy --only functions,hosting,firestore     # what CI deploys; add storage once it's set up (below)
+firebase deploy --only functions,hosting,firestore,storage   # what CI deploys
 ```
 
 **Manual steps after the first deploy:**
@@ -310,7 +310,7 @@ firebase deploy --only functions,hosting,firestore     # what CI deploys; add st
 [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) runs on every push and pull request:
 
 - **Check:** lint and unit tests for both packages, the integration tests against the emulators (a `demo-` project, so no credentials), then the frontend type-check and production build. Pull requests stop here.
-- **Deploy** (pushes to `main` only, after the check passes): `firebase deploy --only functions,hosting,firestore`. Targets are listed on purpose, so a new one in `firebase.json` goes live only once it's added there. Pushes that change only Markdown, `docs/` or `.env.example` don't trigger a run.
+- **Deploy** (pushes to `main` only, after the check passes): `firebase deploy --only functions,hosting,firestore,storage`. Targets are listed on purpose, so a new one in `firebase.json` goes live only once it's added there. Pushes that change only Markdown, `docs/` or `.env.example` don't trigger a run.
 
 It authenticates with **Workload Identity Federation**, so there are no keys. Config comes from GitHub **repository variables**: `FIREBASE_PROJECT_ID`, `VITE_FIREBASE_*`, `ANTHROPIC_MODEL`, `ANTHROPIC_SUMMARY_MODEL`, `WIF_PROVIDER` and `DEPLOY_SERVICE_ACCOUNT`. The secrets stay in Secret Manager.
 
