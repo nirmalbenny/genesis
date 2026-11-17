@@ -140,3 +140,19 @@ test("tracing off: nothing is sent and the build goes on", async () => {
   assert.equal(await sendBuildTrace(build()), null);
   useTraceProcessor(inMemory());
 });
+
+test("Langfuse failing or hanging never throws and never holds a build up more than a few seconds", async () => {
+  const failing = { export: (_s: unknown, done: (r: { code: number; error?: Error }) => void) => done({ code: 1, error: new Error("503 from Langfuse") }), shutdown: async () => {}, forceFlush: async () => { throw new Error("network down"); } };
+  useTraceProcessor(langfuseProcessor({ publicKey: "pk-lf-x", secretKey: "sk-lf-x", baseUrl: "http://localhost:1", exporter: failing as never }));
+  const t0 = Date.now();
+  await assert.doesNotReject(sendBuildTrace(build()));
+  assert.ok(Date.now() - t0 < 1000, "a failure returns at once");
+
+  const hanging = { export: () => {}, shutdown: async () => {}, forceFlush: () => new Promise<void>(() => {}) };
+  useTraceProcessor(langfuseProcessor({ publicKey: "pk-lf-x", secretKey: "sk-lf-x", baseUrl: "http://localhost:1", exporter: hanging as never }));
+  const t1 = Date.now();
+  await sendBuildTrace(build());
+  const waited = Date.now() - t1;
+  assert.ok(waited >= 2900 && waited < 4000, `a hang is cut off at the 3 s cap (waited ${waited} ms)`);
+  useTraceProcessor(inMemory());
+});
