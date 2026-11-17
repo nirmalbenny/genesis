@@ -1,6 +1,6 @@
 # Plan: build observability with Langfuse
 
-Branch `feat/observability` (from `main` at `3f08450`). Status: **in progress**, Step 3 (audit a real trace) next.
+Branch `feat/observability` (from `main` at `3f08450`). Status: **in progress**: Steps 0–3 done; Cloud Monitoring and docs next.
 
 ## Contents
 
@@ -64,7 +64,7 @@ One line per event with `generationId`, `uid`, `projectId`, metadata only (no pr
 | 0. Plan | done | |
 | 1. Per-round reporting in the turn loop; structured logs | done | `turns.test.ts` (rounds, no double count) |
 | 2. Langfuse trace (shape, attributes, cost, masking) wired into `generate` | done | `observability/langfuse.test.ts` (7, through the real Langfuse processor with an in-memory exporter) |
-| 3. Run a real build and audit its trace in Langfuse (skill step 3) | **waiting for Langfuse keys** | |
+| 3. Run real builds and audit their traces in Langfuse (skill step 3) | done (2026-11-18, US region, project "My Project"): 4 real builds on the emulators; audit fixes applied and re-checked | `langfuse.test.ts` (8): conversation input, cut-off warning |
 | 4. Cloud Monitoring metrics, dashboard and alerts script | todo | |
 | 5. Docs, verify, pull request | todo | |
 
@@ -72,6 +72,27 @@ One line per event with `generationId`, `uid`, `projectId`, metadata only (no pr
 
 - `d6f4f83` Plan (first version, admin page); the Storage switch recorded in the file-storage plan.
 - Langfuse tracing: per-round reporting (also fixes a double count when a tool call fails after a round finished), structured logs, the Langfuse trace, settings, CI placeholders.
+
+### Audit (skill step 3), 2026-11-18
+
+Four real builds on the emulators with `TRACING=langfuse`, fetched back with `langfuse-cli` (observations API) and checked against the [best-practices page](https://langfuse.com/docs/observability/best-practices):
+
+| Build | Result | Credits |
+|---|---|---:|
+| Small app, first build | **Cut off**: Claude wrote `src/main.js`, then kept writing `src/utils.js` until the 16,000-token limit; `utils.js` rejected as unfinished. Diagnosed from the trace alone (see finding below) | 178 |
+| Large app, change a file outside the context | Read `LeadsSection.vue` (one tool call), changed only it | 102 |
+| Same, repeated within minutes | Same result; the conversation came from Claude's cache (69,254 cached tokens) | 34 |
+| Follow-up on that app ("also show the email") | No read needed: the file the last build changed is ranked into the context; grouped into the same session | 95 |
+
+Gaps found and fixed:
+
+1. A request cut off by the output limit (or refused) showed as a normal step: now `WARNING` with the reason.
+2. Each generation's input was only the prompt: it now mirrors what Claude saw, as role-labelled messages (system prompt and file contents as "(not traced)" placeholders, earlier chat turns, the request with the names of the files sent, each earlier read as a paired tool call and result).
+3. The summary generation had no input: now the request, plan and file names it was given.
+
+Re-checked after the fixes: types, nesting, user/session/tags on every observation, costs from the rate card, and no code in any field.
+
+**Finding (product, not tracing):** the cut-off small build was a runaway file: Claude kept writing one helper file until the output limit, costing 178 credits for a partial result. A guard that stops the stream when a single file grows far beyond the ~150-line rule (and saves the finished files) would cap that cost. Not built; proposed as a follow-up.
 
 ## 5. Manual steps and open questions
 

@@ -22,6 +22,7 @@ function build(over: Partial<BuildTraceInput> = {}): BuildTraceInput {
     startedAt: T0, endedAt: T0 + 20_000, status: "partial", error: { code: "invalid_output", message: "Some changes were rejected" },
     prompt: "Show each lead's phone number", plan: "Add the phone under the name.",
     followUp: { previousGenerationId: "gen0", historyMessages: 2 },
+    history: [{ role: "user", content: "Build a leads board" }, { role: "assistant", content: "A board of leads.\n\nFiles: src/App.vue" }],
     model: "claude-sonnet-5-5", summaryModel: "claude-haiku-5-5", fileStore: "blobs", contextTools: true,
     context: { full: ["src/App.vue"], indexed: ["src/components/Leads.vue"], chars: 61_000, activePath: "src/App.vue", openPaths: [], recentPaths: [] },
     rounds: [
@@ -82,13 +83,28 @@ test("generations carry the model, tokens with cache detail, our own cost, and t
   assert.equal(json(first!, "langfuse.observation.output").tool_calls[0].function.name, "read_files");
   assert.equal(ms(first!.startTime), T0 + 1000);
   assert.equal(ms(first!.endTime), T0 + 4500, "the response, not the tool call that followed");
-  assert.equal(json(second!, "langfuse.observation.input")[0].role, "tool");
+  // Each generation's input is the conversation it saw: earlier turns, the request with file names, earlier reads.
+  const seen = json(second!, "langfuse.observation.input");
+  assert.deepEqual(seen.map((m: { role: string }) => m.role), ["system", "user", "assistant", "user", "assistant", "tool"]);
+  assert.equal(seen[1].content, "Build a leads board");
+  assert.match(seen[3].content, /sent in full \(not traced\): src\/App\.vue\nListed only, readable with read_files: src\/components\/Leads\.vue\n\nRequest: Show each lead's phone number/);
+  assert.equal(seen[4].tool_calls[0].id, seen[5].tool_call_id, "a read's call and result are paired");
+  assert.equal(json(first!, "langfuse.observation.input").length, 4, "the first request had no reads yet");
   assert.match(json(second!, "langfuse.observation.output").content, /Add the phone under the name\.\n\nFiles: src\/components\/Leads\.vue/);
   assert.ok(attr(second!, "langfuse.observation.completion_start_time"));
 
   const read = byName(exporter.getFinishedSpans(), "read-files")[0]!;
   assert.deepEqual(json(read, "langfuse.observation.output"), { read: ["src/components/Leads.vue"], notRead: ["src/nope.vue"] });
   assert.equal(ms(read.startTime), T0 + 4500);
+});
+
+test("a request cut off by the output limit is a warning that says so", async () => {
+  const b = build();
+  b.rounds[1] = { ...b.rounds[1]!, stopReason: "max_tokens" };
+  await sendBuildTrace(b);
+  const last = byName(exporter.getFinishedSpans(), "generate-changes").sort((a, c) => ms(c.startTime) - ms(a.startTime))[0]!;
+  assert.equal(attr(last, "langfuse.observation.level"), "WARNING");
+  assert.match(String(attr(last, "langfuse.observation.status_message")), /output limit/);
 });
 
 test("the build shows the prompt, the plan, failures and rejected files", async () => {

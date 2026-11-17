@@ -137,6 +137,7 @@ export const generate = onRequest(
       const trace = {
         projectName, fileStore: FILE_STORE.value(), contextTools: tools,
         followUp: { previousGenerationId: lastBuilds.docs[0]?.id ?? null, historyMessages: history.length },
+        history,
         context: { full: selection.full, indexed: selection.index, chars: filesText.length, activePath, openPaths, recentPaths },
         checksMs: checksDone - startedAt, contextMs: contextDone - checksDone, holdMs: Date.now() - contextDone,
       };
@@ -267,7 +268,7 @@ export const generate = onRequest(
     const observe = async (status: string, failure: { code: string; message: string } | null, actions: BuildTraceInput["actions"], charged: number) => {
       const input: BuildTraceInput = {
         generationId, uid, projectId: pid, projectName: trace.projectName, startedAt, endedAt: Date.now(),
-        status, error: failure, prompt, plan: planParts.join("").trim(), followUp: trace.followUp,
+        status, error: failure, prompt, plan: planParts.join("").trim(), followUp: trace.followUp, history: trace.history,
         model, summaryModel, fileStore: trace.fileStore, contextTools: trace.contextTools, context: trace.context,
         rounds: turns.rounds, actions, credits: { held, extraHolds: held - ctx.held, charged }, summaryUsage,
         timings: {

@@ -64,6 +64,39 @@ const usageDetails = (u: TokenUsage) => ({
   cache_creation_input_tokens: u.cacheWriteTokens,
 });
 
+type Round = BuildTraceInput["rounds"][number];
+const NOT_TRACED = "(not traced)";
+
+/** A round's tool calls in the OpenAI message shape Langfuse renders as cards; ids pair them with their results. */
+const toolCallMessages = (r: Round) => r.toolCalls.map((c, i) => ({
+  id: `call_${r.n}_${i}`, type: "function", function: { name: c.name, arguments: JSON.stringify({ paths: c.paths }) },
+}));
+
+/**
+ * The messages round `n` was sent: the system prompt and file contents as placeholders, the earlier chat turns
+ * (prompts and plan summaries), the request with the names of the files it carried, and every earlier read
+ * (call and result, paired by id). Mirrors what Claude saw without carrying code.
+ */
+export function conversationUpTo(t: BuildTraceInput, n: number) {
+  const files = [
+    `Current project files, sent in full ${NOT_TRACED}: ${t.context.full.join(", ") || "none"}`,
+    ...(t.context.indexed.length ? [`Listed only, readable with read_files: ${t.context.indexed.join(", ")}`] : []),
+  ].join("\n");
+  const messages: unknown[] = [
+    { role: "system", content: `Genesis build rules, UI kit and HighLevel API reference ${NOT_TRACED}` },
+    ...t.history,
+    { role: "user", content: `${files}\n\nRequest: ${t.prompt}` },
+  ];
+  for (const r of t.rounds.slice(0, n - 1)) {
+    messages.push({ role: "assistant", content: "", tool_calls: toolCallMessages(r) });
+    r.toolCalls.forEach((c, i) => messages.push({
+      role: "tool", tool_call_id: `call_${r.n}_${i}`,
+      content: `Returned ${c.read.join(", ") || "nothing"} ${NOT_TRACED}${c.isError ? " (error)" : ""}`,
+    }));
+  }
+  return messages;
+}
+
 /** Sends the build's trace and returns its id (null when tracing is off or sending failed). Never throws. */
 export async function sendBuildTrace(t: BuildTraceInput): Promise<string | null> {
   if (!processor) return null;
@@ -109,23 +142,22 @@ export async function sendBuildTrace(t: BuildTraceInput): Promise<string | null>
       }, { startTime: at(contextStart) })).end(at(contextStart + t.timings.contextMs));
 
       for (const r of t.rounds) {
-        const asked = r.toolCalls.map((c, i) => ({
-          id: `call_${r.n}_${i}`, type: "function", function: { name: c.name, arguments: JSON.stringify({ paths: c.paths }) },
-        }));
+        const asked = toolCallMessages(r);
         const final = !r.toolCalls.length;
         under(root, () => startObservation("generate-changes", {
           model: t.model,
-          input: r.n === 1
-            ? (declined ? null : [{ role: "user", content: t.prompt }])
-            : [{ role: "tool", content: `Files returned: ${t.rounds[r.n - 2]?.toolCalls.flatMap((c) => c.read).join(", ") || "none"}` }],
+          // What the model saw, as role-labelled messages, minus the parts that are never traced.
+          input: declined ? null : conversationUpTo(t, r.n),
           output: final
             ? (declined ? null : { role: "assistant", content: [t.plan, files.length ? `Files: ${files.join(", ")}` : ""].filter(Boolean).join("\n\n") })
             : { role: "assistant", content: "", tool_calls: asked },
           usageDetails: usageDetails(r.usage),
           costDetails: costUsd(t.model, r.usage),
           completionStartTime: r.firstTokenMs !== null ? at(r.startedAt + r.firstTokenMs) : undefined,
-          level: r.stopReason === null ? "ERROR" : "DEFAULT",
-          statusMessage: r.stopReason === null ? "request failed or was stopped" : undefined,
+          level: r.stopReason === null ? "ERROR" : r.stopReason === "max_tokens" || r.stopReason === "refusal" ? "WARNING" : "DEFAULT",
+          statusMessage: r.stopReason === null ? "request failed or was stopped"
+            : r.stopReason === "max_tokens" ? "stopped at the output limit (max_tokens): the file being written was cut off"
+            : r.stopReason === "refusal" ? "refused by the API" : undefined,
           metadata: { round: r.n, stopReason: r.stopReason },
         }, { asType: "generation", startTime: at(r.startedAt) })).end(at(r.startedAt + r.responseMs));
 
@@ -149,6 +181,7 @@ export async function sendBuildTrace(t: BuildTraceInput): Promise<string | null>
       if (summaryUsage) {
         under(save, () => startObservation("summarize-change", {
           model: t.summaryModel,
+          input: { request: t.prompt, plan: t.plan, files: files },
           output: t.actions.summary,
           usageDetails: usageDetails(summaryUsage),
           costDetails: costUsd(t.summaryModel, summaryUsage),

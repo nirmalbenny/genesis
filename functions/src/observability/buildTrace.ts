@@ -20,6 +20,8 @@ export type BuildTraceInput = {
   prompt: string;
   plan: string;
   followUp: { previousGenerationId: string | null; historyMessages: number };
+  /** The chat turns sent before this request (stored prompts and plan summaries; never code). */
+  history: { role: "user" | "assistant"; content: string }[];
   model: string;
   summaryModel: string;
   fileStore: string;
