@@ -76,7 +76,8 @@ This is the short version. The **[detailed architecture diagram](docs/ARCHITECTU
 ```text
 .
 ├── functions/                 Cloud Functions (TypeScript), see functions/README.md
-│   ├── src/                   api · generate (SSE) · hlProxy · hl/ (OAuth, token refresh) · llm/ (prompt, parser, validator)
+│   ├── src/                   api · generate (SSE) · hlProxy · hl/ (OAuth, token refresh) · files/ (Storage + manifests)
+│   │                          llm/ (prompt, context, read_files turns, parser, validator) · scripts/ (backfill, measurements)
 │   │   ├── *.test.ts          unit tests (npm test)
 │   │   └── e2e/               integration tests against the emulators (npm run test:e2e)
 │   └── templates/             six ready-made apps (templates.json + <slug>/src/**)
@@ -88,8 +89,9 @@ This is the short version. The **[detailed architecture diagram](docs/ARCHITECTU
 │                              setup-token-encryption.sh (Cloud KMS)
 ├── docs/
 │   ├── ARCHITECTURE.md        goals, system design, data model, API, flows, credits, rate limits, security, testing
+│   ├── plans/                 change plans with their verification and measurements
 │   └── screenshots/
-├── firebase.json · .firebaserc · firestore.rules · firestore.indexes.json
+├── firebase.json · .firebaserc · firestore.rules · firestore.indexes.json · storage.rules
 └── .env.example               every environment variable, grouped by the file it belongs in
 ```
 
@@ -118,6 +120,7 @@ This is the short version. The **[detailed architecture diagram](docs/ARCHITECTU
    # functions/.env.local      HL_REDIRECT_URI=http://127.0.0.1:5001/<project-id>/us-central1/hlAuthCallback
    #                           APP_URL=http://localhost:5173
    #                           LOCAL_TOKEN_KEK=<openssl rand -base64 32>
+   #                           FILE_STORE=blobs  CONTEXT_TOOLS=on   (files in the Storage emulator; read_files for large apps)
    # functions/.secret.local   ANTHROPIC_API_KEY=…  HL_CLIENT_ID=…  HL_CLIENT_SECRET=…  PREVIEW_TOKEN_SECRET=<openssl rand -hex 32>
    cp frontend/.env.example frontend/.env.local      # Firebase web config; VITE_USE_EMULATORS=true
    ```
@@ -125,7 +128,7 @@ This is the short version. The **[detailed architecture diagram](docs/ARCHITECTU
 3. **Run** in two terminals:
 
    ```bash
-   firebase emulators:start           # auth :9099 · firestore :8080 · functions :5001 · UI :4000
+   firebase emulators:start           # auth :9099 · firestore :8080 · storage :9199 · functions :5001 · UI :4000
    cd frontend && npm run dev         # tunnel to :5001, then Vite on http://localhost:5173
    ```
 
@@ -151,6 +154,9 @@ Ctrl+C stops both. `npm run dev:local` runs plain Vite without a tunnel. Deploye
 | `HL_CLIENT_ID`, `HL_CLIENT_SECRET` | secret | HighLevel Marketplace app credentials |
 | `PREVIEW_TOKEN_SECRET` | secret | HMAC key for the 15-minute preview tokens that generated apps use |
 | `LOCAL_TOKEN_KEK` | `functions/.env.local` | Emulator-only key that encrypts stored HighLevel tokens (`openssl rand -base64 32`). Production uses Cloud KMS instead. |
+| `FILE_STORE` | `functions/.env.local` · `.env.<project-id>` | `firestore` (default: one document per file) or `blobs` (Cloud Storage + manifest). See [ARCHITECTURE §3.1](docs/ARCHITECTURE.md#31-project-files-blobs-and-a-manifest). |
+| `CONTEXT_TOOLS` | `functions/.env.local` · `.env.<project-id>` | `off` (default) or `on`: a large app's build gets a file index and the `read_files` tool |
+| `BLOB_CLEANUP` | `functions/.env.<project-id>` | `dry-run` (default: the daily cleanup only logs) or `delete` |
 | `VITE_FIREBASE_*` | `frontend/.env.local` · `.env.production` | Firebase web app config (public by design) |
 | `VITE_FUNCTIONS_BASE_URL` | `frontend/.env.*` | Functions base URL. In dev it's set automatically by `npm run dev`. |
 | `VITE_USE_EMULATORS` | `frontend/.env.*` | `true` locally, `false` in production |
@@ -166,8 +172,10 @@ Secrets go in `functions/.secret.local` for the emulator and in **Secret Manager
 | `frontend/` | `npm test` | Unit tests (Vitest): the SSE reader and the build state machine (streaming, refusals, declines, broken streams, Stop) |
 | `frontend/` | `npm run lint` | ESLint (Vue + TypeScript recommended rules) |
 | `functions/` | `npm run build` | Compile to `lib/` (runs automatically before deploy) |
-| `functions/` | `npm test` | Unit tests: stream parser, output validator, credits, rate-limit algorithms, token encryption, ready-made templates |
-| `functions/` | `npm run test:e2e` | Integration tests against the running emulators: auth gate, projects, isolation between users, snapshots, build limits, cancel, the proxy's checks and limits, and the Firestore security rules. Never calls Claude or HighLevel. |
+| `functions/` | `npm test` | Unit tests: stream parser, output validator, file metadata and manifests, build context and `read_files` turns, credits, rate-limit algorithms, token encryption, ready-made templates |
+| `functions/` | `npm run test:e2e` | Integration tests against the running emulators: auth gate, projects, isolation between users, snapshots, the file store (Storage, migration, cleanup), build limits, cancel, the proxy's checks and limits, and the security rules. Never calls Claude or HighLevel. |
+| `functions/` | `npm run migrate:files -- --bucket <bucket> [--dry-run]` | Backfills every project into Storage + manifests (resumable, verified). Refuses to run outside the emulators unless given `--allow-production`. |
+| `functions/` | `npm run measure:files` | Times both file stores on the emulators (numbers in [the plan](docs/plans/filestore-and-context.md#8-measurements)) |
 | `functions/` | `npm run lint` | ESLint (TypeScript recommended rules) |
 | repo root | `node scripts/check-docs.mjs` | Docs check: markdownlint, every local link and anchor, and that every Mermaid diagram renders |
 
@@ -190,12 +198,12 @@ Secrets go in `functions/.secret.local` for the emulator and in **Secret Manager
 
 1. **Generated apps never see the HighLevel token.** They call `hlProxy` with a 15-minute HMAC preview token tied to the user, project and location. The proxy allows only listed reads and writes (never deletes), rejects tokens whose app was deleted or isn't the user's, forces the `locationId`, checks the connection granted the write's scope, and attaches the real token server-side.
 2. **Firestore is read directly by the client, but written only by Cloud Functions.** Security rules allow owner-only reads and reject every client write, so all validation stays on the server.
-3. **One Firestore document per file,** for both project files and snapshot files. This stays clear of the 1 MB document limit and makes snapshots cheap to copy.
+3. **File content is content-addressed in Cloud Storage, behind a manifest on the project document.** Content goes up first and one transaction switches the manifest, so a change is never half-applied; snapshots are manifest copies, so they cost one small document however big the app is; identical content is stored once per user. Clients can't touch Storage. Behind a flag (`FILE_STORE`), with lazy migration and a verified backfill.
 4. **A strict `<plan>/<file>/<delete>/<refuse>` output format, parsed incrementally.** Tokens and file boundaries stream to the editor live, while each file is validated whole before it's saved.
 5. **Partial results are always kept.** Invalid operations are rejected one at a time, an interrupted stream keeps every completed file, and each generation creates a snapshot with a one-line Haiku summary. Restoring is non-destructive.
 6. **SSE over `fetch` with a `ReadableStream`** rather than `EventSource`, because the request needs POST and an Authorization header. A defined event protocol, a 15-second heartbeat, and a hand-written parser, with no extra library.
 7. **HighLevel tokens are encrypted at rest and refreshed safely.** Each user's tokens are sealed with envelope encryption: a fresh AES-256-GCM key per record, wrapped by a Cloud KMS key that never leaves KMS, so reading them needs database access _and_ KMS permission. Refresh tokens are single-use, so concurrent refreshes are funnelled into one request per instance, and losing requests read back the winner's token.
-8. **The model's context is bounded, and the API reference is hand-written.** Files within a character budget, the last 6 messages, and a compact reference whose endpoints, pagination and free-slot rules were verified against a live sandbox. The prompt makes **pagination** mandatory and forbids hard-coding a location ID.
+8. **The model's context is bounded and ranked, and the API reference is hand-written.** Files within a character budget (in a large app: entry files, open tabs, recent changes and files the prompt names first, the rest as an index the model can read with `read_files`), the last 6 messages, and a compact reference verified against a live sandbox. The model can't overwrite a file it hasn't seen. The prompt makes **pagination** mandatory and forbids hard-coding a location ID.
 9. **Ready-made apps are content-hashed templates seeded on first visit.** Seeding is safe to repeat, the apps are locked on the server and edited through copies, and template changes upgrade users' locked copies automatically.
 10. **Off-topic or harmful prompts are declined, and never stored.** They're detected through a `<refuse>` reply or the API's refusal stop reason, so a declined prompt can't influence later prompts.
 
@@ -205,7 +213,7 @@ Secrets go in `functions/.secret.local` for the emulator and in **Secret Manager
 |---|---|
 | Models | **Claude Sonnet 5.5** writes the apps; **Claude Haiku 5.5** writes the one-line summary of each snapshot. Both are set in config (`ANTHROPIC_MODEL`, `ANTHROPIC_SUMMARY_MODEL`); users never pick a model. |
 | Streaming | Every build streams (`messages.stream`). Tokens reach the editor over SSE as they're generated, with a 15-second heartbeat. **Stop** or Esc ends the stream at once. |
-| Context | Bounded on purpose: the system prompt, a hand-written HighLevel API reference verified against a live sandbox, the connected location, the app's files (up to 60,000 characters) and the last 6 chat messages. Prompts are capped at 4,000 characters and output at 16,000 tokens. |
+| Context | Bounded on purpose: the system prompt, a hand-written HighLevel API reference verified against a live sandbox, the app's files (up to 60,000 characters, the most relevant first; in larger apps the rest are indexed and can be read with a `read_files` tool, at most two calls) and the last 6 chat messages. Prompts are capped at 4,000 characters and output at 16,000 tokens per build. |
 | Output | A strict `<plan>` / `<file>` / `<delete>` / `<refuse>` format, parsed incrementally so files appear live. Every file is validated before it's saved (paths, extensions, size, protected files); valid files are kept even when others are rejected. |
 | Grounding | The prompt makes pagination mandatory, forbids hard-coded location IDs and sample data, and tells generated apps to call HighLevel only through the proxy, so previews show **real data**. |
 | Writes | Generated apps write only from an explicit user action (never on load, on a timer or in a loop), show the result, and never retry a failed write except once on a 429. Message forms show the recipient and content next to Send. |
@@ -222,7 +230,7 @@ Details: the [generation pipeline](docs/ARCHITECTURE.md#6-generation-pipeline), 
 | Accounts | Firebase Auth with **email verification required** before any endpoint works; **reCAPTCHA Enterprise** on every sign-up and sign-in |
 | HighLevel tokens | Never sent to the browser; stored with **Cloud KMS envelope encryption** (AES-256-GCM, bound to the user); refreshed safely under concurrency |
 | Generated apps | Run in a **sandboxed iframe on another origin**; reach HighLevel only through `hlProxy` with a **15-minute HMAC preview token** (method and path allowlist with no deletes, forced location, app ownership and write scopes checked) |
-| Data access | Firestore rules allow **owner-only reads** and **no client writes**; every change goes through Cloud Functions, which check ownership |
+| Data access | Firestore rules allow **owner-only reads** and **no client writes**; Storage rules deny **all** client access to file content; every change goes through Cloud Functions, which check ownership |
 | Secrets | **Secret Manager** in production, git-ignored files locally; CI deploys **without keys** (Workload Identity Federation) |
 | Abuse and cost | **AI credits** with worst-case holds, exact **build limits**, per-user rate limits, CORS restricted to the app's origins |
 | Verification | Integration tests cover the auth gate, isolation between users, the proxy's checks, token encryption and the **security rules** |
@@ -246,7 +254,7 @@ Checks run cheapest first, so a refused build never counts tokens, holds credits
 
 ## What I would improve
 
-1. **Diff view:** show what each generation changed compared with the previous snapshot.
+1. **Diff view:** show what each generation changed compared with the previous snapshot. Snapshots are now manifests, so the changed paths come from comparing two documents.
 2. **HighLevel webhooks:** add a receiver with Ed25519 signature checks, so apps such as a speed-to-lead monitor or a live inbox update in real time. Also use the `AppUninstall` event to delete stored tokens as soon as Genesis is uninstalled.
 3. **Shared rate limiting at scale:** move the in-memory token buckets to a shared store (Memorystore or Upstash Redis) for exact limits across instances, and add Cloud Armor or an API gateway for IP limits at the edge, plus Firebase App Check.
 4. **Static checks on generated code** before saving, rejecting `v-html`, `eval`, `document.cookie`, script tags, and network calls that bypass the proxy.
@@ -261,6 +269,16 @@ Checks run cheapest first, so a refused build never counts tokens, holds credits
 - **Authentication:** enable Email/Password, then turn on bot protection with `./scripts/setup-bot-protection.sh <project-id>`. It upgrades Auth to Identity Platform (free up to 50k monthly users; the upgrade can't be undone) and has Firebase score every email/password sign-up and sign-in with reCAPTCHA Enterprise, blocking scores ≤ 0.3. Run it with `AUDIT` as the second argument to score without blocking, or `OFF` to turn it off.
 - **Firestore:** Standard edition, Native mode.
 - **Hosting:** serves `frontend/dist`. `firebase.json` rewrites every path to `index.html`.
+- **Cloud Storage** (before the first deploy that includes `storage` in `firebase.json`, because `firebase deploy` deploys `storage.rules`): enable Firebase Storage to create the default bucket, and give the deploy service account permission to deploy rules (Firebase Rules Admin). Cloud Scheduler must be enabled for the daily `cleanupFileBlobs` job.
+
+**Switching project files to Cloud Storage** (in this order, each step a separate deploy):
+
+1. Deploy the code with `FILE_STORE=firestore` (the default) and `BLOB_CLEANUP=dry-run`. Nothing changes for users.
+2. Optional: backfill so no app is converted on first open: `GCLOUD_PROJECT=<project-id> npm run migrate:files -- --bucket <bucket> --dry-run`, then the same with `--allow-production`. Re-running is safe. Changes made meanwhile drop the affected manifest, so it can't go stale.
+3. Set `FILE_STORE=blobs` in `functions/.env.<project-id>` and deploy at a quiet time. Apps not yet converted are converted when first opened.
+4. After a week, check the cleanup's dry-run logs, then set `BLOB_CLEANUP=delete`.
+5. Turn on `CONTEXT_TOOLS=on` when ready.
+6. Later, a separate release removes the old Firestore file data and the `firestore` store. Switching back to `firestore` after step 3 would show files as they were before the switch.
 
 ```bash
 firebase use <project-id>
@@ -272,7 +290,7 @@ firebase functions:secrets:set ANTHROPIC_API_KEY      # also HL_CLIENT_ID, HL_CL
 #   frontend/.env.production      Firebase web config, VITE_FUNCTIONS_BASE_URL=https://us-central1-<project-id>.cloudfunctions.net,
 #                                 VITE_USE_EMULATORS=false
 (cd frontend && npm run build)
-firebase deploy                                       # Firestore rules and indexes, functions, hosting
+firebase deploy                                       # Firestore and Storage rules, indexes, functions, hosting
 ```
 
 **Manual steps after the first deploy:**

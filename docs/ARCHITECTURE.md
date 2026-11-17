@@ -56,11 +56,13 @@ flowchart TB
     API["<b>api</b><br/>projects · files · snapshots<br/>bootstrap · cancel · preview token"]
     GENERATE["<b>generate</b><br/>SSE build pipeline"]
     PROXY["<b>hlProxy</b><br/>read/write allowlist, no deletes<br/>forced location · cache · 429 back-off"]
+    CLEANUP["<b>cleanupFileBlobs</b><br/>daily: unreferenced content"]
   end
 
   subgraph MODULES["Shared modules used by the functions"]
     direction LR
-    LLM["<b>llm</b><br/>prompt · HL reference<br/>parser · validator"]
+    LLM["<b>llm</b><br/>prompt · HL reference · context<br/>read_files · turns · parser · validator"]
+    FILES["<b>files</b><br/>FileStore: blobs + manifest<br/>migration · cleanup"]
     CREDITS["<b>credits</b><br/>hold · settle · ledger"]
     LIMITS["<b>rateLimits</b><br/>build slots · token buckets"]
     VAULT["<b>tokenVault</b><br/>AES-256-GCM envelope<br/>decrypt cache"]
@@ -69,7 +71,8 @@ flowchart TB
 
   subgraph STORES["Google Cloud data and keys"]
     direction LR
-    FIRESTORE[("<b>Firestore</b><br/>users/{uid} + creditLedger<br/>projects/{pid} + files, snapshots,<br/>messages, generations<br/>hlTokens/{uid} (sealed) · oauthStates")]
+    FIRESTORE[("<b>Firestore</b><br/>users/{uid} + creditLedger<br/>projects/{pid} + manifest, snapshots,<br/>messages, generations<br/>hlTokens/{uid} (sealed) · oauthStates")]
+    STORAGE[("<b>Cloud Storage</b><br/>users/{uid}/blobs/{sha256}<br/>file content · server only")]
     SECRETS["<b>Secret Manager</b><br/>Anthropic key · HL client<br/>preview-token secret"]
     KMS["<b>Cloud KMS</b><br/>genesis/hl-tokens"]
   end
@@ -92,6 +95,7 @@ flowchart TB
   VAULT -- "wrap / unwrap data keys" --> KMS
   FUNCTIONS -. "secrets at runtime" .-> SECRETS
   FUNCTIONS -- "Admin SDK reads / writes" --> FIRESTORE
+  FUNCTIONS -- "Admin SDK: file content" --> STORAGE
   SPA -. "① live reads (own data only)" .-> FIRESTORE
 
   CALLBACK <-- "② code + state ⇄ tokens" --> HIGHLEVEL
@@ -104,11 +108,11 @@ flowchart TB
 |---|---|---|
 | ① Sign in | Firebase Auth (with reCAPTCHA Enterprise) signs the user in; until the email is verified, nothing else works. The SPA then reads its own data live from Firestore. | §5.1 |
 | ② Connect HighLevel | `hlAuthStart` creates a one-time state, the user picks a sub-account on HighLevel, and `hlAuthCallback` exchanges the code and stores the tokens sealed with Cloud KMS. | §5.2, §11.1 |
-| ③ Build | `generate` checks the build limits, holds credits, streams Claude's output to the editor over SSE, then saves validated files, a snapshot and the charge. | §5.3, §6–8 |
+| ③ Build | `generate` checks the build limits, picks the files to send (a large app also gets an index the model can read from), holds credits, streams Claude's output to the editor over SSE, then saves validated files, a snapshot and the charge. | §5.3, §6–8 |
 | ④ Preview on live data | `api` issues a 15-minute preview token; the generated app in Sandpack calls `hlProxy`, which opens the sealed token and calls HighLevel with it. | §10 |
 | ⑤ Deploy | GitHub Actions runs lint, unit and emulator tests, then deploys hosting, functions and rules with Workload Identity Federation. | README |
 
-Everything runs in one Firebase project in `us-central1`. Clients never write to Firestore and never see a HighLevel token or a secret.
+Everything runs in one Firebase project in `us-central1`. Clients never write to Firestore, never touch Cloud Storage, and never see a HighLevel token or a secret.
 
 | Function | Auth | Responsibility |
 |---|---|---|
@@ -117,6 +121,7 @@ Everything runs in one Firebase project in `us-central1`. Clients never write to
 | `api` | Firebase ID token | A small router for projects, files, snapshots, ready-made apps, pinning, preview tokens and disconnect (see §4). |
 | `generate` | Firebase ID token | Streaming generation over SSE (see §6), with the credit hold (§7) and build limits (§8). |
 | `hlProxy` | Preview token | Forwards allowlisted GET requests to HighLevel using the user's real token (see §10). |
+| `cleanupFileBlobs` | Scheduled, daily | Deletes file content no manifest references, after a 7-day grace period (§3.1). Dry run unless `BLOB_CLEANUP=delete`. |
 
 ## 3. Data model
 
@@ -142,17 +147,35 @@ projects/{pid}
   pinnedAt | null                   (pinned to the sidebar)
   createdAt, updatedAt, deletedAt | null   (soft delete)
 
-  files/{fileId}        path, content, updatedAt       (one document per file; fileId = encoded path)
+  manifest: { [path]: { hash, size, lines, props[], emits[], imports[], hlHelpers[] } }   ← the app's files (§3.1)
+  manifestVersion       ← +1 on every change
   messages/{mid}        role: user|assistant, content, generationId, createdAt
   generations/{gid}     prompt, status: streaming|done|partial|error|declined|cancelled, error?, snapshotId?, createdAt,
+                        files[]   (paths the build changed; ranks the next builds' context, §6)
                         cancelRequested?   (set by the Stop button; the running build watches for it)
                         credits, usage{model, tokens}, summaryUsage?   (declined: no prompt, which is never stored)
-  snapshots/{sid}       generationId|null, reason: generation|restore|template|copy, summary, fileCount, createdAt
-    files/{fileId}      path, content
+  snapshots/{sid}       generationId|null, reason: generation|restore|template|copy, summary, fileCount, createdAt,
+                        manifest   (the files at that point: a copy of the manifest, not of the files)
+  files/{fileId}        path, content       (legacy: the Firestore store, FILE_STORE=firestore; kept until removal)
+  snapshots/{sid}/files/{fileId}            (legacy, as above)
+
+Cloud Storage (default bucket; storage.rules deny every client)
+users/{uid}/blobs/{sha256}   file content, immutable, shared by all of that user's apps and snapshots
 ```
 
-- **One document per file.** This keeps every document well under Firestore's 1 MB limit.
-- **Security rules:** clients can read their own `users/{uid}` and any project they own, including its subcollections. Every write goes through Cloud Functions (Admin SDK). Tokens and OAuth states can't be read by any client.
+- **Security rules:** clients can read their own `users/{uid}` and any project they own, including its subcollections. Every write goes through Cloud Functions (Admin SDK). Tokens and OAuth states can't be read by any client. Cloud Storage is closed to clients entirely.
+
+### 3.1 Project files: blobs and a manifest
+
+Every read and write of files goes through one `FileStore` interface ([`files/`](../functions/src/files/index.ts)). The `FILE_STORE` parameter selects the storage: `blobs` (content in Cloud Storage plus a manifest, the target) or `firestore` (one document per file, the original, kept as the fallback until the old data is removed).
+
+- **Content-addressed:** a file's content is stored once per user at `users/{uid}/blobs/{sha256}`. Unchanged files, snapshots and duplicated apps share it. Uploads are create-only (`ifGenerationMatch: 0`), and content the current manifest already references isn't uploaded again.
+- **Manifest:** `projects/{pid}.manifest` maps each path to its hash and metadata (size, lines, props, emits, imports, HighLevel helpers used), extracted with regular expressions when the file is written. Builds rank and index files from it without reading content.
+- **Changes:** new content is uploaded first, then one transaction applies the change to the manifest and increments `manifestVersion`. A failure before the transaction changes nothing visible; readers never see half a change. Concurrent changes to different files both land; `apply` can also require an expected version.
+- **Snapshots** store a copy of the manifest in the same write as the snapshot, so they can't be half-saved, and their size no longer grows with the content. **Restore** replaces the manifest in a transaction and records a `restore` snapshot. **Copy** copies the manifest within one account.
+- **Migration:** a project without a manifest is converted on first access (its Firestore files are uploaded; a transaction keeps one manifest if two first accesses race). A snapshot from before the migration is converted when it's restored. `npm run migrate:files` backfills every project and snapshot, verifying each file by downloading it again, and can be re-run. Firestore file data is never deleted by any of this. While `FILE_STORE=firestore`, every change drops the project's manifest, so a manifest made by an earlier backfill can't go stale.
+- **Cleanup:** manual saves leave superseded content behind. `cleanupFileBlobs` reads every manifest first, then deletes blobs that no project or snapshot of that user references and that haven't been reused for 7 days. Reusing a blob bumps its `customTime` (and so its metageneration), and the delete carries the metageneration seen when listing, so a blob reused meanwhile is kept.
+- **Cost:** a 44-file app's snapshot is one 10.7 KB document instead of 45; a manual save is one upload and one transaction. Measurements: [`docs/plans/filestore-and-context.md`](plans/filestore-and-context.md#8-measurements).
 
 ## 4. Backend API
 
@@ -176,16 +199,18 @@ All routes are on the `api` function and need `Authorization: Bearer <Firebase I
 | `POST /projects/:id/snapshots/:sid/restore` | Restores a snapshot, which itself records a new `restore` snapshot. Not allowed on ready-made apps. |
 | `POST /projects/:id/preview-token` | Issues a 15-minute preview token for the connected location. |
 
-The **`generate`** function takes `POST { projectId, prompt }` (prompt ≤ 4,000 characters). Before streaming, it can refuse with JSON, for example `429 rate_limited` (builds running at once or started recently, §8) or `402 insufficient_credits` when the available balance can't cover the build's worst case. Otherwise it replies with `text/event-stream`, and `done`, `cancelled` and `error` carry `credits: { charged, balance }`:
+The **`generate`** function takes `POST { projectId, prompt, activePath?, openPaths? }` (prompt ≤ 4,000 characters; the editor's tabs are hints for context ranking, at most 10, invalid paths ignored). Before streaming, it can refuse with JSON, for example `429 rate_limited` (builds running at once or started recently, §8) or `402 insufficient_credits` when the available balance can't cover the build's worst case. Otherwise it replies with `text/event-stream`, and `done`, `cancelled` and `error` carry `credits: { charged, balance }`:
 
 ```text
 event: start      data: {generationId}
 event: token      data: {text, path|null}          path null = plan text outside any file
 event: file_start data: {path}
 event: file_end   data: {path, bytes}
+event: status     data: {phase: "reading", paths}  the model read files from the index (large apps)
 event: done       data: {generationId, snapshotId, files:[path]}
 event: cancelled  data: {generationId, snapshotId|null, files:[path], unfinished:path|null}   stopped on request
-event: error      data: {code, message, partial}   e.g. declined, truncated, llm_error, disconnected, invalid_output
+event: error      data: {code, message, partial}   e.g. declined, truncated, llm_error, disconnected, invalid_output,
+                                                    insufficient_credits (an extra read turn couldn't be held)
 : ping                                              heartbeat every 15 s
 ```
 
@@ -249,8 +274,13 @@ sequenceDiagram
   U->>SPA: Prompt in composer → Build
   SPA->>SPA: Details dialog (name, description, category — prefilled from the prompt)
   SPA->>API: POST /projects
-  SPA->>G: POST {projectId, prompt} (SSE)
-  G->>CL: messages.stream (system prompt + HL reference + files + last 6 messages)
+  SPA->>G: POST {projectId, prompt, editor tabs} (SSE)
+  G->>CL: messages.stream (system prompt + read_files tool + HL reference + ranked files + index + last 6 messages)
+  opt large app: the model reads indexed files (at most 2 calls)
+    CL-->>G: read_files {paths}
+    G-->>SPA: status reading
+    G->>CL: tool result (file contents), next turn
+  end
   loop streaming
     CL-->>G: text
     G-->>SPA: token / file_start / file_end
@@ -304,7 +334,8 @@ The chat shows the notice for that session only, so a declined request never aff
    - [`hlReference.md`](../functions/src/llm/hlReference.md), the API of the injected HighLevel client (§10) and the response shapes;
    - [`uiKit.md`](../functions/src/llm/uiKit.md), the classes of the injected UI kit (§10). Apps use the kit's look unless the user explicitly asks for another, and are split into components of about 150 lines, so a follow-up rewrites only the component it touches;
    - deliberately **not** the connected location's name or ID: apps read them at run time (`LOCATION_NAME`, `LOCATION_ID`, injected by the preview), so the model has nothing to hard-code;
-   - the current files, within a 60,000-character budget (files over 20,000 characters are listed but omitted);
+   - the current files, within a 60,000-character budget ([`llm/context.ts`](../functions/src/llm/context.ts)). When every file fits (most apps), all are sent in full, alphabetically, exactly as before. Otherwise files are ranked: `src/main.js`, `src/App.vue`, `src/utils.js`; the editor's active tab; its open tabs; files changed by the last 2 builds (`generations.files`); files the prompt names (path, file name, or a distinctive component name such as `ContactList`); their imports and importers; then the rest. The budget is filled in that order; files over 20,000 characters and those past the budget are listed in an index, one line each from the manifest (size, lines, props, emits, client helpers). Content is read only for the files sent in full;
+   - the `read_files` tool (when `CONTEXT_TOOLS=on`; [`llm/tools.ts`](../functions/src/llm/tools.ts)), so the model can read indexed files (step 3a);
    - the last 6 chat messages.
 3. **Output format:**
 
@@ -315,13 +346,16 @@ The chat shows the notice for that session only, so a declined request never aff
    <refuse>reason</refuse>          (declines only; no plan or files)
    ```
 
+   **3a. Reading files (large apps).** The model may call `read_files` with up to 5 indexed paths, at most twice, before writing anything ([`llm/turns.ts`](../functions/src/llm/turns.ts)). Each call is a turn: the server returns the files (checked paths, existing, under the size limit, not already shown), sends `status {phase: "reading", paths}` to the client, and continues the conversation. After two read turns the next turn is sent with `tool_choice: none`, so the model must answer. The 16,000-token output cap covers all turns together. Stop and disconnects are checked between turns as well as during them. Only text reaches the parser; a file still open when the model calls the tool is dropped and reported.
+
    An incremental parser streams tokens and file boundaries while the output is still arriving. It holds back partial closing tags until it can see the rest, and removes a stray `</parameter>` trailer the model occasionally adds to the end of a file.
 4. **Validation**, applied to each operation separately:
    - the path must be relative and inside `src/`, with an extension of `.vue`, `.ts`, `.js`, `.css` or `.json`;
    - files are capped at 100 KB;
    - `package.json`, `src/hl.config.js` and everything under `src/genesis/` are system-owned, so the model can't write them;
    - `src/main.js` and `src/App.vue` can't be deleted;
-   - empty files are rejected.
+   - empty files are rejected;
+   - an existing file the model wasn't given in full (or didn't read with `read_files`) can't be rewritten ("file was not read; ask to include it"; for a file over 20,000 characters: "too large for the AI to edit"). New files and deletes are allowed.
 
    Valid operations are kept. A file left unclosed by a truncated stream is rejected.
 5. **Saving:** write the files, ask Haiku for a one-line change summary, create a snapshot, save the user and assistant messages, and set the generation status:
@@ -360,6 +394,7 @@ users/{uid}/creditLedger/{entryId}                               append-only
 |---|---|---|---|
 | `signup` | `grant` | The email is verified (first account setup) | `credits`, `reason` |
 | `{generationId}-hold` | `hold` | A build starts | `credits`, `generationId` |
+| `{generationId}-hold-{n}` | `hold` | A read turn `n` is about to start (large apps, §6 step 3a) | `credits`, `generationId`, `turn` |
 | `{generationId}-charge` | `charge` | The build ends, however it ended | `credits`, `released`, `model`, `usage`, `summaryModel`, `summaryUsage`, `projectId`, `rateCardVersion` |
 
 The fixed entry IDs make every step idempotent: two account-setup calls grant once, and settling a build twice changes nothing.
@@ -380,6 +415,11 @@ sequenceDiagram
   else reserved
     G->>CL: messages.stream
     CL-->>G: tokens, final usage
+    opt read_files turn (at most 2)
+      G->>CL: messages.countTokens (the next turn's input)
+      G->>FS: transaction: hold that input at the cache-write rate, write {gid}-hold-{n} (402 ends the build, keeping finished files)
+      G->>CL: messages.stream (next turn)
+    end
     G->>CL: Haiku summary (if files were saved)
     G->>FS: transaction: release hold, charge actual usage, write {gid}-charge
     G-->>SPA: done / cancelled / error, with credits {charged, balance}
@@ -394,12 +434,14 @@ held = ceil( exact input tokens × cache-write rate   (the dearest input rate: a
            + summary allowance: 1,000 input + 60 output tokens on Haiku )
 ```
 
-The input is counted with `messages.countTokens`. If counting is unavailable, the request's length ÷ 3.5 is used as an estimate. If `balance − reserved` can't cover the hold, the build gets `402 insufficient_credits` ("This build needs up to X AI credits and you have Y available.") and Claude is never called.
+The input is counted with `messages.countTokens`. If counting is unavailable, the request's length ÷ 2.5 is used: deliberately high, because code tokenizes densely.
+
+**Extra turns** (a large app's `read_files` calls): before each, its whole input (the conversation so far plus the files read) is counted and held at the cache-write rate as `{generationId}-hold-{n}`. The output cap is already in the first hold, because it covers all turns together. If the balance can't cover an extra turn, the build ends with `insufficient_credits` and keeps what it finished. If `balance − reserved` can't cover the hold, the build gets `402 insufficient_credits` ("This build needs up to X AI credits and you have Y available.") and Claude is never called.
 
 **Charge**, after the build, in one transaction:
 
 ```text
-charged = min( held, ceil(actual build usage + actual summary usage) )
+charged = min( total held, ceil(actual usage of every turn + actual summary usage) )
 ```
 
 The transaction releases the hold, deducts `charged` from the balance, adds it to `used`, writes the `{generationId}-charge` entry, and frees the build's rate-limit slot (§8). The charge and usage are also stored on `projects/{pid}/generations/{gid}`.
@@ -424,6 +466,7 @@ On a cache miss the system prompt costs 5,500 × 2,500/M = 13.75 instead of 0.55
 | Done or partial | Input + output + summary |
 | Stopped (Stop or Esc, §6 step 7) | Input + the output produced before the stop (no summary is written) |
 | Stream cut off (disconnect, error) | Input + the output streamed, estimated from the text received (characters ÷ 3.5) if the final usage is missing |
+| Read turns (large apps) | Each turn's input (mostly cache reads, see §7.8) + the tool call's few output tokens, on top of the above |
 | Declined (off-topic or harmful) | Input only |
 | Refused before Claude (validation, 402, 429) | Nothing |
 
@@ -453,7 +496,9 @@ The system prompt (rules, UI kit and HighLevel reference: about 5,500 tokens) is
 - Measured on the emulator: two follow-ups 2 minutes apart showed `cacheWriteTokens: 5,487` then `cacheReadTokens: 5,487`. The second was charged 28 credits instead of 38.
 - The charge always follows Claude's reported usage, so caching can't over-charge. The hold prices all input as a cache miss, so it can't under-charge either.
 - Nothing per-user may be added to the system prompt: that would split the cache, and the cache is shared by every user of the API key. A test checks the block is byte-identical across calls.
-- The history, files and prompt aren't cached: they change on every build. The 1-hour TTL isn't used: it costs 2× to write, and the rate card has no price for it.
+- **The `read_files` tool definition** is part of the cached prefix: tools render before the system prompt. It is frozen and byte-identical on every build (a test pins its hash), and with `CONTEXT_TOOLS=on` every build sends it, even when nothing is indexed, so all builds share one cache entry. Changing the definition, like changing the prompt, starts a new cache.
+- **Moving cache point (read turns):** when files were indexed, the latest user turn also gets a `cache_control` marker, so a read turn re-reads the conversation at 0.05× instead of paying it again. It is added only then: on a build that ends in one turn, it would only add the 1.25× write. The last turn's `tool_choice: none` keeps the tools and system cache but invalidates the messages cache, so that turn pays the conversation again (open question Q1 in the plan).
+- The history, files and prompt aren't cached otherwise: they change on every build. The 1-hour TTL isn't used: it costs 2× to write, and the rate card has no price for it.
 - `generate: persisted` logs `cacheRead` / `cacheWrite`, and each generation stores them under `usage`.
 
 ## 8. Rate limiting
@@ -635,6 +680,7 @@ sequenceDiagram
 - **No token exposure:** HighLevel tokens never leave Cloud Functions. Generated apps hold only a short-lived preview token tied to one user, project and location.
 - **Tokens encrypted at rest:** see §11.1.
 - **Server-side writes only:** Firestore security rules reject every client write.
+- **File content is server-only:** [`storage.rules`](../storage.rules) deny every client read and write; only Cloud Functions (Admin SDK) touch Storage. Content is stored per user (`users/{uid}/…`, the project's owner, never a value from the request), and copying across accounts is refused. An integration test checks that even the owner's own token is refused.
 - **CORS:** `api`, `generate` and `hlAuthStart` accept browser calls only from the app's own origins (`<project>.web.app`, `<project>.firebaseapp.com`, and the Vite dev server). `hlProxy` accepts any origin, because generated apps run on Sandpack's origin; it's protected by the preview token instead.
 - **Bot sign-ups:** Firebase Auth (Identity Platform) scores every email/password sign-up and sign-in with reCAPTCHA Enterprise and rejects low scores or missing tokens. The check happens in Auth itself, so calling the public sign-up API directly doesn't skip it; the web SDK attaches the token without any app code. Accounts that get through still can't use anything until their email is verified (§5.1). Setup: [`scripts/setup-bot-protection.sh`](../scripts/setup-bot-protection.sh).
 - **Prompt-injection resistance:** the system prompt treats user text as a request to evaluate, never as instructions. Requests that are off-topic or try to override the rules are declined and never stored.
@@ -699,9 +745,12 @@ Unit tests sit next to the code they test (`lib/sse.test.ts`, `composables/useGe
 Everything below is in the repo and runs in CI on every push and pull request.
 
 - **Functions unit tests** (`cd functions && npm test`, `node:test`):
-  - The stream parser produces identical results however the text is chunked; unclosed files are detected; a `refuse` reply is handled; stray trailers and cut-off tags are removed.
-  - `validateOps` behaves as described in §6.
-  - Credits: the rate card, unknown models billed at the highest rate, rounding, usage mapping.
+  - The stream parser produces identical results however the text is chunked; unclosed files are detected; a `refuse` reply is handled; stray trailers and cut-off tags are removed; a file open at a tool call is dropped.
+  - `validateOps` behaves as described in §6, including the unread-file guard.
+  - Files: content hashing and metadata extraction (props, emits, imports, client helpers); manifest updates and upload dedupe; the blob cache; the cleanup's delete precondition.
+  - Context: everything-fits output identical to before, ranking order, distinctive names only, budget filling and index lines.
+  - `read_files` and the turn loop with a fake Claude: read then write, the read cap with `tool_choice: none`, stop between turns, a refused extra hold, a refusal on turn 2, unread overwrites rejected, a cut-off turn's usage, the moving cache point; the tool definition is frozen and its bytes pinned.
+  - Credits: the rate card, unknown models billed at the highest rate, rounding, usage mapping, and that a multi-turn build's holds cover its cost.
   - Token encryption: round trip, a fresh key and IV per record, tampering and user-swapping rejected, and the decryption cache.
   - Rate limits: the token bucket, build slots, slot expiry and the build-start log, with a fake clock.
   - Every ready-made template is valid, has unique slugs, and has a known category.
@@ -712,7 +761,8 @@ Everything below is in the repo and runs in CI on every push and pull request.
   - **Proxy:** missing and forged preview tokens, the read allowlist, tokens for deleted or other users' apps, a changed connection, and the per-user burst limit.
   - **Proxy writes:** every listed write passes the checks; deletes, unlisted writes, oversized bodies and other message types are refused; a connection without write scopes is told to reconnect; write and send limits apply.
   - **Token encryption:** stored records contain no plain-text token and still work; legacy plain-text records are sealed on first use; a corrupted record, or one moved to another user, fails closed with `503 hl_tokens_unavailable`.
+  - **File store** (`filestore.e2e.ts`, `storage.e2e.ts`, `migrate.e2e.ts`, `cleanup.e2e.ts`): manifest transactions, versions and concurrent changes; snapshots as manifests; restore (also of legacy snapshots); copy within an account only; content in Storage per user; no client Storage access; lazy conversion with concurrent first accesses; the backfill (dry run, verification, re-run); stale manifests dropped by the Firestore store; cleanup keeps referenced and recent content. CI runs the whole suite twice, with `FILE_STORE=blobs` and `firestore`. The Storage emulator ignores generation and metageneration preconditions and `customTime`, so those are unit-tested only.
   - **Security rules** (`rules.e2e.ts`): as signed-in users through the Firestore emulator, each user reads only their own user document, ledger and apps; nobody reads `hlTokens` or `oauthStates`; unfiltered app listings are refused; every client write (including topping up credits) is denied.
-- **Frontend unit tests** (`cd frontend && npm test`, Vitest): the SSE reader (any chunking, heartbeats, CRLF, malformed events) and `useGeneration` (tokens into files, credits, refusals before streaming, declined requests, broken streams, Stop).
+- **Frontend unit tests** (`cd frontend && npm test`, Vitest): the SSE reader (any chunking, heartbeats, CRLF, malformed events) and `useGeneration` (tokens into files, credits, refusals before streaming, declined requests, broken streams, Stop, editor hints in the request, the "reading" state).
 - **Lint:** ESLint with the recommended TypeScript rules (functions) and Vue + TypeScript rules (frontend). The generated shadcn-vue components and the ready-made apps' browser code are excluded.
 - **Manual end-to-end checks** were also run during development against a real HighLevel sandbox and real Claude (OAuth connect and refresh, generation, partial results, cancellation, pagination, rate limits), with headless-browser screenshots. These need real credentials and spend credits, so they aren't automated.

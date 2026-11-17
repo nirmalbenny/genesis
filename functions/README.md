@@ -34,9 +34,12 @@ src/
   hl/tokenVault.ts    HighLevel tokens encrypted at rest (Cloud KMS envelope encryption, decryption cache)
   llm/                prompt.ts · hlReference.md (API + pagination reference given to the model)
                       parser.ts (incremental output parser) · validate.ts · summary.ts (Haiku summaries)
+                      context.ts (ranking + index) · tools.ts (read_files) · turns.ts (multi-turn build loop)
   credits.ts          rate card, hold and settle, ledger, build slots
   rateLimits.ts       every limit (LIMITS), token bucket, build-start rules
-  files.ts            file docs, snapshots, restore          projects.ts   ownership, lock, location
+  files/              FileStore: blobs + manifest (manifestStore, blobStore, describe), Firestore fallback,
+                      migration, daily cleanup             projects.ts   ownership, lock, location
+  scripts/            migrate-files-to-storage.ts (backfill) · measure-filestore.ts (emulator measurements)
   templates.ts        ready-made app seeding                 previewToken.ts · config.ts · http.ts
   *.test.ts           unit tests (npm test)
   e2e/                integration tests against the emulators, including the security rules (npm run test:e2e)
