@@ -60,6 +60,8 @@ export type Round = {
   toolMs: number; // time spent running this round's tool calls
   firstTokenMs: number | null; // request start to the first text, if any
   usage: TokenUsage;
+  /** Output tokens spent on thinking (part of usage.outputTokens; Sonnet 5.5 thinks by default). 0 when unknown. */
+  thinkingTokens: number;
   stopReason: string | null; // null when the request failed
   toolCalls: ToolCallRecord[];
 };
@@ -108,7 +110,9 @@ export async function runTurns(o: TurnsOptions): Promise<TurnsResult> {
         await o.beforeTurn(turn, params);
       }
       started = Date.now();
-      round = { n: turn + 1, startedAt: started, ms: 0, responseMs: 0, toolMs: 0, firstTokenMs: null, usage: ZERO, stopReason: null, toolCalls: [] };
+      round = {
+        n: turn + 1, startedAt: started, ms: 0, responseMs: 0, toolMs: 0, firstTokenMs: null, usage: ZERO, thinkingTokens: 0, stopReason: null, toolCalls: [],
+      };
       rounds.push(round);
       const r = round;
       stream = o.stream(params);
@@ -120,6 +124,7 @@ export async function runTurns(o: TurnsOptions): Promise<TurnsResult> {
       });
       const message = await stream.finalMessage();
       r.usage = toTokenUsage(message.usage);
+      r.thinkingTokens = message.usage.output_tokens_details?.thinking_tokens ?? 0;
       r.stopReason = message.stop_reason;
       r.ms = r.responseMs = Date.now() - started;
       usage = addUsage(usage, r.usage);

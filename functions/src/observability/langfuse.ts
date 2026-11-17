@@ -57,12 +57,24 @@ export function ensureLangfuse(cfg: { publicKey: string; secretKey: string; base
 const under = <T>(parent: { otelSpan: Span }, create: () => T): T =>
   context.with(trace.setSpan(context.active(), parent.otelSpan), create);
 
-const usageDetails = (u: TokenUsage) => ({
+/**
+ * Usage in Langfuse's buckets, which must not overlap: `output` excludes the thinking tokens, reported as
+ * `output_reasoning_tokens` (Anthropic counts thinking inside output_tokens).
+ */
+const usageDetails = (u: TokenUsage, thinkingTokens = 0) => ({
   input: u.inputTokens,
-  output: u.outputTokens,
+  output: u.outputTokens - thinkingTokens,
+  output_reasoning_tokens: thinkingTokens,
   cache_read_input_tokens: u.cacheReadTokens,
   cache_creation_input_tokens: u.cacheWriteTokens,
 });
+
+/** Cost in the same buckets as usageDetails (thinking is billed at the output rate). */
+function costDetails(model: string, u: TokenUsage, thinkingTokens = 0) {
+  const c = costUsd(model, u);
+  const reasoning = u.outputTokens ? c.output * (thinkingTokens / u.outputTokens) : 0;
+  return { ...c, output: c.output - reasoning, output_reasoning_tokens: reasoning };
+}
 
 type Round = BuildTraceInput["rounds"][number];
 const NOT_TRACED = "(not traced)";
@@ -151,14 +163,14 @@ export async function sendBuildTrace(t: BuildTraceInput): Promise<string | null>
           output: final
             ? (declined ? null : { role: "assistant", content: [t.plan, files.length ? `Files: ${files.join(", ")}` : ""].filter(Boolean).join("\n\n") })
             : { role: "assistant", content: "", tool_calls: asked },
-          usageDetails: usageDetails(r.usage),
-          costDetails: costUsd(t.model, r.usage),
+          usageDetails: usageDetails(r.usage, r.thinkingTokens),
+          costDetails: costDetails(t.model, r.usage, r.thinkingTokens),
           completionStartTime: r.firstTokenMs !== null ? at(r.startedAt + r.firstTokenMs) : undefined,
           level: r.stopReason === null ? "ERROR" : r.stopReason === "max_tokens" || r.stopReason === "refusal" ? "WARNING" : "DEFAULT",
           statusMessage: r.stopReason === null ? "request failed or was stopped"
             : r.stopReason === "max_tokens" ? "stopped at the output limit (max_tokens): the file being written was cut off"
             : r.stopReason === "refusal" ? "refused by the API" : undefined,
-          metadata: { round: r.n, stopReason: r.stopReason },
+          metadata: { round: r.n, stopReason: r.stopReason, thinkingTokens: r.thinkingTokens },
         }, { asType: "generation", startTime: at(r.startedAt) })).end(at(r.startedAt + r.responseMs));
 
         const toolStart = r.startedAt + r.responseMs;
@@ -184,7 +196,7 @@ export async function sendBuildTrace(t: BuildTraceInput): Promise<string | null>
           input: { request: t.prompt, plan: t.plan, files: files },
           output: t.actions.summary,
           usageDetails: usageDetails(summaryUsage),
-          costDetails: costUsd(t.summaryModel, summaryUsage),
+          costDetails: costDetails(t.summaryModel, summaryUsage),
         }, { asType: "generation", startTime: at(saveStart) })).end(at(saveStart + t.timings.saveMs));
       }
       save.end(at(saveStart + t.timings.saveMs));

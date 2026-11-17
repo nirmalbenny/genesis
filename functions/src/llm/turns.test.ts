@@ -27,7 +27,7 @@ function fakeClaude(script: Script[]) {
         return {
           content: [...(turn.text ? [{ type: "text", text: turn.text }] : []), ...calls],
           stop_reason: turn.stop ?? (calls.length ? "tool_use" : "end_turn"),
-          usage: { input_tokens: input, output_tokens: output },
+          usage: { input_tokens: input, output_tokens: output, output_tokens_details: { thinking_tokens: Math.floor(output / 2) } },
         } as unknown as Anthropic.Message;
       },
     };
@@ -173,7 +173,8 @@ test("every round is reported with its tokens, stop reason, timing and tool call
   const h = harness([{ text: "x", reads: [["src/A.vue", 7 as unknown as string]], usage: [900, 30] }, { text: "<plan>Ok.</plan>", usage: [1000, 200] }]);
   const r = await h.run();
   assert.equal(r.rounds.length, 2);
-  assert.deepEqual(r.rounds.map((x) => [x.n, x.stopReason, x.usage.inputTokens, x.usage.outputTokens]), [[1, "tool_use", 900, 30], [2, "end_turn", 1000, 200]]);
+  assert.deepEqual(r.rounds.map((x) => [x.n, x.stopReason, x.usage.inputTokens, x.usage.outputTokens, x.thinkingTokens]),
+    [[1, "tool_use", 900, 30, 15], [2, "end_turn", 1000, 200, 100]], "thinking is read from output_tokens_details");
   assert.deepEqual(r.rounds[0]!.toolCalls, [{ name: "read_files", paths: ["src/A.vue"], read: ["src/A.vue", 7 as unknown as string], isError: false }]);
   assert.ok(r.rounds.every((x) => x.ms >= 0 && x.firstTokenMs !== null));
 

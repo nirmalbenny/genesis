@@ -94,6 +94,10 @@ Re-checked after the fixes: types, nesting, user/session/tags on every observati
 
 **Finding (product, not tracing):** the cut-off small build was a runaway file: Claude kept writing one helper file until the output limit, costing 178 credits for a partial result. A guard that stops the stream when a single file grows far beyond the ~150-line rule (and saves the finished files) would cap that cost. Not built; proposed as a follow-up.
 
+### Thinking (2026-11-18)
+
+Sonnet 5.5 thinks by default and bills thinking as output, which could have explained slow first tokens, cost and the runaway build. Thinking tokens are now recorded per request (`usage.output_tokens_details.thinking_tokens`; Langfuse bucket `output_reasoning_tokens`, cost split accordingly; log field `thinkingTokens`). Measured on four real requests: 0, 37 (the request that only asked to read a file), 0, 0 thinking tokens. Thinking is not a meaningful share of cost or latency today, so it stays on. Production's slow first token (12–14 s) is before the request reaches Claude: checks, context and the credit hold took 7–12 s, and Claude answered within 2–5 s.
+
 ## 5. Manual steps and open questions
 
 1. ~~Langfuse account and project~~ done (US region).

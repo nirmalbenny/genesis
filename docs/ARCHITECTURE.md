@@ -793,6 +793,7 @@ build-app                (agent)       input: the prompt · output: the plan and
 
 - **Session** = the app's ID; **user** = the Firebase uid; **tags**: the outcome (`done`, `partial`, `error`, `cancelled`, `declined`), `first-build` or `follow-up`, `large-app`, `read-files`. Set on every observation, as Langfuse needs for filtering.
 - **Cost** comes from Genesis's rate card (§7.1), so it matches what the user was charged (before rounding up).
+- **Thinking:** Sonnet 5.5 thinks by default (adaptive, effort `high`); its thinking tokens are part of the billed output. Each generation reports them as `output_reasoning_tokens` (taken out of `output`, so nothing is counted twice), and logs carry `thinkingTokens`. Thinking text itself is not traced. Measured 2026-11-18: 0 thinking tokens on build requests, 37 on a request that only asked to read a file.
 - **Built after the fact** from timings `generate` records, with explicit start and end times, so tracing never touches the stream. The tracer provider is isolated and the Anthropic client's own OpenTelemetry is off, so the SDK adds no duplicate spans (they would carry full messages, including code).
 - **Content:** the prompt and plan only; never file contents or code; a declined prompt is not sent.
 - Instrumented with the [Langfuse agent skill](../.claude/skills/langfuse/SKILL.md) and audited against real traces (record in [docs/plans/observability.md](plans/observability.md)).
@@ -803,7 +804,7 @@ In Cloud Logging (`jsonPayload`), tagged with `generationId`, `uid` and `project
 
 | Event | Fields |
 |---|---|
-| `build.round` | round number, tokens (input, output, cache read and write), stop reason, time to first token, duration, tool calls (paths asked and read) |
+| `build.round` | round number, tokens (input, output, cache read and write, thinking), stop reason, time to first token, duration, tool calls (paths asked and read) |
 | `build.rejected` | path and reason, one per rejected file |
 | `build.end` | outcome, error code and step, totals, credits held and charged, files sent and listed, files written/deleted/rejected, follow-up or not, timings, `traceId` (the Langfuse trace) |
 

@@ -65,7 +65,7 @@ export function logBuild(t: BuildTraceInput, traceId: string | null): void {
   for (const r of t.rounds) {
     logEvent("build.round", {
       ...ids, n: r.n, ms: r.ms, responseMs: r.responseMs, toolMs: r.toolMs, firstTokenMs: r.firstTokenMs, stopReason: r.stopReason,
-      ...r.usage,
+      ...r.usage, thinkingTokens: r.thinkingTokens,
       toolCalls: r.toolCalls.map((c) => ({ name: c.name, paths: c.paths, read: c.read, isError: c.isError })),
     });
   }
@@ -76,6 +76,7 @@ export function logBuild(t: BuildTraceInput, traceId: string | null): void {
     model: t.model, fileStore: t.fileStore, contextTools: t.contextTools,
     rounds: t.rounds.length, readRounds: t.rounds.filter((r) => r.toolCalls.length).length,
     ...totalUsage(t.rounds),
+    thinkingTokens: t.rounds.reduce((n, r) => n + r.thinkingTokens, 0),
     systemCacheHit: t.rounds[0] ? t.rounds[0].usage.cacheReadTokens > 0 : null,
     creditsHeld: t.credits.held, creditsCharged: t.credits.charged,
     filesInFull: t.context.full.length, filesIndexed: t.context.indexed.length, contextChars: t.context.chars,

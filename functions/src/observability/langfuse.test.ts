@@ -26,9 +26,9 @@ function build(over: Partial<BuildTraceInput> = {}): BuildTraceInput {
     model: "claude-sonnet-5-5", summaryModel: "claude-haiku-5-5", fileStore: "blobs", contextTools: true,
     context: { full: ["src/App.vue"], indexed: ["src/components/Leads.vue"], chars: 61_000, activePath: "src/App.vue", openPaths: [], recentPaths: [] },
     rounds: [
-      { n: 1, startedAt: T0 + 1000, ms: 4000, responseMs: 3500, toolMs: 500, firstTokenMs: null, usage: usage(10, 40, 6641, 23_800), stopReason: "tool_use",
+      { n: 1, startedAt: T0 + 1000, ms: 4000, responseMs: 3500, toolMs: 500, firstTokenMs: null, usage: usage(10, 40, 6641, 23_800), thinkingTokens: 0, stopReason: "tool_use",
         toolCalls: [{ name: "read_files", paths: ["src/components/Leads.vue", "src/nope.vue"], read: ["src/components/Leads.vue"], isError: false }] },
-      { n: 2, startedAt: T0 + 5200, ms: 9000, responseMs: 9000, toolMs: 0, firstTokenMs: 800, usage: usage(3100, 2100, 30_441), stopReason: "end_turn", toolCalls: [] },
+      { n: 2, startedAt: T0 + 5200, ms: 9000, responseMs: 9000, toolMs: 0, firstTokenMs: 800, usage: usage(3100, 2100, 30_441), thinkingTokens: 600, stopReason: "end_turn", toolCalls: [] },
     ],
     actions: {
       written: [{ path: "src/components/Leads.vue", bytes: 4100 }], deleted: [],
@@ -78,8 +78,18 @@ test("generations carry the model, tokens with cache detail, our own cost, and t
   await sendBuildTrace(build());
   const [first, second] = byName(exporter.getFinishedSpans(), "generate-changes").sort((a, b) => ms(a.startTime) - ms(b.startTime));
   assert.equal(attr(first!, "langfuse.observation.model.name"), "claude-sonnet-5-5");
-  assert.deepEqual(json(first!, "langfuse.observation.usage_details"), { input: 10, output: 40, cache_read_input_tokens: 6641, cache_creation_input_tokens: 23_800 });
-  assert.deepEqual(json(first!, "langfuse.observation.cost_details"), costUsd("claude-sonnet-5-5", usage(10, 40, 6641, 23_800)));
+  assert.deepEqual(json(first!, "langfuse.observation.usage_details"),
+    { input: 10, output: 40, output_reasoning_tokens: 0, cache_read_input_tokens: 6641, cache_creation_input_tokens: 23_800 });
+  const firstCost = json(first!, "langfuse.observation.cost_details");
+  assert.equal(firstCost.total, costUsd("claude-sonnet-5-5", usage(10, 40, 6641, 23_800)).total);
+  // Thinking is split out of output into its own bucket, for tokens and cost, so nothing is counted twice.
+  assert.deepEqual(json(second!, "langfuse.observation.usage_details"),
+    { input: 3100, output: 1500, output_reasoning_tokens: 600, cache_read_input_tokens: 30_441, cache_creation_input_tokens: 0 });
+  const cost = json(second!, "langfuse.observation.cost_details");
+  const full = costUsd("claude-sonnet-5-5", usage(3100, 2100, 30_441));
+  assert.ok(Math.abs(cost.output + cost.output_reasoning_tokens - full.output) < 1e-12);
+  assert.ok(Math.abs(cost.output_reasoning_tokens - full.output * 600 / 2100) < 1e-12);
+  assert.equal(cost.total, full.total);
   assert.equal(json(first!, "langfuse.observation.output").tool_calls[0].function.name, "read_files");
   assert.equal(ms(first!.startTime), T0 + 1000);
   assert.equal(ms(first!.endTime), T0 + 4500, "the response, not the tool call that followed");
