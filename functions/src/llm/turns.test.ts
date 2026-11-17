@@ -168,3 +168,18 @@ test("the moving cache point marks only the last block of the latest user turn",
   const single = withCachePoint([{ role: "user", content: "only" }]);
   assert.deepEqual(single[0]!.content, [{ type: "text", text: "only", cache_control: { type: "ephemeral" } }]);
 });
+
+test("every round is reported with its tokens, stop reason, timing and tool calls; a failed tool call isn't counted twice", async () => {
+  const h = harness([{ text: "x", reads: [["src/A.vue", 7 as unknown as string]], usage: [900, 30] }, { text: "<plan>Ok.</plan>", usage: [1000, 200] }]);
+  const r = await h.run();
+  assert.equal(r.rounds.length, 2);
+  assert.deepEqual(r.rounds.map((x) => [x.n, x.stopReason, x.usage.inputTokens, x.usage.outputTokens]), [[1, "tool_use", 900, 30], [2, "end_turn", 1000, 200]]);
+  assert.deepEqual(r.rounds[0]!.toolCalls, [{ name: "read_files", paths: ["src/A.vue"], read: ["src/A.vue", 7 as unknown as string], isError: false }]);
+  assert.ok(r.rounds.every((x) => x.ms >= 0 && x.firstTokenMs !== null));
+
+  const failing = harness([{ reads: [["src/A.vue"]], usage: [500, 10] }], { runTool: async () => { throw new Error("storage down"); } });
+  const f = await failing.run();
+  assert.match(String(f.error), /storage down/);
+  assert.deepEqual(f.usage, { inputTokens: 500, outputTokens: 10, cacheWriteTokens: 0, cacheReadTokens: 0 }, "counted once");
+  assert.equal(f.rounds[0]!.stopReason, "tool_use");
+});

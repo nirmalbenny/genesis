@@ -47,6 +47,21 @@ export type TurnsResult = {
   error: unknown;
   /** Stopped between turns (cancel or disconnect) without an error. */
   stoppedBetweenTurns: boolean;
+  /** One entry per model request, for observability (observability/buildTrace.ts). */
+  rounds: Round[];
+};
+
+export type ToolCallRecord = { name: string; paths: string[]; read: string[]; isError: boolean };
+export type Round = {
+  n: number;
+  startedAt: number; // epoch ms
+  ms: number; // request start to its end (including tool calls that followed it)
+  responseMs: number; // request start to the model's final message
+  toolMs: number; // time spent running this round's tool calls
+  firstTokenMs: number | null; // request start to the first text, if any
+  usage: TokenUsage;
+  stopReason: string | null; // null when the request failed
+  toolCalls: ToolCallRecord[];
 };
 
 // Rough chars-per-token, used only when a cut-off stream reported less output than the text it delivered.
@@ -69,8 +84,9 @@ export async function runTurns(o: TurnsOptions): Promise<TurnsResult> {
   const messages = [...o.request.messages];
   let usage = ZERO;
   let readTurns = 0;
+  const rounds: Round[] = [];
   const done = (message: Anthropic.Message | null, error: unknown = null, stoppedBetweenTurns = false): TurnsResult =>
-    ({ message, usage, readTurns, error, stoppedBetweenTurns });
+    ({ message, usage, readTurns, error, stoppedBetweenTurns, rounds });
   for (let turn = 0; ; turn++) {
     const remaining = o.maxOutputTokens - usage.outputTokens;
     const lastTurn = readTurns >= o.maxReadTurns;
@@ -84,21 +100,43 @@ export async function runTurns(o: TurnsOptions): Promise<TurnsResult> {
     };
     let chars = 0;
     let stream: TurnStream | null = null;
+    let round: Round | null = null;
+    let started = 0;
     try {
       if (turn > 0) {
         if (o.stopped()) return done(null, null, true);
         await o.beforeTurn(turn, params);
       }
+      started = Date.now();
+      round = { n: turn + 1, startedAt: started, ms: 0, responseMs: 0, toolMs: 0, firstTokenMs: null, usage: ZERO, stopReason: null, toolCalls: [] };
+      rounds.push(round);
+      const r = round;
       stream = o.stream(params);
       o.onStream(stream);
-      stream.on("text", (t) => { chars += t.length; o.onText(t); });
+      stream.on("text", (t) => {
+        if (r.firstTokenMs === null) r.firstTokenMs = Date.now() - started;
+        chars += t.length;
+        o.onText(t);
+      });
       const message = await stream.finalMessage();
-      usage = addUsage(usage, toTokenUsage(message.usage));
+      r.usage = toTokenUsage(message.usage);
+      r.stopReason = message.stop_reason;
+      r.ms = r.responseMs = Date.now() - started;
+      usage = addUsage(usage, r.usage);
       const calls = message.content.filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
       // Answer, refusal, output cap (a truncated tool input is never run), or read limit reached.
       if (message.stop_reason !== "tool_use" || !calls.length || lastTurn) return done(message);
       const openFile = o.discardOpenFile();
+      const toolsStarted = Date.now();
       const results = await Promise.all(calls.map((c) => o.runTool(c)));
+      r.toolMs = Date.now() - toolsStarted;
+      r.toolCalls = calls.map((c, i) => ({
+        name: c.name,
+        paths: ((c.input as { paths?: unknown })?.paths as unknown[] | undefined ?? []).filter((p): p is string => typeof p === "string"),
+        read: results[i]!.read,
+        isError: results[i]!.is_error,
+      }));
+      r.ms = Date.now() - started;
       readTurns++;
       o.onRead(results.flatMap((r) => r.read), openFile);
       messages.push({ role: "assistant", content: message.content });
@@ -109,10 +147,13 @@ export async function runTurns(o: TurnsOptions): Promise<TurnsResult> {
       if (usage.outputTokens >= o.maxOutputTokens) return done(message);
     } catch (error) {
       // A cut-off turn has no final usage: take what its stream reported, and at least its streamed text.
-      if (stream) {
+      // A round that already finished (e.g. a tool call failed afterwards) is counted once, from its final usage.
+      if (stream && round && round.stopReason === null) {
         const cut = toTokenUsage(stream.currentMessage?.usage);
         cut.outputTokens = Math.max(cut.outputTokens, Math.ceil(chars / CHARS_PER_TOKEN));
         usage = addUsage(usage, cut);
+        round.usage = cut;
+        round.ms = round.responseMs = Date.now() - started;
       }
       return done(null, error);
     }

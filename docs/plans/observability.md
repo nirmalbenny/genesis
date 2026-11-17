@@ -1,6 +1,6 @@
-# Plan: build observability and an internal admin view
+# Plan: build observability with Langfuse
 
-Branch `feat/observability` (from `main` at `3f08450`). Status: **in progress**.
+Branch `feat/observability` (from `main` at `3f08450`). Status: **in progress**, Step 3 (audit a real trace) next.
 
 ## Contents
 
@@ -8,91 +8,74 @@ Branch `feat/observability` (from `main` at `3f08450`). Status: **in progress**.
 - [2. Design](#2-design)
 - [3. Steps](#3-steps)
 - [4. Change log](#4-change-log)
-- [5. Open questions and follow-ups](#5-open-questions-and-follow-ups)
+- [5. Manual steps and open questions](#5-manual-steps-and-open-questions)
 
 ## 1. Goal and decisions
 
-See every build in detail, for the team only: by user ID, by app (the chain of follow-ups), each round with Claude, each `read_files` call and the files it read, the files written, deleted and rejected, tokens, credits and timings.
+See every build in detail, for the team only: by user ID, by app (the chain of follow-ups), each request to Claude, each `read_files` call and the files it read, the files written, deleted and rejected, tokens, cost and timings.
 
 Decided with you (2026-11-18):
 
-- **Layer 1 and Layer 2.** Layer 1: a trace record per build, structured logs, Cloud Monitoring charts and alerts. Layer 2: OpenTelemetry spans to Cloud Trace.
-- **Internal admin page inside Genesis** (`/admin`), for admin accounts only. Customers never see it.
-- **Content:** internal views show the user's prompt and Claude's plan text, file names, sizes and token counts. **No file contents and no generated code.** Declined prompts stay unstored (an existing rule): their traces keep no prompt.
+- **Langfuse (free cloud plan) instead of a self-built admin page.** Langfuse provides the trace browser, user and session views, and token and cost dashboards. The self-built admin page, admin API and Firestore trace records were dropped.
+- **Content:** traces carry the user's prompt and Claude's plan text, file names, sizes and token counts. **No file contents and no generated code.** A declined prompt is never kept. The prompt and plan therefore leave Google Cloud and are stored by Langfuse (EU region by default); this needs to be reflected in the privacy policy.
+- **Structured logs and Cloud Monitoring alerts stay in Google Cloud**, so the core numbers and alerts don't depend on Langfuse.
+- Instrumented with the [Langfuse agent skill](../../.claude/skills/langfuse/SKILL.md) (`langfuse/skills`, installed in `.claude/skills/langfuse`), following its instrumentation workflow and the [best-practices page](https://langfuse.com/docs/observability/best-practices).
 
 ## 2. Design
 
-### Where the data lives
-
-| Data | Where | Who can read it |
-|---|---|---|
-| Build trace (one per build) | Firestore `buildTraces/{generationId}`, top level | Cloud Functions only. Security rules deny all clients, owners included. The admin page reads it through `api` routes that require the `admin` claim |
-| Event logs | Cloud Logging, structured (`jsonPayload`), one line per event, tagged with `generationId`, `uid`, `projectId` | Project members with Logging access. **No prompt or plan text in logs**: metadata only |
-| Spans | Cloud Trace: one `build` span with children (context, credit hold, each Claude request from the SDK's own spans, each tool call, saving, summary) | Project members with Trace access. The SDK records metadata only (`contentMode: metadata_only`), so prompts carrying file contents never leave; our `build` span carries the prompt and plan text, truncated |
-| Charts and alerts | Cloud Monitoring, from log-based metrics | Project members |
-
-### Build trace record
+### Trace shape (one trace per build)
 
 ```text
-buildTraces/{gid}
-  uid, projectId, projectName, createdAt, endedAt, expireAt (TTL, 90 days)
-  status, error { code, message, step }?
-  prompt (≤ 4,000 chars; null when declined), plan (≤ 4,000 chars)
-  followUp { previousGenerationId | null, historyMessages }
-  model, summaryModel, fileStore, contextTools, traceId (links to Cloud Trace)
-  context { full[], indexed[], chars, activePath, openPaths[], recentPaths[] }
-  rounds[] { n, ms, firstTokenMs, inputTokens, cacheWriteTokens, cacheReadTokens, outputTokens, stopReason,
-             toolCalls[] { name, paths[], read[], isError } }
-  actions { written[] { path, bytes }, deleted[], rejected[] { path, reason }, snapshotId, summary }
-  credits { held, extraHolds, charged }
-  timings { checksMs, contextMs, holdMs, firstTokenMs, streamMs, saveMs, totalMs }
+build-app                (agent)       input: the prompt · output: the plan and files changed · level ERROR/WARNING on failure
+├── prepare-context      (span)        input: editor tabs, recent files · output: files sent in full, files listed only, characters
+├── generate-changes     (generation)  one per request to Claude: model, tokens (input, output, cache read, cache write), cost, time to first token
+├── read-files           (tool)        one per read_files call: paths asked, read, not read (no contents)
+├── generate-changes     (generation)  the next request, after the files were returned
+└── save-changes         (span)        written (path, bytes), deleted, rejected (path, reason), snapshot
+    └── summarize-change (generation)  the one-line summary model call
 ```
 
-Written once when the build ends (one write; never blocks the stream). A build refused before streaming (rate limit, 402, validation) has no trace; those already show in logs.
+- **Session = the app** (`projectId`): an app's builds, in order, are its conversation of follow-ups. **User = the Firebase uid.** Both, plus the trace name and tags (`done|partial|error|cancelled|declined`, `first-build|follow-up`, `large-app`, `read-files`), are on every observation (`propagateAttributes`), as Langfuse requires for filtering.
+- **Cost** is sent from Genesis's own rate card (`costUsd` in `credits.ts`), so Langfuse shows what the build actually cost, whatever its own price list says.
+- **Built after the build ends** from timings `generate` records (explicit start and end times), so tracing never touches the stream. It is sent before the response ends (Cloud Functions throttle CPU afterwards), with the flush capped at 3 seconds.
+- **No code can leak:** inputs and outputs are built from the prompt, the plan, paths and counts only, and the span processor's `mask` replaces any `<file path="…">…</file>` content as a second line of defence.
+- **Isolated tracer provider** (`setLangfuseTracerProvider`, never global) and `openTelemetry: false` on the Anthropic client, so the SDK emits no spans of its own (they would duplicate the generations and carry the full messages, including code).
 
-### Admin access
+### Structured logs (Cloud Logging)
 
-- An `admin: true` custom claim on the Firebase user, set by `npm run set-admin -- <email>` (owner credentials, Admin SDK). The claim is checked server-side on every admin route.
-- `api` routes, all `GET`, all requiring the claim (403 otherwise), all read-rate-limited:
-  - `/admin/users?q=` finds a user by uid or email;
-  - `/admin/users/:uid`: email, sign-up date, credits, connected sub-account name, apps;
-  - `/admin/builds?uid=&projectId=&status=&before=` lists traces, newest first, 50 per page;
-  - `/admin/builds/:gid` returns one trace.
-- Firestore composite indexes for `buildTraces` (uid + createdAt, projectId + createdAt, status + createdAt).
+One line per event with `generationId`, `uid`, `projectId`, metadata only (no prompt or plan): `build.round` (tokens, timing, tool calls), `build.rejected` (path, reason) and `build.end` (status, error code and step, totals, credits, files, timings, `traceId` linking to Langfuse). The source for log-based metrics and alerts.
 
-### Admin page (frontend)
+### Settings
 
-- `/admin`: build list with filters (user ID or email, app ID, status), newest first.
-- `/admin/builds/:gid`: one build: prompt, plan, context sent, each round (tokens, timing, tool calls and files read), files written, deleted and rejected with reasons, credits, timings, link to Cloud Trace.
-- `/admin/apps/:pid`: the app's builds oldest first, so follow-ups read as a conversation.
-- `/admin/users/:uid`: the user, their apps and builds.
-- The route is guarded in the router by the token's `admin` claim; the API enforces it again.
+| Setting | Where | Default |
+|---|---|---|
+| `TRACING` | GitHub variable (CI writes it) · `functions/.env.local` | `off`; `langfuse` turns tracing on |
+| `LANGFUSE_BASE_URL` | GitHub variable · `functions/.env.local` | `https://cloud.langfuse.com` (EU) |
+| `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` | Secret Manager · `functions/.secret.local` | none: they **must exist before deploying**, even while tracing is off |
 
-### Layer 2: OpenTelemetry
+### Dependencies (approved; exact versions)
 
-- New dependencies (approved): `@opentelemetry/api`, `@opentelemetry/sdk-trace-node`, `@google-cloud/opentelemetry-cloud-trace-exporter`. The Anthropic SDK 1.5.0 already emits spans when a tracer provider is registered.
-- `generate` opens a `build` span and child spans; the SDK's request spans nest under them. Spans are flushed before the response ends (Cloud Functions throttle CPU afterwards).
-- Flag `TRACING=cloud|off`: code default `off` (emulator, tests); CI's production deploy writes `cloud` from the repository variable (default `cloud`).
-
-### Charts and alerts
-
-`scripts/setup-observability.sh <project> <alert-email>` (project owner) creates log-based metrics from the structured logs, one dashboard (builds, credits per build, failures by code, cache hit rate, read rounds, time to first token) and two alerts (failure rate, daily credit spend).
+`@langfuse/tracing` 6.1.1, `@langfuse/otel` 6.1.1, and the OpenTelemetry packages they need: `@opentelemetry/api` 1.9.1, `sdk-trace-node`, `sdk-trace-base`, `core`, `context-async-hooks` 2.12.0, `exporter-trace-otlp-http`, `otlp-exporter-base` 0.223.0. All released at least two weeks ago.
 
 ## 3. Steps
 
-| Step | Status | Commits | Tests |
-|---|---|---|---|
-| 0. Plan | done | | |
-| 1. Build trace + structured logs | todo | | |
-| 2. Admin claim, API routes, rules, indexes | todo | | |
-| 3. Admin page | todo | | |
-| 4. OpenTelemetry → Cloud Trace | todo | | |
-| 5. Charts and alerts script, docs, verify | todo | | |
+| Step | Status | Tests |
+|---|---|---|
+| 0. Plan | done | |
+| 1. Per-round reporting in the turn loop; structured logs | done | `turns.test.ts` (rounds, no double count) |
+| 2. Langfuse trace (shape, attributes, cost, masking) wired into `generate` | done | `observability/langfuse.test.ts` (7, through the real Langfuse processor with an in-memory exporter) |
+| 3. Run a real build and audit its trace in Langfuse (skill step 3) | **waiting for Langfuse keys** | |
+| 4. Cloud Monitoring metrics, dashboard and alerts script | todo | |
+| 5. Docs, verify, pull request | todo | |
 
 ## 4. Change log
 
-_One entry per commit._
+- `d6f4f83` Plan (first version, admin page); the Storage switch recorded in the file-storage plan.
+- Langfuse tracing: per-round reporting (also fixes a double count when a tool call fails after a round finished), structured logs, the Langfuse trace, settings, CI placeholders.
 
-## 5. Open questions and follow-ups
+## 5. Manual steps and open questions
 
-- Trace retention is 90 days via a Firestore TTL policy on `expireAt`; the policy itself is a one-time manual setup (in the setup script).
+1. Create a Langfuse account and project (free plan), pick the region, and create a project API key pair.
+2. Locally: put the keys in `functions/.secret.local` (`LANGFUSE_PUBLIC_KEY=…`, `LANGFUSE_SECRET_KEY=…`), set `TRACING=langfuse` (and the region URL if not EU) in `functions/.env.local`. Never paste keys into chat.
+3. Before merging: `firebase functions:secrets:set LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY`; set the GitHub variables `TRACING=langfuse` and, for the US region, `LANGFUSE_BASE_URL`.
+4. Privacy policy: prompts and plan text are processed by Langfuse.
