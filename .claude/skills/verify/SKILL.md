@@ -19,12 +19,14 @@ cd functions && npm run lint && npm test
 
 The Firestore emulator needs **Java 21+** on `PATH` (macOS: `export PATH="/opt/homebrew/opt/openjdk/bin:$PATH"`).
 
-- **If the emulators are already running** (`curl -s localhost:4400/emulators` answers): `cd functions && npm run test:e2e`.
+- **If the emulators are already running** with Storage (`curl -s localhost:4400/emulators` lists `storage`): `cd functions && npm run test:e2e`.
 - **Otherwise**, run them for the duration of the tests:
 
   ```bash
-  (cd functions && npm run build) && firebase emulators:exec --only auth,firestore,functions "npm --prefix functions run test:e2e"
+  (cd functions && npm run build) && firebase emulators:exec --only auth,firestore,functions,storage "npm --prefix functions run test:e2e"
   ```
+
+- The suite runs with the file store set by `FILE_STORE` in `functions/.env.local` (`blobs` or `firestore`). CI runs it once per store; when a change touches `functions/src/files/`, run both locally too (the Storage tests are skipped under `firestore`).
 
 They need `LOCAL_TOKEN_KEK` in `functions/.env.local` (see `.env.example`). They never call Claude or HighLevel.
 

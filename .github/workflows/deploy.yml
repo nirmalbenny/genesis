@@ -56,6 +56,7 @@ jobs:
           HL_REDIRECT_URI=http://127.0.0.1:5001/demo-genesis/us-central1/hlAuthCallback
           APP_URL=http://localhost:5173
           LOCAL_TOKEN_KEK=$(openssl rand -base64 32)
+          CONTEXT_TOOLS=on
           EOF
           cat > functions/.secret.local <<EOF
           ANTHROPIC_API_KEY=placeholder
@@ -63,8 +64,12 @@ jobs:
           HL_CLIENT_SECRET=placeholder
           PREVIEW_TOKEN_SECRET=$(openssl rand -hex 32)
           EOF
-          npx --yes firebase-tools@15.35.0 emulators:exec --only auth,firestore,functions --project demo-genesis \
-            "npm --prefix functions run test:e2e"
+          # Once per file store: blobs (Cloud Storage + manifest) and firestore (the original, kept for rollback).
+          for store in blobs firestore; do
+            sed -i '/^FILE_STORE=/d' functions/.env.local && echo "FILE_STORE=$store" >> functions/.env.local
+            npx --yes firebase-tools@15.35.0 emulators:exec --only auth,firestore,functions,storage --project demo-genesis \
+              "npm --prefix functions run test:e2e"
+          done
 
       - name: Frontend — write production env
         working-directory: frontend
@@ -128,6 +133,9 @@ jobs:
           cat > ".env.${PROJECT_ID}" <<EOF
           HL_REDIRECT_URI=https://us-central1-${PROJECT_ID}.cloudfunctions.net/hlAuthCallback
           APP_URL=https://${PROJECT_ID}.web.app
+          FILE_STORE=${{ vars.FILE_STORE || 'firestore' }}
+          CONTEXT_TOOLS=${{ vars.CONTEXT_TOOLS || 'on' }}
+          BLOB_CLEANUP=${{ vars.BLOB_CLEANUP || 'dry-run' }}
           EOF
 
       - uses: google-github-actions/auth@v2
@@ -135,5 +143,7 @@ jobs:
           workload_identity_provider: ${{ vars.WIF_PROVIDER }}
           service_account: ${{ vars.DEPLOY_SERVICE_ACCOUNT }}
 
-      - name: Deploy (Firestore rules, functions, hosting)
-        run: npx --yes firebase-tools@15.35.0 deploy --project "$PROJECT_ID" --non-interactive
+      # Targets are listed on purpose: a new target in firebase.json (e.g. storage) is deployed only once it is added
+      # here, after its one-time setup (docs/plans/filestore-and-context.md, "Manual steps").
+      - name: Deploy (Firestore rules and indexes, Storage rules, functions, hosting)
+        run: npx --yes firebase-tools@15.35.0 deploy --only functions,hosting,firestore,storage --project "$PROJECT_ID" --non-interactive

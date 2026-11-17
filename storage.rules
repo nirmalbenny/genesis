@@ -1,0 +1,10 @@
+rules_version = '2';
+// Project file content lives in Storage (users/{uid}/blobs/{sha256}) and is read and written only by
+// Cloud Functions through the Admin SDK, which bypasses these rules. No client may touch Storage.
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

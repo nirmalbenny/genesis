@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createParser, type ParseEvent } from "./parser";
-import { validateOps } from "./validate";
+import { NOT_READ, validateOps } from "./validate";
 
 const sample =
   '<plan>Build it.</plan>\n<file path="src/App.vue">\n<template><div>a < b</div></template>\n</file>\n<delete path="src/old.vue"/>';
@@ -90,4 +90,30 @@ test("a stream cut off mid-tag doesn't leak the half tag into the plan", () => {
     const plan = events.filter((e) => e.type === "token" && e.path === null).map((e) => (e as { text: string }).text).join("");
     assert.equal(plan.trim(), "Build it.");
   }
+});
+
+test("validateOps with `seen` rejects rewriting an existing file the model wasn't given", () => {
+  const existing = new Set(["src/App.vue", "src/components/Big.vue", "src/components/Old.vue"]);
+  const ops = [
+    { type: "write" as const, path: "src/App.vue", content: "x" }, // seen: allowed
+    { type: "write" as const, path: "src/components/Big.vue", content: "x" }, // existing, not seen: rejected
+    { type: "write" as const, path: "src/components/New.vue", content: "x" }, // new file: allowed
+    { type: "delete" as const, path: "src/components/Old.vue" }, // delete of an unseen file: allowed
+  ];
+  const { valid, rejected } = validateOps(ops, existing, new Set(["src/App.vue"]));
+  assert.deepEqual(valid.map((o) => o.path), ["src/App.vue", "src/components/New.vue", "src/components/Old.vue"]);
+  assert.deepEqual(rejected, [{ path: "src/components/Big.vue", reason: NOT_READ }]);
+  // Without `seen` (templates, older callers) nothing changes.
+  assert.equal(validateOps(ops, existing).rejected.length, 0);
+});
+
+test("a file still open when the model calls a tool is dropped, and the next turn starts outside it", () => {
+  const events: ParseEvent[] = [];
+  const p = createParser((e) => events.push(e));
+  p.push('<plan>Plan.</plan>\n<file path="src/App.vue">\n<template>half');
+  assert.equal(p.discardOpenFile(), "src/App.vue");
+  assert.equal(p.discardOpenFile(), null);
+  p.push('<file path="src/B.vue">\nb\n</file>');
+  assert.equal(p.end(), null);
+  assert.deepEqual(events.filter((e) => e.type === "file_end"), [{ type: "file_end", path: "src/B.vue", content: "b" }]);
 });

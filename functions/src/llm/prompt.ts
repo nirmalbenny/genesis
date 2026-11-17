@@ -33,6 +33,7 @@ Rules:
 - Allowed paths: src/** with extensions .vue .ts .js .css .json. Never emit package.json, src/hl.config.js or anything under src/genesis/ (system-owned, provided at run time).
 - src/main.js and src/App.vue must always exist. Keep src/main.js mounting App on "#app".
 - Keep files small so later changes rewrite little: put each part of the UI (a list, a detail panel, a form, a stats row) in its own component under src/components/, each under about 150 lines. App.vue holds shared state and lays the components out. Shared helpers (formatting, date math) go in src/utils.js. On follow-up requests change only the files the request touches.
+- Large apps: when the files section ends with "Other files in this app, not shown above", those files exist but you weren't given them. If the read_files tool is available, call it BEFORE writing any output (no plan, no files), once, with every listed file you will change or need to understand; a second call is allowed if you missed one. Never rewrite a file you haven't been shown: that change is rejected. You may still create new files and delete listed ones.
 - Vue 3 single-file components using <script setup>. Use ONLY vue and browser APIs. No other npm packages, no CDN scripts.
 - Get ALL HighLevel data through the system client described under "Client" below: import what you need from "./genesis/hl.js" (adjust the relative path, e.g. "../genesis/hl.js" from src/components). Never write your own fetch, retry or pagination code for HighLevel. If the project already has its own fetch helper, code you don't change may keep using it; new and rewritten code uses the client. Never invent data, never hard-code sample records.
 - The same app runs on whichever HighLevel sub-account is connected. Never write a sub-account's name or id into the code: to show the name, import LOCATION_NAME from the client (it may be empty: then show nothing); the client already sends the id.
@@ -73,19 +74,4 @@ ${hlReference}`;
  */
 export function systemBlocks(): Anthropic.TextBlockParam[] {
   return [{ type: "text", text: buildSystemPrompt(), cache_control: { type: "ephemeral" } }];
-}
-
-/** Renders current project files within a character budget; oversized files are listed but omitted. */
-export function renderFiles(files: ContextFile[]): string {
-  let used = 0;
-  const parts: string[] = [];
-  for (const f of files) {
-    if (f.content.length > SINGLE_FILE_LIMIT_CHARS || used + f.content.length > FILE_BUDGET_CHARS) {
-      parts.push(`<file path="${f.path}">[omitted: too large for context]</file>`);
-      continue;
-    }
-    used += f.content.length;
-    parts.push(`<file path="${f.path}">\n${f.content}\n</file>`);
-  }
-  return parts.join("\n");
 }

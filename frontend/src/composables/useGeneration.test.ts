@@ -65,6 +65,33 @@ describe('useGeneration', () => {
     expect(onFinished).toHaveBeenCalledOnce()
   })
 
+  it('shows which files the model reads, until it starts writing', async () => {
+    const { gen } = setup()
+    const s = controllable()
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(s.res)
+    const run = gen.start('p1', 'Add a column')
+    s.push([['start', { generationId: 'g1' }], ['status', { phase: 'reading', paths: ['src/components/List.vue'] }]])
+    await vi.waitFor(() => expect(gen.reading.value).toEqual(['src/components/List.vue']))
+    s.push([['token', { text: 'Plan.', path: null }]])
+    await vi.waitFor(() => expect(gen.plan.value).toBe('Plan.'))
+    expect(gen.reading.value).toEqual([])
+    s.push([['done', { credits }]])
+    s.close()
+    await run
+    expect(gen.reading.value).toEqual([])
+  })
+
+  it('sends the prompt with the editor tabs as context hints', async () => {
+    const { gen } = setup()
+    const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(sse([['done', { credits }]]), { status: 200 }))
+    await gen.start('p1', 'Add a column', { activePath: 'src/components/List.vue', openPaths: ['src/App.vue', 'src/components/List.vue'] })
+    const [url, init] = fetch.mock.calls[0]!
+    expect(url).toBe('http://functions.test/generate')
+    expect(JSON.parse(String(init!.body))).toEqual({
+      projectId: 'p1', prompt: 'Add a column', activePath: 'src/components/List.vue', openPaths: ['src/App.vue', 'src/components/List.vue'],
+    })
+  })
+
   it('shows a refusal before streaming (e.g. rate limited) as a plain error', async () => {
     const { gen } = setup()
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(

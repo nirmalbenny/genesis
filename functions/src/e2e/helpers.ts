@@ -3,6 +3,7 @@
  * (auth, firestore, functions) and never call Claude or HighLevel: state that would need them (a running
  * build, a HighLevel connection) is seeded directly with the Admin SDK.
  */
+import { AUTH_HOST, PROJECT, STORAGE_HOST } from "./env"; // first: sets the emulator hosts before functions code loads
 import fs from "node:fs";
 import path from "node:path";
 import { getApps, initializeApp } from "firebase-admin/app";
@@ -10,10 +11,7 @@ import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
 import { localWrapper, seal } from "../hl/tokenVault";
 
-const rc = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "..", "..", ".firebaserc"), "utf8"));
-export const PROJECT = process.env.GCLOUD_PROJECT ?? (rc.projects.default as string);
-const AUTH_HOST = process.env.FIREBASE_AUTH_EMULATOR_HOST ??= "127.0.0.1:9099";
-process.env.FIRESTORE_EMULATOR_HOST ??= "127.0.0.1:8080";
+export { PROJECT, STORAGE_HOST };
 export const FN = `http://${process.env.FUNCTIONS_EMULATOR_HOST ?? "127.0.0.1:5001"}/${PROJECT}/us-central1`;
 
 /** The emulator's token key (functions/.env.local), so seeded tokens are sealed exactly as the functions seal them. */
@@ -21,6 +19,11 @@ const LOCAL_TOKEN_KEK = process.env.LOCAL_TOKEN_KEK
   ?? fs.readFileSync(path.join(__dirname, "..", "..", ".env.local"), "utf8").match(/^LOCAL_TOKEN_KEK=(.+)$/m)?.[1]?.trim()
   ?? "";
 export const tokenWrapper = localWrapper(LOCAL_TOKEN_KEK);
+
+/** The file store the functions emulator runs with (functions/.env.local FILE_STORE; CI writes it). */
+export const FILE_STORE = process.env.FILE_STORE
+  ?? fs.readFileSync(path.join(__dirname, "..", "..", ".env.local"), "utf8").match(/^FILE_STORE=(.+)$/m)?.[1]?.trim()
+  ?? "firestore";
 
 const app = getApps().find((a) => a.name === "e2e") ?? initializeApp({ projectId: PROJECT }, "e2e");
 export const db = getFirestore(app);
@@ -71,4 +74,16 @@ export async function createApp(u: TestUser, name = "E2E app"): Promise<string> 
   const r = await call(u, "POST", "api/projects", { name, description: "Created by an integration test" });
   if (r.status !== 200) throw new Error(`createApp failed: ${r.status} ${JSON.stringify(r.body)}`);
   return r.body.id as string;
+}
+
+/**
+ * The functions' default bucket: `<project>.firebasestorage.app` for current projects, `<project>.appspot.com` for
+ * older and demo ones. The emulator can't list buckets, so find the one holding a known object.
+ */
+export async function bucketHolding(object: string): Promise<string> {
+  for (const bucket of [`${PROJECT}.firebasestorage.app`, `${PROJECT}.appspot.com`]) {
+    const res = await fetch(`http://${STORAGE_HOST}/storage/v1/b/${bucket}/o/${encodeURIComponent(object)}`);
+    if (res.ok) return bucket;
+  }
+  throw new Error(`no bucket holds ${object}`);
 }

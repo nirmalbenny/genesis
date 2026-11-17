@@ -20,6 +20,8 @@ const props = defineProps<{
   /** File currently being written and how many are finished, shown in the building overlay. */
   buildingFile?: string | null
   filesDone?: number
+  /** Files the model is reading before it writes, shown in the building overlay. */
+  buildingReading?: string[]
   hideHeader?: boolean
 }>()
 const emit = defineEmits<{ connect: []; 'show-code': [] }>()
@@ -137,7 +139,7 @@ defineExpose({ refresh })
         enter-from-class="opacity-0"
         leave-to-class="opacity-0"
       >
-        <BuildingOverlay v-if="building" :file="buildingFile ?? null" :files-done="filesDone ?? 0" @show-code="emit('show-code')" />
+        <BuildingOverlay v-if="building" :file="buildingFile ?? null" :files-done="filesDone ?? 0" :reading="buildingReading" @show-code="emit('show-code')" />
       </Transition>
     </div>
 

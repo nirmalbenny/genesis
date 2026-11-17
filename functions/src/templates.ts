@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { FieldValue } from "firebase-admin/firestore";
 import { db } from "./admin";
-import { createSnapshot, projectRef, replaceFiles, type ProjectFile } from "./files";
+import { fileStore, projectRef, replaceFiles, type ProjectFile } from "./files";
 import { getUserHl, type Category } from "./projects";
 
 /** `version` is a content hash, so any change to a template's files or text reaches users without a manual bump. */
@@ -81,8 +81,9 @@ export async function seedTemplates(uid: string): Promise<{ seeded: number }> {
     } else {
       await ref.update({ name: t.name, description: t.description, category: t.category, icon: t.icon, templateVersion: t.version, updatedAt: FieldValue.serverTimestamp() });
     }
-    await replaceFiles(pid, t.files);
-    await createSnapshot(pid, null, "template", snap.exists ? `Updated ${t.name} to the latest version` : `Ready-made ${t.name}`);
+    const store = fileStore();
+    await replaceFiles(store, pid, t.files);
+    await store.snapshot(pid, null, "template", snap.exists ? `Updated ${t.name} to the latest version` : `Ready-made ${t.name}`);
     return true;
   }));
   await userRef.set({ templatesVersion: version }, { merge: true });

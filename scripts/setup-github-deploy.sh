@@ -24,6 +24,7 @@ ROLES=(
   roles/artifactregistry.reader           # check the function image cleanup policy
   roles/datastore.indexAdmin              # Firestore indexes
   roles/serviceusage.serviceUsageConsumer # check that required APIs are enabled
+  roles/cloudscheduler.admin              # scheduled functions (cleanupFileBlobs, once Cloud Storage is on)
 )
 
 gcloud config set project "$PROJECT_ID" >/dev/null

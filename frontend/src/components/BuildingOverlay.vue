@@ -3,7 +3,7 @@ import { Code } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
 
 /** Covers the preview while a build streams: an app wireframe assembling itself plus live progress. */
-defineProps<{ file: string | null; filesDone: number }>()
+defineProps<{ file: string | null; filesDone: number; reading?: string[] }>()
 defineEmits<{ 'show-code': [] }>()
 </script>
 
@@ -42,6 +42,7 @@ defineEmits<{ 'show-code': [] }>()
       </p>
       <p class="mt-1 text-[13px] text-muted-foreground">
         <template v-if="file">Writing <span class="font-mono text-ink-200">{{ file.split('/').pop() }}</span></template>
+        <template v-else-if="reading?.length">Reading <span class="font-mono text-ink-200">{{ reading.map((p) => p.split('/').pop()).join(', ') }}</span></template>
         <template v-else>Planning the changes</template>
         <template v-if="filesDone"> · {{ filesDone }} {{ filesDone === 1 ? 'file' : 'files' }} done</template>
       </p>

@@ -9,6 +9,15 @@ export const ANTHROPIC_MODEL = defineString("ANTHROPIC_MODEL");
 export const ANTHROPIC_SUMMARY_MODEL = defineString("ANTHROPIC_SUMMARY_MODEL", { default: "claude-haiku-5-5" });
 export const HL_REDIRECT_URI = defineString("HL_REDIRECT_URI");
 export const APP_URL = defineString("APP_URL");
+/** Where project files live: `firestore` (one document per file, the original) or `blobs` (Cloud Storage + manifest). */
+export const FILE_STORE = defineString("FILE_STORE", { default: "firestore" });
+/**
+ * `on` (default): large apps get a file index and the read_files tool (llm/tools.ts). `off` is a kill switch: files
+ * left out are only listed, and changes to them are rejected by the unread-file guard.
+ */
+export const CONTEXT_TOOLS = defineString("CONTEXT_TOOLS", { default: "on" });
+/** The daily cleanup of unreferenced file content: `dry-run` (default) only logs, `delete` deletes. */
+export const BLOB_CLEANUP = defineString("BLOB_CLEANUP", { default: "dry-run" });
 
 /**
  * Browser origins allowed to call api, generate and hlAuthStart: the app's Firebase Hosting domains and the
