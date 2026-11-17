@@ -56,8 +56,8 @@ export function fmtDate(value) {
 
 export function statusClass(status) {
   const s = String(status || "").toLowerCase();
-  if (["confirmed", "showed", "booked"].includes(s)) return "good";
-  if (["cancelled", "canceled", "noshow", "no_show", "invalid"].includes(s)) return "bad";
-  if (["new", "pending"].includes(s)) return "warn";
+  if (["confirmed", "showed", "booked"].includes(s)) return "success";
+  if (["cancelled", "canceled", "noshow", "no_show", "invalid"].includes(s)) return "danger";
+  if (["new", "pending"].includes(s)) return "warning";
   return "";
 }

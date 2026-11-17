@@ -65,8 +65,8 @@ const place = computed(() => [props.contact.address1, props.contact.city].filter
 
 <style scoped>
 .profile {
-  background: #fff;
-  border: 1px solid #dfe3eb;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 12px;
   overflow: hidden;
 }
@@ -80,7 +80,7 @@ const place = computed(() => [props.contact.address1, props.contact.city].filter
   width: 56px;
   height: 56px;
   border-radius: 50%;
-  color: #fff;
+  color: var(--on-primary);
   display: grid;
   place-items: center;
   font-size: 20px;
@@ -99,13 +99,13 @@ h2 {
   flex-wrap: wrap;
   gap: 4px 12px;
   margin: 4px 0 0;
-  color: #516f90;
+  color: var(--muted);
   font-size: 14px;
 }
 .sub span + span::before {
   content: "·";
   margin-right: 12px;
-  color: #b0c1d4;
+  color: var(--input-border);
 }
 .contact-links {
   display: flex;
@@ -118,10 +118,10 @@ h2 {
   align-items: center;
   gap: 6px;
   padding: 5px 10px;
-  border: 1px solid #dfe3eb;
+  border: 1px solid var(--border);
   border-radius: 999px;
   font-size: 13px;
-  color: #213343;
+  color: var(--text);
   text-decoration: none;
   max-width: 100%;
   overflow: hidden;
@@ -129,8 +129,8 @@ h2 {
   white-space: nowrap;
 }
 .pill:hover {
-  border-color: #ff5c35;
-  color: #ff5c35;
+  border-color: var(--primary);
+  color: var(--primary);
 }
 .tags {
   display: flex;
@@ -141,28 +141,28 @@ h2 {
 .tag {
   padding: 2px 8px;
   border-radius: 4px;
-  background: #eef3f7;
-  color: #33475b;
+  background: var(--surface-muted);
+  color: color-mix(in srgb, var(--text) 85%, var(--muted));
   font-size: 12px;
 }
 .stats {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   margin: 0;
-  border-top: 1px solid #dfe3eb;
-  background: #fafbfc;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
 }
 .stats div {
   padding: 12px 20px;
   min-width: 0;
 }
 .stats div + div {
-  border-left: 1px solid #dfe3eb;
+  border-left: 1px solid var(--border);
 }
 dt {
   font-size: 11px;
   font-weight: 600;
-  color: #7c98b6;
+  color: color-mix(in srgb, var(--muted) 70%, var(--surface));
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
@@ -175,7 +175,7 @@ dd {
   text-overflow: ellipsis;
 }
 dd.muted {
-  color: #7c98b6;
+  color: color-mix(in srgb, var(--muted) 70%, var(--surface));
   font-weight: 500;
 }
 @media (max-width: 640px) {
@@ -186,7 +186,7 @@ dd.muted {
     border-left: 0;
   }
   .stats div:nth-child(n + 3) {
-    border-top: 1px solid #dfe3eb;
+    border-top: 1px solid var(--border);
   }
 }
 </style>

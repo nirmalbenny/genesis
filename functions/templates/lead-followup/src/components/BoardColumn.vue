@@ -28,7 +28,7 @@ defineProps({
 
 <style scoped>
 .column {
-  background: #eaf0f6;
+  background: var(--surface-muted);
   border-radius: 10px;
   padding: 14px;
   min-width: 0;
@@ -45,12 +45,12 @@ defineProps({
 h2 {
   margin: 0;
   font-size: 16px;
-  color: #213343;
+  color: var(--text);
 }
 .count {
-  background: #fff;
-  border: 1px solid #dfe3eb;
-  color: #213343;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
   font-weight: 600;
   font-size: 13px;
   min-width: 28px;
@@ -61,7 +61,7 @@ h2 {
 .hint {
   margin: 0;
   font-size: 13px;
-  color: #516f90;
+  color: var(--muted);
 }
 .list {
   display: grid;
@@ -72,9 +72,9 @@ h2 {
   margin: 0;
   padding: 20px 12px;
   text-align: center;
-  color: #516f90;
+  color: var(--muted);
   font-size: 14px;
-  border: 1px dashed #c5d0de;
+  border: 1px dashed var(--input-border);
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.5);
 }

@@ -26,6 +26,8 @@ test("the system prompt includes the UI kit, keeps its look by default, and asks
   assert.match(prompt, /Do not change its look unless the user explicitly asks/);
   assert.match(prompt, /each under about 150 lines/);
   assert.doesNotMatch(prompt, /Style with plain CSS in <style scoped>/, "the old free-styling rule is gone");
+  assert.match(prompt, /build the UI from the components in "\.\/genesis\/ui"/, "components first");
+  assert.match(prompt, /`Button` \(variant: default \| secondary/, "the component reference is included");
 });
 
 test("the system prompt covers write errors and bounded, sequential batches", () => {

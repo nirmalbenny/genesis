@@ -47,8 +47,8 @@ defineEmits(["update:days", "update:includeNever", "update:query"]);
   flex-wrap: wrap;
   gap: 16px;
   align-items: flex-end;
-  background: #fff;
-  border: 1px solid #dfe3eb;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 10px;
   padding: 16px 20px;
 }
@@ -63,15 +63,15 @@ defineEmits(["update:days", "update:includeNever", "update:query"]);
 }
 .label {
   font-size: 12px;
-  color: #516f90;
+  color: var(--muted);
   font-weight: 600;
 }
 select,
 input[type="search"] {
   font: inherit;
-  color: #213343;
-  background: #fff;
-  border: 1px solid #dfe3eb;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 9px 12px;
   width: 100%;
@@ -79,19 +79,19 @@ input[type="search"] {
 }
 select:focus,
 input[type="search"]:focus {
-  outline: 2px solid #ff5c35;
+  outline: 2px solid var(--primary);
   outline-offset: -1px;
 }
 .toggle {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #213343;
+  color: var(--text);
   padding-bottom: 10px;
   cursor: pointer;
 }
 .toggle input {
-  accent-color: #ff5c35;
+  accent-color: var(--primary);
   width: 16px;
   height: 16px;
 }

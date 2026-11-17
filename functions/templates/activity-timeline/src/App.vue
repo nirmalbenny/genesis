@@ -1,4 +1,5 @@
 <script setup>
+import { Button } from "./genesis/ui";
 import { ref, computed } from "vue";
 import { hlGet } from "./api.js";
 import { LOCATION_ID } from "./hl.config.js";
@@ -152,10 +153,10 @@ const filtered = computed(() => {
         <h1>Activity Timeline</h1>
         <p>Every message and appointment for a contact, in one place.</p>
       </div>
-      <button v-if="contact" type="button" class="refresh" :disabled="loading" @click="loadTimeline">
+      <Button v-if="contact" variant="outline" :disabled="loading" @click="loadTimeline">
         <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4L21 8" /><path d="M21 3v5h-5" /></svg>
         Refresh
-      </button>
+      </Button>
     </header>
 
     <div class="layout">
@@ -205,8 +206,8 @@ const filtered = computed(() => {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  background: #f5f8fa;
-  color: #213343;
+  background: var(--bg);
+  color: var(--text);
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   line-height: 1.5;
 }
@@ -216,8 +217,8 @@ const filtered = computed(() => {
   justify-content: space-between;
   gap: 16px;
   padding: 14px 20px;
-  background: #fff;
-  border-bottom: 1px solid #dfe3eb;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
 }
 .topbar h1 {
   margin: 0;
@@ -226,29 +227,7 @@ const filtered = computed(() => {
 .topbar p {
   margin: 0;
   font-size: 13px;
-  color: #516f90;
-}
-.refresh {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 12px;
-  border: 1px solid #dfe3eb;
-  border-radius: 8px;
-  background: #fff;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  color: #213343;
-  cursor: pointer;
-}
-.refresh:hover:not(:disabled) {
-  border-color: #ff5c35;
-  color: #ff5c35;
-}
-.refresh:disabled {
-  opacity: 0.5;
-  cursor: default;
+  color: var(--muted);
 }
 .layout {
   flex: 1;
@@ -293,7 +272,7 @@ const filtered = computed(() => {
   .side {
     max-height: 300px;
     border-right: 0;
-    border-bottom: 1px solid #dfe3eb;
+    border-bottom: 1px solid var(--border);
   }
   .main {
     overflow: visible;

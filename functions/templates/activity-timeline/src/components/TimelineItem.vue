@@ -67,9 +67,9 @@ const status = computed(() => {
   flex-direction: column;
   gap: 6px;
   padding: 14px;
-  background: #fff;
-  border: 1px solid #dfe3eb;
-  border-left: 3px solid #ff5c35;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--primary);
   border-radius: 10px;
 }
 .when {
@@ -80,12 +80,12 @@ const status = computed(() => {
 }
 .when .day {
   font-weight: 700;
-  color: #ff5c35;
+  color: var(--primary);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
 .when .rel {
-  color: #7c98b6;
+  color: color-mix(in srgb, var(--muted) 70%, var(--surface));
 }
 .title {
   margin: 0;
@@ -98,7 +98,7 @@ const status = computed(() => {
   justify-content: space-between;
   align-items: center;
   font-size: 13px;
-  color: #516f90;
+  color: var(--muted);
 }
 .status {
   padding: 2px 8px;
@@ -116,16 +116,16 @@ const status = computed(() => {
   gap: 8px;
   max-width: 92%;
   padding: 6px 12px;
-  border: 1px dashed #b0c1d4;
+  border: 1px dashed var(--input-border);
   border-radius: 999px;
-  background: #fff;
+  background: var(--surface);
   font-size: 13px;
-  color: #33475b;
+  color: color-mix(in srgb, var(--text) 85%, var(--muted));
 }
 .event-icon {
   display: grid;
   place-items: center;
-  color: #ff5c35;
+  color: var(--primary);
 }
 .event-text {
   min-width: 0;
@@ -155,13 +155,13 @@ const status = computed(() => {
   line-height: 1.45;
 }
 .msg.inbound .bubble {
-  background: #fff;
-  border: 1px solid #dfe3eb;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-bottom-left-radius: 4px;
 }
 .msg.outbound .bubble {
-  background: #ff5c35;
-  color: #fff;
+  background: var(--primary);
+  color: var(--on-primary);
   border-bottom-right-radius: 4px;
 }
 .body {
@@ -177,7 +177,7 @@ const status = computed(() => {
   margin-top: 3px;
   padding: 0 4px;
   font-size: 11px;
-  color: #7c98b6;
+  color: color-mix(in srgb, var(--muted) 70%, var(--surface));
 }
 @media (max-width: 520px) {
   .msg {

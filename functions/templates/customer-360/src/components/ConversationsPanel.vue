@@ -178,7 +178,7 @@ watch(() => props.contactId, loadConversations, { immediate: true });
 .badge.hot {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--on-primary);
 }
 
 .when {
@@ -245,19 +245,19 @@ watch(() => props.contactId, loadConversations, { immediate: true });
 }
 
 .in .bubble {
-  background: #fff;
+  background: var(--surface);
   border: 1px solid var(--border);
   border-bottom-left-radius: 4px;
 }
 
 .out .bubble {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-primary);
   border-bottom-right-radius: 4px;
 }
 
 .out .bubble .muted {
-  color: #fff;
+  color: var(--on-primary);
 }
 
 .meta {

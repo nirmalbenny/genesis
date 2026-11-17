@@ -1,4 +1,5 @@
 <script setup>
+import { Button } from "../genesis/ui";
 defineProps({
   state: { type: String, required: true }, // loading | error | empty
   message: { type: String, default: "" },
@@ -16,7 +17,7 @@ const emit = defineEmits(["retry"]);
     <template v-else-if="state === 'error'">
       <p class="title">{{ title || "Something went wrong" }}</p>
       <p class="msg">{{ message || "Unknown error" }}</p>
-      <button class="btn" type="button" @click="emit('retry')">Retry</button>
+      <Button size="sm" @click="emit('retry')">Retry</Button>
     </template>
     <template v-else>
       <p class="title">{{ title }}</p>
@@ -33,13 +34,13 @@ const emit = defineEmits(["retry"]);
   gap: 8px;
   padding: 28px 16px;
   text-align: center;
-  color: #516f90;
+  color: var(--muted);
 }
 .status p {
   margin: 0;
 }
 .title {
-  color: #213343;
+  color: var(--text);
   font-weight: 600;
 }
 .msg {
@@ -47,13 +48,13 @@ const emit = defineEmits(["retry"]);
   overflow-wrap: anywhere;
 }
 .error .msg {
-  color: #b4351a;
+  color: var(--danger);
 }
 .spinner {
   width: 22px;
   height: 22px;
-  border: 3px solid #dfe3eb;
-  border-top-color: #ff5c35;
+  border: 3px solid var(--border);
+  border-top-color: var(--primary);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
@@ -61,19 +62,5 @@ const emit = defineEmits(["retry"]);
   to {
     transform: rotate(360deg);
   }
-}
-.btn {
-  margin-top: 4px;
-  background: #ff5c35;
-  color: #fff;
-  border: 0;
-  border-radius: 8px;
-  padding: 8px 18px;
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
-}
-.btn:hover {
-  background: #e84f2b;
 }
 </style>

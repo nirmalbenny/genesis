@@ -1,4 +1,5 @@
 <script setup>
+import { Button } from "./genesis/ui";
 import { reactive, computed, onMounted, ref } from "vue";
 import { loadContacts, loadConversations, loadAppointments } from "./api.js";
 import { contactDisplayName, parseDate } from "./utils.js";
@@ -129,9 +130,9 @@ const filtering = computed(() => search.value.trim().length > 0);
           placeholder="Search name, tag, source, message…"
           aria-label="Search leads"
         />
-        <button class="btn" type="button" :disabled="anyLoading" @click="loadAll">
+        <Button variant="outline" :disabled="anyLoading" @click="loadAll">
           {{ anyLoading ? "Loading…" : "Refresh" }}
-        </button>
+        </Button>
       </div>
     </header>
 
@@ -168,8 +169,8 @@ const filtering = computed(() => search.value.trim().length > 0);
 <style scoped>
 .page {
   min-height: 100vh;
-  background: #f5f8fa;
-  color: #213343;
+  background: var(--bg);
+  color: var(--text);
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   padding: 32px 24px 48px;
   box-sizing: border-box;
@@ -189,7 +190,7 @@ h1 {
 }
 .note {
   margin: 4px 0 0;
-  color: #516f90;
+  color: var(--muted);
   font-size: 14px;
 }
 .tools {
@@ -204,32 +205,15 @@ h1 {
   max-width: 360px;
   min-width: 0;
   padding: 10px 12px;
-  border: 1px solid #dfe3eb;
+  border: 1px solid var(--border);
   border-radius: 8px;
   font: inherit;
-  color: #213343;
-  background: #fff;
+  color: var(--text);
+  background: var(--surface);
 }
 .search:focus {
-  outline: 2px solid #ff5c35;
+  outline: 2px solid var(--primary);
   outline-offset: -1px;
-}
-.btn {
-  background: #ff5c35;
-  color: #fff;
-  border: none;
-  border-radius: 8px;
-  padding: 10px 18px;
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
-}
-.btn:hover:not(:disabled) {
-  background: #e84f2b;
-}
-.btn:disabled {
-  opacity: 0.6;
-  cursor: default;
 }
 .board {
   max-width: 1200px;
@@ -242,8 +226,8 @@ h1 {
 .empty-state {
   max-width: 640px;
   margin: 0 auto;
-  background: #fff;
-  border: 1px solid #dfe3eb;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 10px;
   padding: 40px 24px;
   text-align: center;
@@ -253,7 +237,7 @@ h1 {
 }
 .empty-state p {
   margin: 0;
-  color: #516f90;
+  color: var(--muted);
 }
 @media (max-width: 900px) {
   .board {

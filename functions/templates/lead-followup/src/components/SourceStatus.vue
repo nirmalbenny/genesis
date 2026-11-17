@@ -1,4 +1,5 @@
 <script setup>
+import { Button } from "../genesis/ui";
 defineProps({
   sources: { type: Array, required: true },
 });
@@ -17,7 +18,7 @@ defineEmits(["retry"]);
         <span v-else-if="s.status === 'ready'" class="state ok">Loaded</span>
         <span v-else class="state err">
           <span class="msg">{{ s.error }}</span>
-          <button class="btn" type="button" @click="$emit('retry', s.key)">Retry</button>
+          <Button size="sm" @click="$emit('retry', s.key)">Retry</Button>
         </span>
       </li>
     </ul>
@@ -26,8 +27,8 @@ defineEmits(["retry"]);
 
 <style scoped>
 .status-panel {
-  background: #fff;
-  border: 1px solid #dfe3eb;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 10px;
   padding: 24px;
   max-width: 640px;
@@ -36,7 +37,7 @@ defineEmits(["retry"]);
 h2 {
   margin: 0 0 16px;
   font-size: 18px;
-  color: #213343;
+  color: var(--text);
 }
 ul {
   list-style: none;
@@ -52,18 +53,18 @@ ul {
   align-items: center;
   justify-content: space-between;
   padding-bottom: 14px;
-  border-bottom: 1px solid #eef1f6;
+  border-bottom: 1px solid var(--surface-muted);
 }
 .row:last-child {
   border-bottom: none;
   padding-bottom: 0;
 }
 .label {
-  color: #213343;
+  color: var(--text);
   font-weight: 600;
 }
 .state {
-  color: #516f90;
+  color: var(--muted);
   font-size: 14px;
   display: inline-flex;
   align-items: center;
@@ -71,16 +72,16 @@ ul {
   flex-wrap: wrap;
 }
 .state.ok {
-  color: #1b8a5a;
+  color: var(--success);
 }
 .state.err .msg {
-  color: #c0392b;
+  color: var(--danger);
 }
 .spinner {
   width: 14px;
   height: 14px;
-  border: 2px solid #dfe3eb;
-  border-top-color: #ff5c35;
+  border: 2px solid var(--border);
+  border-top-color: var(--primary);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
@@ -88,18 +89,5 @@ ul {
   to {
     transform: rotate(360deg);
   }
-}
-.btn {
-  background: #ff5c35;
-  color: #fff;
-  border: none;
-  border-radius: 8px;
-  padding: 6px 14px;
-  font: inherit;
-  font-size: 14px;
-  cursor: pointer;
-}
-.btn:hover {
-  background: #e84f2b;
 }
 </style>

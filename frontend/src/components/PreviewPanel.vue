@@ -10,6 +10,9 @@ import { api } from '@/lib/api'
 import HL_CLIENT from '@/sandbox/genesis/hl.js?raw'
 import UI_KIT from '@/sandbox/genesis/ui.css?raw'
 
+// Components for generated apps (shadcn's API, styled by the kit), injected as src/genesis/ui/*.
+const UI_COMPONENTS = import.meta.glob('@/sandbox/genesis/ui/*', { query: '?raw', import: 'default', eager: true }) as Record<string, string>
+
 const props = defineProps<{
   projectId: string
   files: Record<string, string>
@@ -32,13 +35,14 @@ let client: SandpackClient | null = null
 let token: { token: string; locationId: string; locationName?: string; expiresAt: number } | null = null
 let refreshTimer: ReturnType<typeof setTimeout> | undefined
 
-const INDEX_HTML = '<!DOCTYPE html><html><head><meta charset="utf-8" /><title>Preview</title></head><body><div id="app"></div></body></html>'
-const PACKAGE_JSON = JSON.stringify({
-  name: 'genesis-preview',
-  main: '/src/main.js',
-  dependencies: { vue: '^3.2.8', 'core-js': '^3.6.5' },
-  devDependencies: { '@vue/cli-plugin-babel': '^5.0.8' },
-})
+// Inter, the kit's font, as Genesis itself uses it (the kit falls back to the system font if this is blocked).
+const FONTS = 'https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600;700&display=swap'
+const INDEX_HTML = `<!DOCTYPE html><html><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>Preview</title><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin /><link rel="stylesheet" href="${FONTS}" /></head><body><div id="app"></div></body></html>`
+const BASE_DEPENDENCIES = { vue: '^3.4.0', 'core-js': '^3.6.5' }
+// The dialog, menu, select, popover, tooltip, tabs, checkbox and switch components are built on reka-ui.
+// Only apps that import the components load it, so older apps (kit classes only) don't pay for it.
+const UI_DEPENDENCIES = { 'reka-ui': '^2.11.0' }
+const usesComponents = (files: Record<string, string>) => Object.values(files).some((code) => /genesis\/ui(\/|["'])/.test(code))
 
 async function ensureToken() {
   if (token && token.expiresAt - Date.now() > 60_000) return
@@ -58,7 +62,10 @@ async function refresh() {
   }
   const files: Record<string, { code: string }> = {}
   for (const [path, code] of Object.entries(props.files)) files[`/${path}`] = { code }
-  files['/package.json'] = { code: PACKAGE_JSON }
+  const dependencies = usesComponents(props.files) ? { ...BASE_DEPENDENCIES, ...UI_DEPENDENCIES } : BASE_DEPENDENCIES
+  files['/package.json'] = {
+    code: JSON.stringify({ name: 'genesis-preview', main: '/src/main.js', dependencies, devDependencies: { '@vue/cli-plugin-babel': '^5.0.8' } }),
+  }
   files['/public/index.html'] = { code: INDEX_HTML }
   files['/src/hl.config.js'] = {
     code: [
@@ -72,11 +79,12 @@ async function refresh() {
   // The shared HighLevel client and UI kit (src/genesis/ is reserved: the model can't write there).
   files['/src/genesis/hl.js'] = { code: HL_CLIENT }
   files['/src/genesis/ui.css'] = { code: UI_KIT }
+  for (const [path, code] of Object.entries(UI_COMPONENTS)) files[`/src/genesis/ui/${path.split('/').pop()}`] = { code }
   const setup = {
     files,
     entry: '/src/main.js',
     template: 'vue-cli' as const,
-    dependencies: { vue: '^3.2.8', 'core-js': '^3.6.5' },
+    dependencies,
   }
   try {
     if (client) {

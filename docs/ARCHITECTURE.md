@@ -336,7 +336,7 @@ The chat shows the notice for that session only, so a declined request never aff
 2. **Bounded context:**
    - the system prompt (rules plus the strict output format);
    - [`hlReference.md`](../functions/src/llm/hlReference.md), the API of the injected HighLevel client (§10) and the response shapes;
-   - [`uiKit.md`](../functions/src/llm/uiKit.md), the classes of the injected UI kit (§10). Apps use the kit's look unless the user explicitly asks for another, and are split into components of about 150 lines, so a follow-up rewrites only the component it touches;
+   - [`uiKit.md`](../functions/src/llm/uiKit.md), the injected components and UI kit (§10). Apps are built from the components and use the kit's look unless the user explicitly asks for another, and are split into components of about 150 lines, so a follow-up rewrites only the component it touches;
    - deliberately **not** the connected location's name or ID: apps read them at run time (`LOCATION_NAME`, `LOCATION_ID`, injected by the preview), so the model has nothing to hard-code;
    - the current files, within a 60,000-character budget ([`llm/context.ts`](../functions/src/llm/context.ts)). When every file fits (most apps), all are sent in full, alphabetically, exactly as before. Otherwise files are ranked: `src/main.js`, `src/App.vue`, `src/utils.js`; the editor's active tab; its open tabs; files changed by the last 2 builds (`generations.files`); files the prompt names (path, file name, or a distinctive component name such as `ContactList`); their imports and importers; then the rest. The budget is filled in that order; files over 20,000 characters and those past the budget are listed in an index, one line each from the manifest (size, lines, props, emits, client helpers). Content is read only for the files sent in full;
    - the `read_files` tool ([`llm/tools.ts`](../functions/src/llm/tools.ts); on by default, `CONTEXT_TOOLS=off` is a kill switch), so the model can read indexed files (step 3a);
@@ -452,16 +452,16 @@ The transaction releases the hold, deducts `charged` from the balance, adds it t
 
 ### 7.4 Worked example
 
-A build whose input comes to 20,000 tokens: the 5,500-token system prompt (cached, §7.8) plus 14,500 tokens of history, files and prompt:
+A build whose input comes to 20,000 tokens: the 7,100-token system prompt (cached, §7.8) plus 12,900 tokens of history, files and prompt:
 
 | Step | Calculation | Credits |
 |---|---|---|
 | Hold | 20,000 × 2,500/M = 50 (all input as a cache miss) · 16,000 × 10,000/M = 160 · summary 0.13 | **211** reserved |
-| The model writes 3,000 tokens, cache hit | 14,500 × 2,000/M = 29 · 5,500 × 100/M = 0.55 · 3,000 × 10,000/M = 30 | 59.55 |
+| The model writes 3,000 tokens, cache hit | 12,900 × 2,000/M = 25.8 · 7,100 × 100/M = 0.71 · 3,000 × 10,000/M = 30 | 56.51 |
 | Summary (600 in, 40 out on Haiku) | 0.06 + 0.02 | 0.08 |
-| Charge | ceil(59.63) | **60** charged, 151 released |
+| Charge | ceil(56.59) | **57** charged, 154 released |
 
-On a cache miss the system prompt costs 5,500 × 2,500/M = 13.75 instead of 0.55, and the same build is charged 73. A new user's 2,500 credits cover roughly 35–40 builds of this size.
+On a cache miss the system prompt costs 7,100 × 2,500/M = 17.75 instead of 0.71, and the same build is charged 74. A new user's 2,500 credits cover roughly 35–40 builds of this size.
 
 ### 7.5 How each outcome is charged
 
@@ -489,15 +489,15 @@ On a cache miss the system prompt costs 5,500 × 2,500/M = 13.75 instead of 0.55
 
 ### 7.8 Prompt caching
 
-The system prompt (rules, UI kit and HighLevel reference: about 5,500 tokens) is identical for every user and build; it changes only on deploy. `generate` sends it as one block with `cache_control: { type: "ephemeral" }` ([`systemBlocks()`](../functions/src/llm/prompt.ts)), so Anthropic caches it for 5 minutes, and every read restarts that timer.
+The system prompt (rules, UI kit and components, HighLevel reference, plus the `read_files` tool: about 7,100 tokens, up from 5,500 before the components) is identical for every user and build; it changes only on deploy. `generate` sends it as one block with `cache_control: { type: "ephemeral" }` ([`systemBlocks()`](../functions/src/llm/prompt.ts)), so Anthropic caches it for 5 minutes, and every read restarts that timer.
 
-| | System prompt cost | vs. uncached (11 credits) |
+| | System prompt cost | vs. uncached (14.2 credits) |
 |---|---|---|
-| Cache hit: any build, by anyone, started within 5 minutes of the last one | 5,500 × 100/M ≈ 0.55 | about 10 credits saved |
-| Cache miss: the first build after a quiet spell, or after a deploy | 5,500 × 2,500/M ≈ 13.75 | about 2.7 credits extra |
+| Cache hit: any build, by anyone, started within 5 minutes of the last one | 7,100 × 100/M ≈ 0.71 | about 13.5 credits saved |
+| Cache miss: the first build after a quiet spell, or after a deploy | 7,100 × 2,500/M ≈ 17.75 | about 3.5 credits extra |
 
 - It pays off once about 1 build in 5 is a hit. A user's follow-up prompts nearly always are.
-- Measured on the emulator: two follow-ups 2 minutes apart showed `cacheWriteTokens: 5,487` then `cacheReadTokens: 5,487`. The second was charged 28 credits instead of 38.
+- Measured on the emulator: two follow-ups 2 minutes apart showed `cacheWriteTokens: 5,487` then `cacheReadTokens: 5,487`. The second was charged 28 credits instead of 38. With the components (2026-11-18): a dashboard build wrote 7,121 tokens to the cache and the next build read 7,121.
 - The charge always follows Claude's reported usage, so caching can't over-charge. The hold prices all input as a cache miss, so it can't under-charge either.
 - Nothing per-user may be added to the system prompt: that would split the cache, and the cache is shared by every user of the API key. A test checks the block is byte-identical across calls.
 - **The `read_files` tool definition** is part of the cached prefix: tools render before the system prompt. It is frozen and byte-identical on every build (a test pins its hash), and with `CONTEXT_TOOLS=on` every build sends it, even when nothing is indexed, so all builds share one cache entry. Changing the definition, like changing the prompt, starts a new cache.
@@ -630,7 +630,7 @@ sequenceDiagram
   participant HL as HighLevel
   P->>API: POST /projects/:id/preview-token
   API-->>P: HMAC token {uid, projectId, locationId, exp=15 min}
-  P->>SB: files + injected src/hl.config.js (HL_PROXY, PREVIEW_TOKEN, LOCATION_ID, LOCATION_NAME) + src/genesis/hl.js (client) + src/genesis/ui.css (UI kit) + fixed package.json
+  P->>SB: files + injected src/hl.config.js (HL_PROXY, PREVIEW_TOKEN, LOCATION_ID, LOCATION_NAME) + src/genesis/hl.js (client) + src/genesis/ui.css (UI kit) + src/genesis/ui/*.vue (components) + package.json (reka-ui only if used)
   SB->>PX: GET /contacts/?… (Bearer preview token)
   PX->>PX: verify token, allowlist path, check project, force locationId
   PX->>HL: request with the real access token (refreshed if needed)
@@ -666,8 +666,10 @@ sequenceDiagram
   - writes are named functions (`createContact`, `addTags`, `bookAppointment`, `sendEmail`, …).
 
   The client is live for every app at once, so its API may only grow: nothing is ever renamed or removed. A Vitest test checks that the "Client" section of `hlReference.md` documents exactly the functions it exports. Older apps and the ready-made apps keep their own `api.js`, which still works because `hl.config.js` is still injected.
-- **UI kit:** [`src/genesis/ui.css`](../frontend/src/sandbox/genesis/ui.css) is injected the same way and imported by new apps in `main.js`. It styles the page and provides classes for layout, cards, buttons, forms, lists, tables, badges, chips, stats and loading/empty/error states; colors, radius and font are CSS variables. The prompt tells the model to use it and write no restyling CSS unless the user explicitly asks for a different look (then it overrides the variables). Apps that don't import it (older ones, ready-made ones) keep their own CSS. Like the client, it may only grow, and a Vitest test checks that `uiKit.md` documents exactly its classes and variables.
-- **Measured effect** (same prompt, local emulator, real Claude): the contact dashboard went from one 11.5 KB `App.vue` (6,135 output tokens, 69 credits) to five files totalling 8.4 KB (4,455 output tokens, 54 credits), and a small follow-up rewrote only one component (1,053 output tokens, 27 credits).
+- **UI kit:** [`src/genesis/ui.css`](../frontend/src/sandbox/genesis/ui.css) is injected the same way and imported by every app in `main.js` (the ready-made apps included). It carries Genesis's own look: coral primary, navy text, Inter (loaded from Google Fonts in the preview's `index.html`, with a system-font fallback), 32 px controls, 6 px control radius, 10 px cards. It provides classes for layout, cards, buttons, forms, lists, tables, badges, chips, stats, tabs, overlays and loading/empty/error states; colors, radius, font and shadow are CSS variables, and the soft, hover and focus colors are derived from `--primary`, `--muted` and `--surface` with `color-mix`, so a user's own theme (override the variables in `src/style.css`) recolors everything. The prompt tells the model to write no restyling CSS unless the user explicitly asks for a different look.
+- **Components:** [`src/genesis/ui/`](../frontend/src/sandbox/genesis/ui) holds about 60 Vue components with shadcn-vue's names and props (`Button`, `Card`, `Input`, `Select`, `Dialog`, `DropdownMenu`, `Tabs`, `Table`, `Alert`, …) plus Genesis helpers (`Stat`, `EmptyState`, `Loading`, `Avatar`), injected next to the kit and imported from `./genesis/ui`. They contain no styles of their own, only kit classes, so the kit stays the one source of the look and older apps that use the classes directly look the same. Overlays, menus, selects, tooltips, checkboxes and switches wrap [`reka-ui`](https://reka-ui.com) for focus handling, keyboard support and ARIA; the preview adds `reka-ui` to `package.json` only when an app's files import `genesis/ui`. They are plain JavaScript `<script setup>` limited to what Sandpack's Vue compiler supports (no `defineOptions`, `defineModel` or destructured props; a Vitest test checks this, after `defineOptions` crashed the preview).
+- **Add-only:** the client, the kit and the components are live for every app at once, so they may only grow: no class, variable, component, prop or variant is ever removed or renamed. To keep the prompt short, `uiKit.md` documents the components, the layout classes new apps need and the variables, not the older class names or the components' internal ones. Vitest tests check that it names only classes the kit defines and every layout class and variable, that it documents exactly the exported components, that every class and variable of the first version still exists, that each component renders its kit classes and ARIA attributes (server-rendered with Vue's own renderer), and that every ready-made app compiles and imports only components that exist.
+- **Measured effect** (same prompt, local emulator, real Claude): the contact dashboard went from one 11.5 KB `App.vue` (6,135 output tokens, 69 credits) to five files totalling 8.4 KB (4,455 output tokens, 54 credits), and a small follow-up rewrote only one component (1,053 output tokens, 27 credits). With the components (2026-11-18, trimmed prompt, one run each): the same prompt produced six files with a contact detail view, all built from `Card`, `Badge`, `Alert`, `Button`, `Loading`, `EmptyState` and the layout classes, with no CSS of their own (5,758 output tokens, 76 credits); a contact list with search, using `Table`, took 1,853 output tokens (20 credits).
 - **Pagination** was verified against a live sandbox, and the prompt makes it mandatory (implemented once, in the client):
   - **Contacts:** a cursor (`meta.startAfterId` plus `meta.startAfter`). Stop when a page has fewer rows than `limit`, because `nextPageUrl` stays set on the last page. `limit` can't exceed 100.
   - **Conversations:** `startAfterDate` is the last item's `sort[0]`. The response includes `total`. `query` searches contact names on the server (start of any word, any case; one letter matches loosely, so the client sends it from 2 characters) and `total` then counts the matches.

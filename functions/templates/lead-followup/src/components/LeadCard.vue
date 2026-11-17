@@ -47,8 +47,8 @@ const preview = computed(() => {
 
 <style scoped>
 .card {
-  background: #fff;
-  border: 1px solid #dfe3eb;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 10px;
   padding: 16px;
   display: grid;
@@ -64,12 +64,12 @@ const preview = computed(() => {
 .name {
   margin: 0;
   font-size: 16px;
-  color: #213343;
+  color: var(--text);
   overflow-wrap: anywhere;
 }
 .badge {
-  background: #ff5c35;
-  color: #fff;
+  background: var(--primary);
+  color: var(--on-primary);
   font-size: 12px;
   font-weight: 600;
   padding: 2px 8px;
@@ -79,7 +79,7 @@ const preview = computed(() => {
 .meta {
   margin: 0;
   font-size: 13px;
-  color: #516f90;
+  color: var(--muted);
 }
 .tags {
   display: flex;
@@ -87,15 +87,15 @@ const preview = computed(() => {
   gap: 6px;
 }
 .tag {
-  background: #eef3f8;
-  color: #516f90;
+  background: var(--surface-muted);
+  color: var(--muted);
   font-size: 12px;
   padding: 2px 8px;
   border-radius: 6px;
   overflow-wrap: anywhere;
 }
 .block {
-  background: #f5f8fa;
+  background: var(--bg);
   border-radius: 8px;
   padding: 10px 12px;
   display: grid;
@@ -104,17 +104,17 @@ const preview = computed(() => {
 .preview {
   margin: 0;
   font-size: 14px;
-  color: #213343;
+  color: var(--text);
   overflow-wrap: anywhere;
 }
 .booked .label {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: #516f90;
+  color: var(--muted);
 }
 .booked .when {
-  color: #ff5c35;
+  color: var(--primary);
   font-weight: 600;
   font-size: 14px;
 }

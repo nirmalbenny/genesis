@@ -1,19 +1,4 @@
-html,
-body {
-  margin: 0;
-  padding: 0;
-  background: #f5f8fa;
-  color: #213343;
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  -webkit-font-smoothing: antialiased;
-}
-
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
-}
-
+/* The look comes from the Genesis UI kit (./genesis/ui.css); only page-level layout lives here. */
 #app {
   min-height: 100vh;
 }

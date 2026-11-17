@@ -58,7 +58,7 @@ const history = computed(() => {
   margin: 0 0 10px;
   font-size: 12px;
   font-weight: 700;
-  color: #7c98b6;
+  color: color-mix(in srgb, var(--muted) 70%, var(--surface));
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
@@ -77,16 +77,16 @@ const history = computed(() => {
   display: flex;
   justify-content: center;
   padding: 10px 0;
-  background: linear-gradient(#f5f8fa 70%, rgba(245, 248, 250, 0));
+  background: linear-gradient(var(--bg) 70%, rgba(245, 248, 250, 0));
 }
 .day-header span {
   padding: 3px 12px;
   border-radius: 999px;
-  background: #fff;
-  border: 1px solid #dfe3eb;
+  background: var(--surface);
+  border: 1px solid var(--border);
   font-size: 12px;
   font-weight: 600;
-  color: #516f90;
+  color: var(--muted);
 }
 .thread {
   list-style: none;

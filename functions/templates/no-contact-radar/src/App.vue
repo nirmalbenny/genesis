@@ -197,8 +197,8 @@ const emptyMessage = computed(() => {
 <style scoped>
 .page {
   min-height: 100vh;
-  background: #f5f8fa;
-  color: #213343;
+  background: var(--bg);
+  color: var(--text);
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   padding: 32px 16px 48px;
   box-sizing: border-box;
@@ -216,29 +216,29 @@ const emptyMessage = computed(() => {
 }
 .lead {
   margin: 0;
-  color: #516f90;
+  color: var(--muted);
 }
 .note {
   margin: 0;
   font-size: 13px;
-  color: #516f90;
+  color: var(--muted);
 }
 .card {
-  background: #fff;
-  border: 1px solid #dfe3eb;
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 10px;
   overflow: hidden;
 }
 .summary {
   padding: 14px 20px;
-  border-bottom: 1px solid #dfe3eb;
-  background: #fff;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
 }
 .summary strong {
-  color: #ff5c35;
+  color: var(--primary);
 }
 .muted {
-  color: #516f90;
+  color: var(--muted);
   font-size: 13px;
 }
 .list {

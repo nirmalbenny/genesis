@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, watch } from "vue";
 import SectionCard from "./SectionCard.vue";
+import { Alert, Badge } from "../genesis/ui";
 import { hlGet, LOCATION_ID } from "../api.js";
 import { useResource } from "../useResource.js";
 import { toDate, formatTime } from "../utils.js";
@@ -76,11 +77,11 @@ watch(
   { immediate: true }
 );
 
-function statusClass(s) {
+function statusVariant(s) {
   const v = String(s || "").toLowerCase();
-  if (v === "confirmed" || v === "showed") return "ok";
-  if (v === "cancelled" || v === "noshow" || v === "invalid") return "bad";
-  return "neutral";
+  if (v === "confirmed" || v === "showed") return "success";
+  if (v === "cancelled" || v === "noshow" || v === "invalid") return "destructive";
+  return "secondary";
 }
 function statusLabel(s) {
   if (!s) return "Unknown";
@@ -90,110 +91,48 @@ function statusLabel(s) {
 </script>
 
 <template>
-  <SectionCard
-    title="Today's appointments"
-    :loading="loading"
-    :error="error"
-    :empty="events.length === 0"
-    empty-text="No appointments scheduled for today."
-    empty-icon="📅"
-    :badge="events.length"
-    @retry="load"
-  >
-    <p v-if="data && data.warning" class="warn">{{ data.warning }}</p>
-    <ul class="list">
-      <li v-for="(ev, i) in events" :key="ev.id || i" class="row">
-        <div class="time">
-          <strong>{{ formatTime(ev.startTime) || "—" }}</strong>
-          <span v-if="formatTime(ev.endTime)">{{ formatTime(ev.endTime) }}</span>
-        </div>
-        <div class="info">
-          <p class="title">{{ ev.title || "Untitled appointment" }}</p>
-          <p class="meta">{{ ev.calendarName }}</p>
-        </div>
-        <span class="status" :class="statusClass(ev.appointmentStatus)">{{ statusLabel(ev.appointmentStatus) }}</span>
-      </li>
-    </ul>
-  </SectionCard>
+<SectionCard
+  title="Today's appointments"
+  :loading="loading"
+  :error="error"
+  :empty="events.length === 0"
+  empty-text="No appointments scheduled for today."
+  empty-icon="📅"
+  :badge="events.length"
+  @retry="load"
+>
+  <Alert v-if="data && data.warning" variant="warning">{{ data.warning }}</Alert>
+  <ul class="list">
+    <li v-for="(ev, i) in events" :key="ev.id || i" class="list-item">
+      <div class="time">
+        <strong>{{ formatTime(ev.startTime) || "—" }}</strong>
+        <span v-if="formatTime(ev.endTime)" class="small muted">{{ formatTime(ev.endTime) }}</span>
+      </div>
+      <div class="info">
+        <p class="truncate title">{{ ev.title || "Untitled appointment" }}</p>
+        <p class="truncate small muted">{{ ev.calendarName }}</p>
+      </div>
+      <Badge :variant="statusVariant(ev.appointmentStatus)">{{ statusLabel(ev.appointmentStatus) }}</Badge>
+    </li>
+  </ul>
+</SectionCard>
 </template>
 
 <style scoped>
-.list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.row {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 12px;
-  border: 1px solid #eaeef3;
-  border-radius: 8px;
-}
 .time {
   display: flex;
   flex-direction: column;
   min-width: 76px;
-  font-size: 13px;
-  color: #516f90;
-}
-.time strong {
-  color: #213343;
-  font-size: 15px;
 }
 .info {
   flex: 1;
   min-width: 0;
 }
 .title {
-  margin: 0;
   font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.meta {
-  margin: 2px 0 0;
-  font-size: 13px;
-  color: #516f90;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.status {
-  font-size: 12px;
-  font-weight: 600;
-  padding: 3px 10px;
-  border-radius: 999px;
-  white-space: nowrap;
-}
-.status.ok {
-  background: #e6f6ee;
-  color: #1a7f4b;
-}
-.status.bad {
-  background: #fdebe7;
-  color: #b3361a;
-}
-.status.neutral {
-  background: #eef1f5;
-  color: #516f90;
-}
-.warn {
-  margin: 0 0 12px;
-  font-size: 13px;
-  color: #8a5a00;
-  background: #fff7e0;
-  border: 1px solid #f3dd9b;
-  border-radius: 8px;
-  padding: 8px 12px;
 }
 @media (max-width: 480px) {
-  .row {
+  .list-item {
     flex-wrap: wrap;
   }
   .time {

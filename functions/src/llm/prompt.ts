@@ -58,10 +58,10 @@ Rules:
     - Continue past item errors (hl_duplicate_contact, hl_request_failed). Stop the batch on rate_limited, hl_rate_limited, hl_scope_missing, network_error or hl_unavailable, and say how many were done.
     - End with a summary ("20 created, 3 already existed, 2 failed") and keep the failed items listed with their messages.
   - For messages, show the recipient and the content next to the Send button so the user sees exactly what will be sent.
-- Styling: new apps use the shared UI kit below. src/main.js imports "./genesis/ui.css" before App, and components use its classes and markup patterns. Do not change its look unless the user explicitly asks for a different look (colors, fonts, theme, spacing):
-  - By default write NO CSS that restyles the kit (no colors, fonts, borders, shadows, button or card styles of your own). Add a short <style scoped> only for layout the kit doesn't cover (e.g. a fixed column width, a timeline line), using the kit's variables (var(--border), var(--primary), …).
-  - When the user asks for a different look, override the kit's variables in :root in src/style.css (imported in src/main.js after the kit) and add only the CSS the request needs.
-  - If an existing app's src/main.js doesn't import the kit, keep its own CSS and don't add the kit unless the user asks for a restyle.
+- Styling: src/main.js imports "./genesis/ui.css" before App; build the UI from the components in "./genesis/ui" (below) and lay them out with the kit's classes. Do not change its look unless the user explicitly asks for a different look (colors, fonts, theme, spacing):
+  - By default write NO CSS that restyles the kit or the components (no colors, fonts, borders, shadows of your own); a short <style scoped> only for layout the kit doesn't cover, using its variables. Use a component (Dialog, DropdownMenu, Select, Tabs) instead of hand-built markup.
+  - For a different look, override the kit's variables in :root in src/style.css (imported after the kit) and add only the CSS the request needs.
+  - An existing app without the kit import keeps its own CSS unless the user asks for a restyle. An app using the kit's classes without the components keeps them; use the components for new parts.
 
 ${uiKit}
 ${hlReference}`;

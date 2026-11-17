@@ -3,6 +3,7 @@ import { ref, computed, onMounted, nextTick } from "vue";
 import { hlGet, LOCATION_ID } from "./api.js";
 import { parseDate, dayKey, fmtDay } from "./utils.js";
 import LoadState from "./components/LoadState.vue";
+import { Alert, Button, Label, NativeSelect } from "./genesis/ui";
 import AppointmentList from "./components/AppointmentList.vue";
 import PrepSheet from "./components/PrepSheet.vue";
 
@@ -115,20 +116,20 @@ onMounted(load);
         <h1>Appointment Prep Sheet</h1>
         <p class="muted">Upcoming appointments for the next {{ 14 }} days, with context on each contact.</p>
       </div>
-      <button class="btn" type="button" :disabled="loading" @click="load">Refresh</button>
+      <Button variant="outline" :disabled="loading" @click="load">Refresh</Button>
     </header>
 
     <div class="layout">
       <aside class="left">
-        <div v-if="calendars.length" class="filter">
-          <label for="cal">Calendar</label>
-          <select id="cal" v-model="calendarFilter">
+        <div v-if="calendars.length" class="field">
+          <Label for="cal">Calendar</Label>
+          <NativeSelect id="cal" v-model="calendarFilter">
             <option value="all">All calendars</option>
             <option v-for="c in calendars" :key="c.id" :value="c.id">{{ c.name || "Untitled calendar" }}</option>
-          </select>
+          </NativeSelect>
         </div>
 
-        <p v-if="warning" class="warning">{{ warning }}</p>
+        <Alert v-if="warning" variant="warning">{{ warning }}</Alert>
 
         <LoadState
           :loading="loading"
@@ -203,37 +204,6 @@ h1 {
 .right {
   min-width: 0;
   scroll-margin-top: 16px;
-}
-.filter {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.filter label {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--muted);
-}
-select {
-  font: inherit;
-  color: var(--navy);
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: #fff;
-  width: 100%;
-}
-select:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-.warning {
-  margin: 0;
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: #fff3e0;
-  color: #b25e00;
-  font-size: 14px;
 }
 .placeholder {
   display: flex;

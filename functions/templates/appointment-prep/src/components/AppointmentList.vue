@@ -65,7 +65,7 @@ ul {
   text-align: left;
   font: inherit;
   color: var(--navy);
-  background: #fff;
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 12px;
