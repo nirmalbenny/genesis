@@ -11,6 +11,8 @@ type Handlers = {
 }
 
 type BuildCredits = { charged: number; balance: number | null }
+/** The editor's tabs, sent so a large app's build context starts with the files the user is looking at. */
+export type EditorHints = { activePath: string | null; openPaths: string[] }
 type ErrorData = { code: string; message: string; partial: boolean; credits?: BuildCredits }
 
 export function useGeneration(h: Handlers) {
@@ -28,7 +30,7 @@ export function useGeneration(h: Handlers) {
   let abort: AbortController | null = null
   let running: { projectId: string; generationId: string | null } | null = null
 
-  async function start(projectId: string, prompt: string) {
+  async function start(projectId: string, prompt: string, hints: EditorHints = { activePath: null, openPaths: [] }) {
     streaming.value = true
     error.value = ''
     declined.value = ''
@@ -45,7 +47,7 @@ export function useGeneration(h: Handlers) {
       const res = await fetch(`${FUNCTIONS_BASE}/generate`, {
         method: 'POST',
         headers: { ...(await authHeader()), 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId, prompt }),
+        body: JSON.stringify({ projectId, prompt, activePath: hints.activePath, openPaths: hints.openPaths }),
         signal: abort.signal,
       })
       if (!res.ok) {

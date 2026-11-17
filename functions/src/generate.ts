@@ -10,11 +10,14 @@ import { fileStore, projectRef } from "./files";
 import { httpError, requireVerifiedUser, sendError } from "./http";
 import { createParser } from "./llm/parser";
 import { summarizeChange } from "./llm/summary";
-import { RECENT_MESSAGES, renderFiles, SINGLE_FILE_LIMIT_CHARS, systemBlocks } from "./llm/prompt";
-import { NOT_READ, validateOps, type FileOp, type Rejection } from "./llm/validate";
+import { renderContext, selectContext } from "./llm/context";
+import { RECENT_MESSAGES, SINGLE_FILE_LIMIT_CHARS, systemBlocks } from "./llm/prompt";
+import { checkPath, NOT_READ, validateOps, type FileOp, type Rejection } from "./llm/validate";
 import { assertEditable, getOwnedProject, getUserHl, useConnectedLocation } from "./projects";
 
 const MAX_PROMPT_CHARS = 4000;
+const MAX_HINT_PATHS = 10; // active + open editor tabs sent as context hints
+const RECENT_GENERATIONS = 2; // files changed by these rank first in a large app's context
 const MAX_OUTPUT_TOKENS = 16000;
 const HEARTBEAT_MS = 15_000;
 // Worst case for the one-line Haiku snapshot summary, included in every build's hold.
@@ -40,7 +43,15 @@ async function precheck(req: Request) {
   const hl = await getUserHl(uid);
   if (!hl) throw httpError(409, "hl_not_connected", "HighLevel is not connected. Connect it before generating.");
   await useConnectedLocation(pid, project, hl.locationId);
-  return { uid, pid, prompt, hl };
+  return { uid, pid, prompt, ...editorHints(req.body) };
+}
+
+/** The editor's active and open tabs: hints for ranking context only, so invalid paths are dropped, not refused. */
+function editorHints(body: Record<string, unknown> | undefined): { activePath: string | null; openPaths: string[] } {
+  const valid = (p: unknown): p is string => typeof p === "string" && p.length <= 300 && checkPath(p) === null;
+  const activePath = valid(body?.activePath) ? body.activePath : null;
+  const open = Array.isArray(body?.openPaths) ? body.openPaths.filter(valid) : [];
+  return { activePath, openPaths: [...new Set(open)].filter((p) => p !== activePath).slice(0, MAX_HINT_PATHS - (activePath ? 1 : 0)) };
 }
 
 export const generate = onRequest(
@@ -53,27 +64,31 @@ export const generate = onRequest(
     let ctx;
     let slot: { uid: string; generationId: string } | null = null;
     try {
-      const { uid, pid, prompt } = await precheck(req);
+      const { uid, pid, prompt, activePath, openPaths } = await precheck(req);
       const proj = projectRef(pid);
       // Rate limit first, so a refused build costs no token count, no credit hold and no Claude call.
       const genRef = proj.collection("generations").doc();
       await reserveBuildSlot(uid, pid, genRef.id);
       slot = { uid, generationId: genRef.id };
       const store = fileStore();
-      const [files, recent] = await Promise.all([
-        store.readAll(pid),
+      const [manifest, recent, lastBuilds] = await Promise.all([
+        store.manifest(pid),
         proj.collection("messages").orderBy("createdAt", "desc").limit(RECENT_MESSAGES).get(),
+        proj.collection("generations").orderBy("createdAt", "desc").limit(RECENT_GENERATIONS).get(),
       ]);
+      const recentPaths = lastBuilds.docs.flatMap((d) => (d.get("files") as string[] | undefined) ?? []);
+      // Content is read only for the files sent in full.
+      const selection = selectContext(manifest, { activePath, openPaths, recentPaths, prompt });
+      const files = await store.read(pid, selection.full);
       const history = recent.docs
         .reverse()
         .map((d) => ({ role: d.get("role") as "user" | "assistant", content: d.get("content") as string }));
-      const context = renderFiles(files);
       const request = {
         model,
         system: systemBlocks(),
         messages: [
           ...history,
-          { role: "user" as const, content: `Current project files:\n${context.text}\n\nRequest: ${prompt}` },
+          { role: "user" as const, content: `Current project files:\n${renderContext(files, manifest, selection.index, false)}\n\nRequest: ${prompt}` },
         ],
       };
 
@@ -88,13 +103,13 @@ export const generate = onRequest(
       // The prompt and chat messages are saved only after the model accepts the request,
       // so declined (off-topic or harmful) requests never enter history or later model context.
       await genRef.set({ status: "streaming", createdAt: FieldValue.serverTimestamp() });
-      ctx = { uid, pid, prompt, proj, store, files, seen: context.full, request, genRef, held };
+      ctx = { uid, pid, prompt, proj, store, manifest, seen: new Set(selection.full), request, genRef, held };
     } catch (err) {
       if (slot) await releaseBuildSlot(slot.uid, slot.generationId).catch((e) => console.error("generate: slot release failed", e));
       sendError(res, err);
       return;
     }
-    const { uid, pid, prompt, proj, store, files, seen, request, genRef, held } = ctx;
+    const { uid, pid, prompt, proj, store, manifest, seen, request, genRef, held } = ctx;
     const generationId = genRef.id;
 
     // ---- SSE setup ----
@@ -204,8 +219,8 @@ export const generate = onRequest(
     let snapshotId: string | null = null;
     let applied: string[] = [];
     try {
-      const existing = new Set(files.map((f) => f.path));
-      const tooLarge = new Set(files.filter((f) => f.content.length > SINGLE_FILE_LIMIT_CHARS).map((f) => f.path));
+      const existing = new Set(Object.keys(manifest));
+      const tooLarge = new Set(Object.keys(manifest).filter((p) => manifest[p]!.size > SINGLE_FILE_LIMIT_CHARS));
       const result = validateOps(ops, existing, seen);
       rejected.push(...result.rejected.map((r) =>
         r.reason === NOT_READ && tooLarge.has(r.path) ? { ...r, reason: "too large for the AI to edit; split it or edit it by hand" } : r));

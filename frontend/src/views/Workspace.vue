@@ -52,7 +52,7 @@ const notices = ref<Notice[]>([])
 
 async function send(prompt: string) {
   pendingPrompt.value = prompt
-  await gen.start(projectId, prompt)
+  await gen.start(projectId, prompt, { activePath: active.value, openPaths: openTabs.value })
   // Declined requests are kept only in this view (never stored), so they don't affect later prompts.
   if (gen.declined.value) {
     notices.value.push({ prompt, message: gen.declined.value, afterCount: project.messages.value.length })

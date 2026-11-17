@@ -65,6 +65,17 @@ describe('useGeneration', () => {
     expect(onFinished).toHaveBeenCalledOnce()
   })
 
+  it('sends the prompt with the editor tabs as context hints', async () => {
+    const { gen } = setup()
+    const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(sse([['done', { credits }]]), { status: 200 }))
+    await gen.start('p1', 'Add a column', { activePath: 'src/components/List.vue', openPaths: ['src/App.vue', 'src/components/List.vue'] })
+    const [url, init] = fetch.mock.calls[0]!
+    expect(url).toBe('http://functions.test/generate')
+    expect(JSON.parse(String(init!.body))).toEqual({
+      projectId: 'p1', prompt: 'Add a column', activePath: 'src/components/List.vue', openPaths: ['src/App.vue', 'src/components/List.vue'],
+    })
+  })
+
   it('shows a refusal before streaming (e.g. rate limited) as a plain error', async () => {
     const { gen } = setup()
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(
