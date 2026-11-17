@@ -2,7 +2,7 @@
 
 Branch `feat/filestore-context` (from `main` at `03bd8f7`). Not pushed, never deployed.
 
-Status: **Steps 0–7 done**, except the token/credit measurement with real Claude, which waits for your approval (§8). Not pushed, not deployed.
+Status: **Steps 0–7 done**, including the real-Claude measurement (§8). Open: Q1, Q3. Not pushed, not deployed.
 
 **Final verify (2026-11-17):**
 
@@ -13,7 +13,7 @@ Status: **Steps 0–7 done**, except the token/credit measurement with real Clau
 | Integration tests, `FILE_STORE=firestore` | pass, 40/40 + 3 skipped (blobs-only tests) |
 | Frontend lint / tests / build | pass, 36/36 (baseline 34), build ok |
 | Docs check | pass: markdownlint, 90 local links, 7 Mermaid diagrams rendered |
-| Manual check | emulator measurements (§8). **Not done:** a build with real Claude (needs approval), a UI screenshot of the "Reading …" state (it appears only during a real build), production paths (Cloud Storage preconditions and `customTime`, which the emulator ignores; Cloud Scheduler). |
+| Manual check | emulator measurements (§8). **Done later:** five real-Claude builds (§8). **Not done:** a UI screenshot of the "Reading …" state (it appears only during a real build), production paths (Cloud Storage preconditions and `customTime`, which the emulator ignores; Cloud Scheduler). |
 
 ## Contents
 
@@ -151,7 +151,7 @@ A scheduled function lists `users/*/blobs/*`, builds the set of hashes reference
 | 4. Migration | done: unit 48/48; e2e 42/42 (`blobs`), 39/39 + 3 skipped (`firestore`) | see change log | `files/{migrate,manifestStore,firestoreStore,blobStore,index}.ts`, `scripts/migrate-files-to-storage.ts` (under `functions/src`), `package.json` (`migrate:files`), e2e helpers | `e2e/migrate.e2e.ts` (3: lazy conversion with concurrent first access + legacy snapshot restore; Firestore-store change drops a stale manifest; backfill dry run / real run with verification / resumable re-run) |
 | 5. Index + ranking | done: functions unit 52/52, e2e 42/42 (`blobs`); frontend lint, 35/35, build | see change log | `llm/context.ts` (new), `llm/prompt.ts` (`renderFiles` removed), `generate.ts`, `frontend/src/composables/useGeneration.ts`, `frontend/src/views/Workspace.vue` | `llm/context.test.ts` (5: everything fits = identical output, ranking order, common words, budget filling + index, index lines); `useGeneration.test.ts` (hints in the request body) |
 | 6. `read_files` + turns | done: functions unit 66/66, e2e 42/42 (`blobs`, `CONTEXT_TOOLS=on`); frontend lint, 36/36, build. **Not run against real Claude yet** (needs your approval, Step 7) | see change log | `llm/{tools,turns,prompt,parser}.ts`, `credits.ts`, `config.ts` (`CONTEXT_TOOLS`), `generate.ts`, `deploy.yml`, `.env.example`; frontend `useGeneration.ts`, `ChatPanel.vue`, `BuildingOverlay.vue`, `PreviewPanel.vue`, `Workspace.vue` | `tools.test.ts` (2), `turns.test.ts` (8: read then write, read cap with `tool_choice: none`, stop between turns, 402 on an extra hold, refusal on turn 2, open file dropped + unread overwrite rejected, cut-off turn usage, moving cache point), `credits.test.ts` (multi-turn hold covers the total), `prompt.test.ts` (frozen tool, byte snapshot, read rule), `parser.test.ts` (discard open file), `useGeneration.test.ts` (reading state) |
-| 7. Cleanup, diff, measurement, docs | done, except the real-Claude measurement (waits for approval); diff endpoint skipped (optional, F3) | see change log | `files/cleanup.ts`, `scripts/measure-filestore.ts`, `index.ts`, `config.ts` (`BLOB_CLEANUP`), `docs/ARCHITECTURE.md`, `README.md`, `functions/README.md` | `e2e/cleanup.e2e.ts` (1), `files/cleanup.test.ts` (2) |
+| 7. Cleanup, diff, measurement, docs | done; real-Claude measurement done (§8); diff endpoint skipped (optional, F3) | see change log | `files/cleanup.ts`, `scripts/measure-filestore.ts`, `index.ts`, `config.ts` (`BLOB_CLEANUP`), `docs/ARCHITECTURE.md`, `README.md`, `functions/README.md` | `e2e/cleanup.e2e.ts` (1), `files/cleanup.test.ts` (2) |
 
 ## 6. Change log
 
@@ -196,7 +196,7 @@ _One entry per commit._
 ### Open questions (not blocking)
 
 - Q1 (R4): Keep `tool_choice: none` on the final turn (simple, costs about 30 credits more when it happens), or keep `auto` with an instruction to stop reading and answer a third read with an error (cache-friendly, but the model may need one more turn)?
-- Q2 (R7): Should `blobs` mode also write the Firestore files for a while (dual-write) so that switching back to `firestore` is safe, at the cost of doubled writes?
+- Q2 (R7), **decided: not needed** (2026-11-17). No dual-write; switching back after the cutover needs a reverse export (F2).
 - Q4 (resolved): you allowed me to restart the local emulators; they now run with Storage and `FILE_STORE=blobs`.
 - Q3 (R1): Should `deploy.yml` deploy with an explicit `--only functions,hosting,firestore,storage`, so that new targets are opted in deliberately?
 
@@ -247,6 +247,22 @@ Reading: writes are slower with blobs (an upload plus a transaction, about +7 ms
 
 The 44-file app: 30 files sent in full and 14 indexed; 62,494 characters in the files section, of which the index is 1,154 characters (about 80 characters per indexed file). Before, the same app sent the alphabetically first files up to the budget and listed the rest as `[omitted: too large for context]`, with no information about them and no way to read them.
 
-### Tokens and credits with real Claude
+### Tokens and credits with real Claude (approved, 2026-11-17)
 
-Not measured yet: this needs your approval (it calls Claude and spends credits). Proposed run, on the emulators with `CONTEXT_TOOLS=on` vs `off`: a small app build (expected identical input and cost) and a change to a file outside the context of a large app (expected: one read turn; the extra cost is the read turn's cached input plus the read file).
+Five builds with Sonnet 5.5 on the local emulators (`FILE_STORE=blobs`), each on a fresh app of a fresh test user. Script: `claude-builds.js` in the session scratchpad (not committed). Usage is as stored on the generation; 1 credit = $0.001.
+
+| Build | `CONTEXT_TOOLS` | Outcome | Input (uncached / cache write / cache read) | Output | Credits | Time |
+|---|---|---|---|---|---:|---:|
+| Small app: "contact list with search and a count" | on | done, 4 files | 239 / 6,641 / 0 | 1,737 | 35 | 12 s |
+| Follow-up: "button that clears the search" | on | done, 1 file | 1,885 / 0 / 6,641 | 407 | 9 | 6 s |
+| Small app, same prompt | off | done, 5 files | 170 / 6,208 / 0 | 1,818 | 35 | 13 s |
+| Large app (44 files): change a file under `src/part3` without naming it | on | done: read `src/part3/components/LeadsSection.vue` (1 read turn), rewrote only that file | 6 / 29,938 / 41,268 | 2,167 | 101 | 15 s |
+| Large app, same prompt | off | **error**: the model rewrote `LeadsSection.vue` without seeing it; the guard rejected it ("file was not read") | 27,928 / 0 / 6,208 | 3,200 | 89 | 20 s |
+
+Findings:
+
+- **Small apps cost the same:** 35 credits with and without the tool. The tool definition adds 433 tokens to the cached prefix (6,641 vs 6,208) and is read from cache on follow-ups (the follow-up read all 6,641).
+- **Large apps:** with the tool, the model read exactly the one file it needed in a single read turn and changed only that file. Without it, the model ignored "can't be changed in this request" and wrote the file blind: before this work that would have **overwritten the real file**; now the guard rejects it, but the user still pays (89 credits) for nothing.
+- **Consequence for rollout:** with the guard and `CONTEXT_TOOLS=off`, a change to a file outside a large app's context fails instead of silently overwriting. Turn `CONTEXT_TOOLS=on` together with (or soon after) the merge.
+- **The moving cache point paid for itself:** turn 1 wrote the conversation to cache (about 23,800 tokens), turn 2 read it back (41,268 cache-read tokens over both turns, including the system prompt).
+- **Not measured:** a build with two read turns (where `tool_choice: none` applies, Q1). None of these prompts needed a second read.
