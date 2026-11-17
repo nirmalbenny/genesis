@@ -33,7 +33,28 @@ export type BuildTraceInput = {
   summaryUsage: TokenUsage | null;
   /** Durations of the steps before the stream, and of saving; firstTokenMs is from the request start. */
   timings: { checksMs: number; contextMs: number; holdMs: number; firstTokenMs: number | null; streamMs: number; saveMs: number };
+  /** Each step inside those phases (e.g. verifyUser, readFiles, countTokens, uploadFiles, summary, settleCredits). */
+  steps: StepTimes;
+  /** The first build this instance served (it paid the cold start). */
+  coldStart: boolean;
 };
+
+/** Milliseconds per named step of a build (a step run several times adds up). */
+export type StepTimes = Record<string, number>;
+
+/** Times named steps: `await time("upload", () => …)`. Steps run in parallel are each timed on their own. */
+export function stepTimer() {
+  const steps: StepTimes = {};
+  const time = async <T>(name: string, fn: () => Promise<T>): Promise<T> => {
+    const started = Date.now();
+    try {
+      return await fn();
+    } finally {
+      steps[name] = (steps[name] ?? 0) + (Date.now() - started);
+    }
+  };
+  return { steps, time };
+}
 
 /** Which step an error code comes from, so a reader can tell where a build failed. */
 export function errorStep(code: string): string {
@@ -83,6 +104,7 @@ export function logBuild(t: BuildTraceInput, traceId: string | null): void {
     written: t.actions.written.length, deleted: t.actions.deleted.length, rejected: t.actions.rejected.length,
     followUp: t.followUp.previousGenerationId !== null,
     ...t.timings, totalMs: t.endedAt - t.startedAt,
+    steps: t.steps, coldStart: t.coldStart,
     traceId,
   });
 }

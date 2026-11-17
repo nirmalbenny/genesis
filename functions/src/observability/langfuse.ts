@@ -142,7 +142,7 @@ export async function sendBuildTrace(t: BuildTraceInput): Promise<string | null>
         metadata: {
           status: t.status, model: t.model, fileStore: t.fileStore, contextTools: t.contextTools,
           previousGenerationId: t.followUp.previousGenerationId, historyMessages: t.followUp.historyMessages,
-          credits: t.credits, timings: t.timings,
+          credits: t.credits, timings: t.timings, steps: t.steps, coldStart: t.coldStart,
         },
       }, { asType: "agent", startTime: at(t.startedAt) });
       traceId = root.traceId;
