@@ -37,6 +37,8 @@ function build(over: Partial<BuildTraceInput> = {}): BuildTraceInput {
     credits: { held: 250, extraHolds: 90, charged: 101 },
     summaryUsage: usage(600, 12),
     timings: { checksMs: 300, contextMs: 400, holdMs: 300, firstTokenMs: 5000, streamMs: 14_200, saveMs: 1500 },
+    steps: { verifyUser: 120, readFiles: 210, uploadFiles: 400, summary: 700 },
+    coldStart: false,
     ...over,
   };
 }

@@ -19,7 +19,7 @@ import { RECENT_MESSAGES, SINGLE_FILE_LIMIT_CHARS, systemBlocks } from "./llm/pr
 import { READ_FILES_TOOL, runReadFiles } from "./llm/tools";
 import { runTurns, type TurnStream } from "./llm/turns";
 import { checkPath, NOT_READ, validateOps, type FileOp, type Rejection } from "./llm/validate";
-import { logBuild, type BuildTraceInput } from "./observability/buildTrace";
+import { logBuild, stepTimer, type BuildTraceInput } from "./observability/buildTrace";
 import { ensureLangfuse, sendBuildTrace } from "./observability/langfuse";
 import { assertEditable, getOwnedProject, getUserHl, useConnectedLocation } from "./projects";
 
@@ -48,19 +48,21 @@ function countInput(client: Anthropic, p: Pick<Anthropic.MessageCountTokensParam
     .catch(() => Math.ceil(JSON.stringify(params).length / CHARS_PER_TOKEN));
 }
 
-async function precheck(req: Request) {
+type Time = ReturnType<typeof stepTimer>["time"];
+
+async function precheck(req: Request, time: Time) {
   if (req.method !== "POST") throw httpError(405, "method_not_allowed", "POST only");
-  const uid = await requireVerifiedUser(req);
+  const uid = await time("verifyUser", () => requireVerifiedUser(req));
   const pid = String(req.body?.projectId ?? "");
   const prompt = String(req.body?.prompt ?? "").trim();
   if (!prompt || prompt.length > MAX_PROMPT_CHARS) {
     throw httpError(400, "invalid_prompt", `Prompt must be 1-${MAX_PROMPT_CHARS} characters`);
   }
-  const project = await getOwnedProject(uid, pid);
+  const project = await time("loadProject", () => getOwnedProject(uid, pid));
   assertEditable(project);
-  const hl = await getUserHl(uid);
+  const hl = await time("loadConnection", () => getUserHl(uid));
   if (!hl) throw httpError(409, "hl_not_connected", "HighLevel is not connected. Connect it before generating.");
-  await useConnectedLocation(pid, project, hl.locationId);
+  await time("updateLocation", () => useConnectedLocation(pid, project, hl.locationId));
   return { uid, pid, prompt, projectName: project.name, ...editorHints(req.body) };
 }
 
@@ -72,12 +74,17 @@ function editorHints(body: Record<string, unknown> | undefined): { activePath: s
   return { activePath, openPaths: [...new Set(open)].filter((p) => p !== activePath).slice(0, MAX_HINT_PATHS - (activePath ? 1 : 0)) };
 }
 
+// Builds served by this instance: the first one paid the cold start (loading code, opening connections).
+let buildsServed = 0;
+
 export const generate = onRequest(
   {
     cors: APP_ORIGINS, secrets: [ANTHROPIC_API_KEY, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY], timeoutSeconds: 540, memory: "512MiB",
   },
   async (req, res) => {
     const startedAt = Date.now();
+    const coldStart = buildsServed++ === 0;
+    const { steps, time } = stepTimer();
     if (TRACING.value() === "langfuse") {
       ensureLangfuse({ publicKey: LANGFUSE_PUBLIC_KEY.value(), secretKey: LANGFUSE_SECRET_KEY.value(), baseUrl: LANGFUSE_BASE_URL.value() });
     }
@@ -89,23 +96,23 @@ export const generate = onRequest(
     let ctx;
     let slot: { uid: string; generationId: string } | null = null;
     try {
-      const { uid, pid, prompt, projectName, activePath, openPaths } = await precheck(req);
+      const { uid, pid, prompt, projectName, activePath, openPaths } = await precheck(req, time);
       const proj = projectRef(pid);
       const checksDone = Date.now();
       // Rate limit first, so a refused build costs no token count, no credit hold and no Claude call.
       const genRef = proj.collection("generations").doc();
-      await reserveBuildSlot(uid, pid, genRef.id);
+      await time("reserveSlot", () => reserveBuildSlot(uid, pid, genRef.id));
       slot = { uid, generationId: genRef.id };
       const store = fileStore();
       const [manifest, recent, lastBuilds] = await Promise.all([
-        store.manifest(pid),
-        proj.collection("messages").orderBy("createdAt", "desc").limit(RECENT_MESSAGES).get(),
-        proj.collection("generations").orderBy("createdAt", "desc").limit(RECENT_GENERATIONS).get(),
+        time("loadManifest", () => store.manifest(pid)),
+        time("loadHistory", () => proj.collection("messages").orderBy("createdAt", "desc").limit(RECENT_MESSAGES).get()),
+        time("loadRecentBuilds", () => proj.collection("generations").orderBy("createdAt", "desc").limit(RECENT_GENERATIONS).get()),
       ]);
       const recentPaths = lastBuilds.docs.flatMap((d) => (d.get("files") as string[] | undefined) ?? []);
       // Content is read only for the files sent in full.
       const selection = selectContext(manifest, { activePath, openPaths, recentPaths, prompt });
-      const files = await store.read(pid, selection.full);
+      const files = await time("readFiles", () => store.read(pid, selection.full));
       // With context tools, every build sends the same tool (one shared prompt cache); the conversation itself is
       // cached only when files were left out, i.e. when a read turn is likely (docs/plans/filestore-and-context.md R3).
       const tools = CONTEXT_TOOLS.value() === "on";
@@ -126,14 +133,14 @@ export const generate = onRequest(
       const contextDone = Date.now();
 
       // Hold the worst case: exact input tokens priced as a cache miss, the full output cap and the summary allowance.
-      const inputTokens = await countInput(client, request);
+      const inputTokens = await time("countTokens", () => countInput(client, request));
       const held = chargeable(
         worstCaseCredits(model, inputTokens, MAX_OUTPUT_TOKENS) + creditsFor(summaryModel, SUMMARY_ALLOWANCE),
       );
-      await holdCredits(uid, genRef.id, held);
+      await time("holdCredits", () => holdCredits(uid, genRef.id, held));
       // The prompt and chat messages are saved only after the model accepts the request,
       // so declined (off-topic or harmful) requests never enter history or later model context.
-      await genRef.set({ status: "streaming", createdAt: FieldValue.serverTimestamp() });
+      await time("createGeneration", () => genRef.set({ status: "streaming", createdAt: FieldValue.serverTimestamp() }));
       const trace = {
         projectName, fileStore: FILE_STORE.value(), contextTools: tools,
         followUp: { previousGenerationId: lastBuilds.docs[0]?.id ?? null, historyMessages: history.length },
@@ -254,13 +261,13 @@ export const generate = onRequest(
     const settle = async (usage: TokenUsage) => {
       const exact = creditsFor(model, usage) + (summaryUsage ? creditsFor(summaryModel, summaryUsage) : 0);
       const charged = Math.min(held, chargeable(exact));
-      const balance = await settleCredits(uid, generationId, held, charged, {
+      const balance = await time("settleCredits", () => settleCredits(uid, generationId, held, charged, {
         model, usage, summaryModel, summaryUsage, projectId: pid,
-      }).catch((err) => {
+      })).catch((err) => {
         console.error("generate: credit settlement failed", err);
         return null;
       });
-      await genRef.update({ credits: charged, usage: { model, ...usage }, ...(summaryUsage ? { summaryUsage } : {}) }).catch(() => {});
+      await time("recordCharge", () => genRef.update({ credits: charged, usage: { model, ...usage }, ...(summaryUsage ? { summaryUsage } : {}) })).catch(() => {});
       return { charged, balance };
     };
     /** Logs the build and sends its trace (observability/), before the response ends. Never throws. */
@@ -275,6 +282,7 @@ export const generate = onRequest(
           checksMs: trace.checksMs, contextMs: trace.contextMs, holdMs: trace.holdMs,
           firstTokenMs: firstTokenAt === null ? null : firstTokenAt - startedAt, streamMs, saveMs: Date.now() - saveStarted,
         },
+        steps, coldStart,
       };
       const traceId = await sendBuildTrace(input);
       logBuild(input, traceId);
@@ -308,15 +316,15 @@ export const generate = onRequest(
         r.reason === NOT_READ && tooLarge.has(r.path) ? { ...r, reason: "too large for the AI to edit; split it or edit it by hand" } : r));
       validOps = result.valid;
       if (result.valid.length) {
-        await store.apply(pid, result.valid);
+        await time("uploadFiles", () => store.apply(pid, result.valid));
         applied = result.valid.map((o) => o.path);
         // A stopped build gets a fixed label instead of a model-written summary: no extra wait or cost.
         const summarized = cancelled
           ? { summary: "Stopped before finishing", usage: null }
-          : await summarizeChange(client, summaryModel, { prompt, plan: planParts.join("").trim(), files: applied });
+          : await time("summary", () => summarizeChange(client, summaryModel, { prompt, plan: planParts.join("").trim(), files: applied }));
         if (summarized.usage) summaryUsage = toTokenUsage(summarized.usage);
         summaryText = summarized.summary;
-        snapshotId = await store.snapshot(pid, generationId, "generation", summarized.summary);
+        snapshotId = await time("snapshot", () => store.snapshot(pid, generationId, "generation", summarized.summary));
       }
 
       if (!failure && rejected.length) {
@@ -329,25 +337,25 @@ export const generate = onRequest(
       }
       status = cancelled ? "cancelled" : !failure ? "done" : applied.length ? "partial" : "error";
 
-      await proj.collection("messages").add({
+      await time("saveMessages", () => proj.collection("messages").add({
         role: "user", content: prompt, generationId, createdAt: FieldValue.serverTimestamp(),
-      });
+      }));
       const stopped = !cancelled ? ""
         : !applied.length ? "Stopped before any files were written."
         : `Stopped. Kept the files below${unclosed ? `; ${unclosed} was not finished` : ""}.`;
       const prose = [planParts.join("").trim(), stopped].filter(Boolean).join("\n\n");
       const summary = applied.length ? `${prose}\n\nFiles: ${applied.join(", ")}` : prose || failure?.message || "";
-      await proj.collection("messages").add({
+      await time("saveMessages", () => proj.collection("messages").add({
         role: "assistant", content: summary, generationId, createdAt: FieldValue.serverTimestamp(),
-      });
-      await genRef.update({
+      }));
+      await time("updateGeneration", () => genRef.update({
         prompt,
         status,
         snapshotId,
         files: applied, // ranks the next builds' context (recently changed files first)
         ...(failure && !cancelled ? { error: failure.message } : {}),
-      });
-      if (applied.length) await proj.update({ updatedAt: FieldValue.serverTimestamp() });
+      }));
+      if (applied.length) await time("updateProject", () => proj.update({ updatedAt: FieldValue.serverTimestamp() }));
     } catch (err) {
       console.error("generate: persistence failed", err);
       failure = { code: "persist_failed", message: "Could not save the generated files." };
