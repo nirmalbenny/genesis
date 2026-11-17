@@ -2,7 +2,7 @@
 
 Branch `feat/filestore-context` (from `main` at `03bd8f7`). Not pushed, never deployed.
 
-Status: **Phase 3, Step 2**.
+Status: **Phase 3, Step 3**.
 
 ## Contents
 
@@ -135,7 +135,7 @@ A scheduled function lists `users/*/blobs/*`, builds the set of hashes reference
 |---|---|---|---|---|
 | 0. Tracking doc + design | done | `57a1744` | `docs/plans/filestore-and-context.md` | |
 | 1. FileStore interface | done | see change log | `functions/src/files/{index,firestoreStore,describe}.ts`, `api.ts`, `generate.ts`, `templates.ts` | none (no behavior change; existing 38 unit + 32 e2e pass unchanged) |
-| 2. Overwrite guard + changed files | todo | | | |
+| 2. Overwrite guard + changed files | done | see change log | `llm/validate.ts`, `llm/prompt.ts` (`renderFiles` returns `{ text, full }`), `generate.ts` | `parser.test.ts`: guard (seen / unseen / new / delete / two-argument form); `prompt.test.ts`: `renderFiles` reports full files |
 | 3. Content-addressed storage | todo | | | |
 | 4. Migration | todo | | | |
 | 5. Index + ranking | todo | | | |
@@ -148,6 +148,7 @@ _One entry per commit._
 
 - `57a1744` Plan: tracking doc with verification log, baseline, evaluation and design.
 - Step 1 `FileStore` interface: `functions/src/files.ts` moved to `files/firestoreStore.ts` behind a `FileStore` interface (`files/index.ts`): `manifest`, `read`, `readAll`, `apply`, `snapshot`, `restore`, `copy`, `listSnapshots`, plus a `replaceFiles(store, …)` helper for template upgrades. Every caller now goes through `fileStore()`, including `readFile`, `saveFile`, `listSnapshots` and `duplicateProject` (now `copy` + `snapshot`). `saveFile` now writes the file and then `updatedAt` (was one batch). Why: one seam for the storage change.
+- Step 2 overwrite guard: `validateOps(ops, existing, seen?)` rejects rewriting an existing file not in `seen` ("file was not read; ask to include it"); new files and deletes stay allowed; two-argument calls are unchanged. `renderFiles` returns the set of files sent in full, which `generate` passes as `seen`. Generation docs now store `files: applied`. Why: an omitted file could be overwritten blindly (finding 7); `files` feeds context ranking in Step 5.
 
 ## 7. Deviations and open questions
 
@@ -156,6 +157,8 @@ _One entry per commit._
 - D1: Step 4 converts snapshots lazily on restore instead of on first access (R6).
 - D2: The moving cache point is used only when an index is present (R3).
 - D3: `apply` is read-modify-write in a transaction; the strict version check is optional (R11).
+- D4: Step 1 (a refactor with no behavior change) was committed before Step 2, although confirmed decision 6 puts the guard first. Step 2 doesn't depend on it and nothing shipped in between, so I kept the order instead of rewriting history.
+- D5: An unseen file that is over the 20,000-character limit is rejected with "too large for the AI to edit; split it or edit it by hand" instead of the generic "file was not read" (R10).
 
 ### Open questions (not blocking)
 

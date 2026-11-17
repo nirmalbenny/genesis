@@ -10,8 +10,8 @@ import { fileStore, projectRef } from "./files";
 import { httpError, requireVerifiedUser, sendError } from "./http";
 import { createParser } from "./llm/parser";
 import { summarizeChange } from "./llm/summary";
-import { RECENT_MESSAGES, renderFiles, systemBlocks } from "./llm/prompt";
-import { validateOps, type FileOp, type Rejection } from "./llm/validate";
+import { RECENT_MESSAGES, renderFiles, SINGLE_FILE_LIMIT_CHARS, systemBlocks } from "./llm/prompt";
+import { NOT_READ, validateOps, type FileOp, type Rejection } from "./llm/validate";
 import { assertEditable, getOwnedProject, getUserHl, useConnectedLocation } from "./projects";
 
 const MAX_PROMPT_CHARS = 4000;
@@ -67,12 +67,13 @@ export const generate = onRequest(
       const history = recent.docs
         .reverse()
         .map((d) => ({ role: d.get("role") as "user" | "assistant", content: d.get("content") as string }));
+      const context = renderFiles(files);
       const request = {
         model,
         system: systemBlocks(),
         messages: [
           ...history,
-          { role: "user" as const, content: `Current project files:\n${renderFiles(files)}\n\nRequest: ${prompt}` },
+          { role: "user" as const, content: `Current project files:\n${context.text}\n\nRequest: ${prompt}` },
         ],
       };
 
@@ -87,13 +88,13 @@ export const generate = onRequest(
       // The prompt and chat messages are saved only after the model accepts the request,
       // so declined (off-topic or harmful) requests never enter history or later model context.
       await genRef.set({ status: "streaming", createdAt: FieldValue.serverTimestamp() });
-      ctx = { uid, pid, prompt, proj, store, files, request, genRef, held };
+      ctx = { uid, pid, prompt, proj, store, files, seen: context.full, request, genRef, held };
     } catch (err) {
       if (slot) await releaseBuildSlot(slot.uid, slot.generationId).catch((e) => console.error("generate: slot release failed", e));
       sendError(res, err);
       return;
     }
-    const { uid, pid, prompt, proj, store, files, request, genRef, held } = ctx;
+    const { uid, pid, prompt, proj, store, files, seen, request, genRef, held } = ctx;
     const generationId = genRef.id;
 
     // ---- SSE setup ----
@@ -204,8 +205,10 @@ export const generate = onRequest(
     let applied: string[] = [];
     try {
       const existing = new Set(files.map((f) => f.path));
-      const result = validateOps(ops, existing);
-      rejected.push(...result.rejected);
+      const tooLarge = new Set(files.filter((f) => f.content.length > SINGLE_FILE_LIMIT_CHARS).map((f) => f.path));
+      const result = validateOps(ops, existing, seen);
+      rejected.push(...result.rejected.map((r) =>
+        r.reason === NOT_READ && tooLarge.has(r.path) ? { ...r, reason: "too large for the AI to edit; split it or edit it by hand" } : r));
       if (result.valid.length) {
         await store.apply(pid, result.valid);
         applied = result.valid.map((o) => o.path);
@@ -242,6 +245,7 @@ export const generate = onRequest(
         prompt,
         status,
         snapshotId,
+        files: applied, // ranks the next builds' context (recently changed files first)
         ...(failure && !cancelled ? { error: failure.message } : {}),
       });
       if (applied.length) await proj.update({ updatedAt: FieldValue.serverTimestamp() });

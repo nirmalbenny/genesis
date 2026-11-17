@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildSystemPrompt, systemBlocks } from "./prompt";
+import { buildSystemPrompt, FILE_BUDGET_CHARS, renderFiles, SINGLE_FILE_LIMIT_CHARS, systemBlocks } from "./prompt";
 
 test("the system prompt is one cached block, byte-identical on every call", () => {
   const blocks = systemBlocks();
@@ -40,4 +40,19 @@ test("the system prompt forbids presenting work on loaded items as the full resu
   assert.match(prompt, /must cover all the data, not just the loaded page/);
   assert.match(prompt, /never present work on loaded items as the full result/);
   assert.match(prompt, /Not available to apps \(no endpoint\)/, "the reference lists what has no endpoint");
+});
+
+test("renderFiles reports which files were sent in full", () => {
+  const big = "x".repeat(SINGLE_FILE_LIMIT_CHARS + 1);
+  const third = "y".repeat(FILE_BUDGET_CHARS / 3); // under the single-file limit
+  const { text, full } = renderFiles([
+    { path: "src/A.vue", content: third },
+    { path: "src/Big.vue", content: big }, // over the single-file limit; later files still fit
+    { path: "src/B.vue", content: third },
+    { path: "src/C.vue", content: third }, // fills the budget exactly
+    { path: "src/D.vue", content: "z" }, // over the budget
+  ]);
+  assert.deepEqual([...full], ["src/A.vue", "src/B.vue", "src/C.vue"]);
+  assert.match(text, /<file path="src\/Big.vue">\[omitted: too large for context\]<\/file>/);
+  assert.match(text, /<file path="src\/D.vue">\[omitted/);
 });

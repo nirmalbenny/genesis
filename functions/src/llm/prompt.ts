@@ -75,17 +75,22 @@ export function systemBlocks(): Anthropic.TextBlockParam[] {
   return [{ type: "text", text: buildSystemPrompt(), cache_control: { type: "ephemeral" } }];
 }
 
-/** Renders current project files within a character budget; oversized files are listed but omitted. */
-export function renderFiles(files: ContextFile[]): string {
+/**
+ * Renders current project files within a character budget; oversized files are listed but omitted.
+ * `full` is the set of files sent in full: the only existing files the model may rewrite.
+ */
+export function renderFiles(files: ContextFile[]): { text: string; full: Set<string> } {
   let used = 0;
   const parts: string[] = [];
+  const full = new Set<string>();
   for (const f of files) {
     if (f.content.length > SINGLE_FILE_LIMIT_CHARS || used + f.content.length > FILE_BUDGET_CHARS) {
       parts.push(`<file path="${f.path}">[omitted: too large for context]</file>`);
       continue;
     }
     used += f.content.length;
+    full.add(f.path);
     parts.push(`<file path="${f.path}">\n${f.content}\n</file>`);
   }
-  return parts.join("\n");
+  return { text: parts.join("\n"), full };
 }
