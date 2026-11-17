@@ -1,5 +1,6 @@
 import { posix } from "node:path";
 import type { FileEntry, Manifest } from "../files";
+import { fileBlock } from "./format";
 import { FILE_BUDGET_CHARS, SINGLE_FILE_LIMIT_CHARS, type ContextFile } from "./prompt";
 
 /**
@@ -93,11 +94,11 @@ export function indexLine(path: string, e: FileEntry): string {
 }
 
 /**
- * The files section of the user message. Files sent in full are rendered exactly as before; when some are left
+ * The files section of the user message. Files sent in full are rendered as file blocks; when some are left
  * out, an index follows, with how to get them (`tools`: the read_files tool is available).
  */
 export function renderContext(files: ContextFile[], manifest: Manifest, index: string[], tools: boolean): string {
-  const text = files.map((f) => `<file path="${f.path}">\n${f.content}\n</file>`).join("\n");
+  const text = files.map((f) => fileBlock(f.path, f.content)).join("\n");
   if (!index.length) return text;
   const how = tools
     ? "Read any of them with read_files before changing them."

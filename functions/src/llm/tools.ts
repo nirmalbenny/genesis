@@ -1,6 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import type { Manifest, ProjectFile } from "../files";
 import { FILE_BUDGET_CHARS, SINGLE_FILE_LIMIT_CHARS } from "./prompt";
+import { fileBlock } from "./format";
 import { checkPath } from "./validate";
 
 /**
@@ -71,7 +72,7 @@ export async function runReadFiles(
   }
   const files = await read(wanted);
   for (const f of files) seen.add(f.path);
-  const parts = files.map((f) => `<file path="${f.path}">\n${f.content}\n</file>`);
+  const parts = files.map((f) => fileBlock(f.path, f.content));
   if (notes.length) parts.push(notes.join("\n"));
   return { content: parts.join("\n") || "Nothing to read.", is_error: files.length === 0, read: files.map((f) => f.path) };
 }

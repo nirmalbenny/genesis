@@ -25,10 +25,13 @@ export type BuildTraceInput = {
   model: string;
   summaryModel: string;
   fileStore: string;
+  /** Whether this build sent the read_files tool (only when the context left files out). */
   contextTools: boolean;
   context: { full: string[]; indexed: string[]; chars: number; activePath: string | null; openPaths: string[]; recentPaths: string[] };
   rounds: Round[];
   actions: { written: { path: string; bytes: number }[]; deleted: string[]; rejected: { path: string; reason: string }[]; snapshotId: string | null; summary: string | null };
+  /** Model slips the parser repaired (a missing close tag, leaked tool markup, a fenced file). */
+  fixups: { path: string; fix: string }[];
   credits: { held: number; extraHolds: number; charged: number };
   summaryUsage: TokenUsage | null;
   /** Durations of the steps before the stream, and of saving; firstTokenMs is from the request start. */
@@ -91,6 +94,7 @@ export function logBuild(t: BuildTraceInput, traceId: string | null): void {
     });
   }
   for (const r of t.actions.rejected) logEvent("build.rejected", { ...ids, path: r.path, reason: r.reason });
+  for (const f of t.fixups) logEvent("build.fixup", { ...ids, path: f.path, fix: f.fix });
   logEvent("build.end", {
     ...ids,
     status: t.status, errorCode: t.error?.code ?? null, errorStep: t.error ? errorStep(t.error.code) : null,
@@ -101,7 +105,7 @@ export function logBuild(t: BuildTraceInput, traceId: string | null): void {
     systemCacheHit: t.rounds[0] ? t.rounds[0].usage.cacheReadTokens > 0 : null,
     creditsHeld: t.credits.held, creditsCharged: t.credits.charged,
     filesInFull: t.context.full.length, filesIndexed: t.context.indexed.length, contextChars: t.context.chars,
-    written: t.actions.written.length, deleted: t.actions.deleted.length, rejected: t.actions.rejected.length,
+    written: t.actions.written.length, deleted: t.actions.deleted.length, rejected: t.actions.rejected.length, fixups: t.fixups.length,
     followUp: t.followUp.previousGenerationId !== null,
     ...t.timings, totalMs: t.endedAt - t.startedAt,
     steps: t.steps, coldStart: t.coldStart,

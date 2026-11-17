@@ -34,6 +34,7 @@ function build(over: Partial<BuildTraceInput> = {}): BuildTraceInput {
       written: [{ path: "src/components/Leads.vue", bytes: 4100 }], deleted: [],
       rejected: [{ path: "src/components/Stats.vue", reason: "file was not read; ask to include it" }], snapshotId: "snap1", summary: "Shows lead phone numbers",
     },
+    fixups: [{ path: "src/components/Leads.vue", fix: "tool_markup" }],
     credits: { held: 250, extraHolds: 90, charged: 101 },
     summaryUsage: usage(600, 12),
     timings: { checksMs: 300, contextMs: 400, holdMs: 300, firstTokenMs: 5000, streamMs: 14_200, saveMs: 1500 },
@@ -130,6 +131,7 @@ test("the build shows the prompt, the plan, failures and rejected files", async 
   const save = byName(spans, "save-changes")[0]!;
   assert.equal(attr(save, "langfuse.observation.level"), "WARNING");
   assert.equal(json(save, "langfuse.observation.output").rejected[0].reason, "file was not read; ask to include it");
+  assert.deepEqual(json(save, "langfuse.observation.output").fixups, [{ path: "src/components/Leads.vue", fix: "tool_markup" }]);
 });
 
 test("a declined request is traced without its prompt", async () => {

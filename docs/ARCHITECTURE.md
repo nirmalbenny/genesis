@@ -279,7 +279,7 @@ sequenceDiagram
   SPA->>SPA: Details dialog (name, description, category — prefilled from the prompt)
   SPA->>API: POST /projects
   SPA->>G: POST {projectId, prompt, editor tabs} (SSE)
-  G->>CL: messages.stream (system prompt + read_files tool + HL reference + ranked files + index + last 6 messages)
+  G->>CL: messages.stream (system prompt + HL reference + read_files tool when files are indexed + ranked files + index + last 6 messages)
   opt large app: the model reads indexed files (at most 2 calls)
     CL-->>G: read_files {paths}
     G-->>SPA: status reading
@@ -352,7 +352,15 @@ The chat shows the notice for that session only, so a declined request never aff
 
    **3a. Reading files (large apps).** The model may call `read_files` with up to 5 indexed paths, at most twice, before writing anything ([`llm/turns.ts`](../functions/src/llm/turns.ts)). Each call is a turn: the server returns the files (checked paths, existing, under the size limit, not already shown), sends `status {phase: "reading", paths}` to the client, and continues the conversation. After two read turns the next turn is sent with `tool_choice: none`, so the model must answer. The 16,000-token output cap covers all turns together. Stop and disconnects are checked between turns as well as during them. Only text reaches the parser; a file still open when the model calls the tool is dropped and reported.
 
-   An incremental parser streams tokens and file boundaries while the output is still arriving. It holds back partial closing tags until it can see the rest, and removes a stray `</parameter>` trailer the model occasionally adds to the end of a file.
+   An incremental parser ([`llm/parser.ts`](../functions/src/llm/parser.ts); tag names in [`llm/format.ts`](../functions/src/llm/format.ts)) streams tokens and file boundaries while the output is still arriving, and holds back the start of a tag until it can see the rest. It repairs the model's known slips, logs each as `build.fixup` (and in the trace), and saves the repaired file:
+   - **missing close:** a `<file path=…>` or `<delete path=…>` at the start of a line inside an open file closes that file; a file still open when the model ended its turn on its own is kept (a stream cut off or stopped still drops it);
+   - **leaked tool-call markup:** whole lines of `</parameter>`, `</invoke>`, `</function_calls>` (or their opening forms, with or without a namespace) are removed wherever they appear in a file;
+   - **fences:** a file wrapped entirely in a markdown code fence is unwrapped;
+   - also accepted: single-quoted paths, spaces around `=`, a delete without the slash or with a close tag.
+
+   Tag-like text elsewhere in source stays as is (`<file-upload>`, a `<file path=…>` string mid-line). The one known limit: a literal `</file>` in source ends the file there.
+
+   **Why the tool leaks and why the tags stay generic** (measured 2026-11-18, the production prompt, 4 builds per arm): with the `read_files` tool definition in the request, Claude sometimes ended files with `</parameter>` and `</invoke>` lines, as if writing a tool call (6 of 18 files; 0 of 18 without the tool). The tool is therefore sent only when files are indexed (§7.8). Namespaced tags (`<genesis-file>`) were tried and made it worse (10 of 19 files with the tool, 6 of 19 without), so the generic names stay.
 4. **Validation**, applied to each operation separately:
    - the path must be relative and inside `src/`, with an extension of `.vue`, `.ts`, `.js`, `.css` or `.json`;
    - files are capped at 100 KB;
@@ -489,7 +497,7 @@ On a cache miss the system prompt costs 7,100 × 2,500/M = 17.75 instead of 0.71
 
 ### 7.8 Prompt caching
 
-The system prompt (rules, UI kit and components, HighLevel reference, plus the `read_files` tool: about 7,100 tokens, up from 5,500 before the components) is identical for every user and build; it changes only on deploy. `generate` sends it as one block with `cache_control: { type: "ephemeral" }` ([`systemBlocks()`](../functions/src/llm/prompt.ts)), so Anthropic caches it for 5 minutes, and every read restarts that timer.
+The system prompt (rules, UI kit and components, HighLevel reference: about 6,700 tokens, up from 5,500 before the components; 7,100 with the `read_files` tool, for large apps) is identical for every user and build; it changes only on deploy. `generate` sends it as one block with `cache_control: { type: "ephemeral" }` ([`systemBlocks()`](../functions/src/llm/prompt.ts)), so Anthropic caches it for 5 minutes, and every read restarts that timer.
 
 | | System prompt cost | vs. uncached (14.2 credits) |
 |---|---|---|
@@ -497,10 +505,10 @@ The system prompt (rules, UI kit and components, HighLevel reference, plus the `
 | Cache miss: the first build after a quiet spell, or after a deploy | 7,100 × 2,500/M ≈ 17.75 | about 3.5 credits extra |
 
 - It pays off once about 1 build in 5 is a hit. A user's follow-up prompts nearly always are.
-- Measured on the emulator: two follow-ups 2 minutes apart showed `cacheWriteTokens: 5,487` then `cacheReadTokens: 5,487`. The second was charged 28 credits instead of 38. With the components (2026-11-18): a dashboard build wrote 7,121 tokens to the cache and the next build read 7,121.
+- Measured on the emulator: two follow-ups 2 minutes apart showed `cacheWriteTokens: 5,487` then `cacheReadTokens: 5,487`. The second was charged 28 credits instead of 38. With the components (2026-11-18): a dashboard build wrote 7,121 tokens to the cache (prompt and tool) and the next build read 7,121; with the tool sent only for large apps, small builds read 6,688.
 - The charge always follows Claude's reported usage, so caching can't over-charge. The hold prices all input as a cache miss, so it can't under-charge either.
 - Nothing per-user may be added to the system prompt: that would split the cache, and the cache is shared by every user of the API key. A test checks the block is byte-identical across calls.
-- **The `read_files` tool definition** is part of the cached prefix: tools render before the system prompt. It is frozen and byte-identical on every build (a test pins its hash), and with `CONTEXT_TOOLS=on` every build sends it, even when nothing is indexed, so all builds share one cache entry. Changing the definition, like changing the prompt, starts a new cache.
+- **The `read_files` tool definition** is part of the cached prefix: tools render before the system prompt. It is frozen and byte-identical on every build (a test pins its hash). With `CONTEXT_TOOLS=on` it is sent only when files are indexed (large apps), because its presence made Claude leak tool-call markup into files (§6). So there are two cache entries, one with the tool and one without; each is shared by every user. Changing the definition, like changing the prompt, starts a new cache.
 - **Moving cache point (read turns):** when files were indexed, the latest user turn also gets a `cache_control` marker, so a read turn re-reads the conversation at 0.05× instead of paying it again. It is added only then: on a build that ends in one turn, it would only add the 1.25× write. The last turn's `tool_choice: none` keeps the tools and system cache but invalidates the messages cache, so that turn pays the conversation again, at the normal input rate: it carries no cache point, since nothing comes after it. This happens only in builds that read twice; a note instead of the switch would keep the cache, at the price of an extra turn when the model ignores it (decided against for now; revisit if logs show many two-read builds).
 - The history, files and prompt aren't cached otherwise: they change on every build. The 1-hour TTL isn't used: it costs 2× to write, and the rate card has no price for it.
 - `generate: persisted` logs `cacheRead` / `cacheWrite`, and each generation stores them under `usage`.
