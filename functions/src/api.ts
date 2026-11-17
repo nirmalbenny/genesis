@@ -2,9 +2,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { onRequest, type Request } from "firebase-functions/v2/https";
 import { db } from "./admin";
 import { APP_ORIGINS, PREVIEW_TOKEN_SECRET } from "./config";
-import {
-  applyOps, createSnapshot, fileId, projectRef, readFiles, restoreSnapshot, SEED_FILES, writeFileDoc,
-} from "./files";
+import { fileStore, projectRef, SEED_FILES, writeOps } from "./files";
 import { grantSignupCredits } from "./credits";
 import { httpError, rateLimited, requireVerifiedUser, sendError } from "./http";
 import { createLimiter, LIMITS } from "./rateLimits";
@@ -44,7 +42,7 @@ const createProject: Handler = async (uid, req) => {
     updatedAt: FieldValue.serverTimestamp(),
     deletedAt: null,
   });
-  await applyOps(ref.id, SEED_FILES.map((f) => ({ type: "write" as const, ...f })));
+  await fileStore().apply(ref.id, writeOps(SEED_FILES));
   return { id: ref.id };
 };
 
@@ -53,7 +51,6 @@ const duplicateProject: Handler = async (uid, req, [pid]) => {
   const source = await getOwnedProject(uid, pid);
   const { name, description } = requireDetails(req.body);
   const hl = await getUserHl(uid);
-  const files = await readFiles(pid);
 
   const ref = db.collection("projects").doc();
   await ref.set({
@@ -69,8 +66,9 @@ const duplicateProject: Handler = async (uid, req, [pid]) => {
     updatedAt: FieldValue.serverTimestamp(),
     deletedAt: null,
   });
-  await applyOps(ref.id, files.map((f) => ({ type: "write" as const, ...f })));
-  await createSnapshot(ref.id, null, "copy", `Created from ${source.name}`);
+  const store = fileStore();
+  await store.copy(pid, ref.id);
+  await store.snapshot(ref.id, null, "copy", `Created from ${source.name}`);
   return { id: ref.id };
 };
 
@@ -121,7 +119,7 @@ const cancelGeneration: Handler = async (uid, _req, [pid, gid]) => {
 
 const listFiles: Handler = async (uid, req, [pid]) => {
   await getOwnedProject(uid, pid);
-  const files = await readFiles(pid);
+  const files = await fileStore().readAll(pid);
   const withContent = req.query.content === "true";
   return {
     files: files.map((f) =>
@@ -133,9 +131,9 @@ const listFiles: Handler = async (uid, req, [pid]) => {
 const readFile: Handler = async (uid, req, [pid]) => {
   await getOwnedProject(uid, pid);
   const path = String(req.query.path ?? "");
-  const snap = await projectRef(pid).collection("files").doc(fileId(path)).get();
-  if (!snap.exists) throw httpError(404, "not_found", "File not found");
-  return { path, content: snap.get("content") };
+  const [file] = await fileStore().read(pid, [path]);
+  if (!file) throw httpError(404, "not_found", "File not found");
+  return { path, content: file.content };
 };
 
 const saveFile: Handler = async (uid, req, [pid]) => {
@@ -146,31 +144,19 @@ const saveFile: Handler = async (uid, req, [pid]) => {
   if (pathError) throw httpError(400, "invalid_path", pathError);
   if (typeof content !== "string") throw httpError(400, "invalid_content", "content must be a string");
   if (Buffer.byteLength(content) > MAX_FILE_BYTES) throw httpError(413, "too_large", "File is too large");
-  const batch = db.batch();
-  writeFileDoc(pid, path, content)(batch);
-  batch.update(projectRef(pid), { updatedAt: FieldValue.serverTimestamp() });
-  await batch.commit();
+  await fileStore().apply(pid, [{ type: "write", path, content }]);
+  await projectRef(pid).update({ updatedAt: FieldValue.serverTimestamp() });
   return { ok: true };
 };
 
 const listSnapshots: Handler = async (uid, _req, [pid]) => {
   await getOwnedProject(uid, pid);
-  const snap = await projectRef(pid).collection("snapshots").orderBy("createdAt", "desc").limit(50).get();
-  return {
-    snapshots: snap.docs.map((d) => ({
-      id: d.id,
-      reason: d.get("reason"),
-      summary: d.get("summary") ?? null,
-      generationId: d.get("generationId"),
-      fileCount: d.get("fileCount"),
-      createdAt: d.get("createdAt")?.toMillis() ?? null,
-    })),
-  };
+  return { snapshots: await fileStore().listSnapshots(pid) };
 };
 
 const restore: Handler = async (uid, _req, [pid, sid]) => {
   assertEditable(await getOwnedProject(uid, pid));
-  const snapshotId = await restoreSnapshot(pid, sid);
+  const snapshotId = await fileStore().restore(pid, sid);
   if (!snapshotId) throw httpError(404, "not_found", "Snapshot not found");
   return { snapshotId };
 };

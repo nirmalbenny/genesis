@@ -2,7 +2,7 @@
 
 Branch `feat/filestore-context` (from `main` at `03bd8f7`). Not pushed, never deployed.
 
-Status: **Phase 3, Step 0**.
+Status: **Phase 3, Step 2**.
 
 ## Contents
 
@@ -16,6 +16,8 @@ Status: **Phase 3, Step 0**.
 - [8. Measurements](#8-measurements)
 
 ## 1. Verification log
+
+Line numbers refer to `main` at `03bd8f7` (`functions/src/files.ts` became `functions/src/files/firestoreStore.ts` in Step 1).
 
 | # | Finding | Result | Evidence |
 |---|---|---|---|
@@ -131,8 +133,8 @@ A scheduled function lists `users/*/blobs/*`, builds the set of hashes reference
 
 | Step | Status | Commits | Files touched | Tests added |
 |---|---|---|---|---|
-| 0. Tracking doc + design | in progress | | `docs/plans/filestore-and-context.md` | |
-| 1. FileStore interface | todo | | | |
+| 0. Tracking doc + design | done | `57a1744` | `docs/plans/filestore-and-context.md` | |
+| 1. FileStore interface | done | see change log | `functions/src/files/{index,firestoreStore,describe}.ts`, `api.ts`, `generate.ts`, `templates.ts` | none (no behavior change; existing 38 unit + 32 e2e pass unchanged) |
 | 2. Overwrite guard + changed files | todo | | | |
 | 3. Content-addressed storage | todo | | | |
 | 4. Migration | todo | | | |
@@ -143,6 +145,9 @@ A scheduled function lists `users/*/blobs/*`, builds the set of hashes reference
 ## 6. Change log
 
 _One entry per commit._
+
+- `57a1744` Plan: tracking doc with verification log, baseline, evaluation and design.
+- Step 1 `FileStore` interface: `functions/src/files.ts` moved to `files/firestoreStore.ts` behind a `FileStore` interface (`files/index.ts`): `manifest`, `read`, `readAll`, `apply`, `snapshot`, `restore`, `copy`, `listSnapshots`, plus a `replaceFiles(store, …)` helper for template upgrades. Every caller now goes through `fileStore()`, including `readFile`, `saveFile`, `listSnapshots` and `duplicateProject` (now `copy` + `snapshot`). `saveFile` now writes the file and then `updatedAt` (was one batch). Why: one seam for the storage change.
 
 ## 7. Deviations and open questions
 

@@ -6,7 +6,7 @@ import {
   chargeable, creditsFor, holdCredits, releaseBuildSlot, reserveBuildSlot, settleCredits, toTokenUsage, worstCaseCredits,
   type TokenUsage,
 } from "./credits";
-import { applyOps, createSnapshot, projectRef, readFiles } from "./files";
+import { fileStore, projectRef } from "./files";
 import { httpError, requireVerifiedUser, sendError } from "./http";
 import { createParser } from "./llm/parser";
 import { summarizeChange } from "./llm/summary";
@@ -59,8 +59,9 @@ export const generate = onRequest(
       const genRef = proj.collection("generations").doc();
       await reserveBuildSlot(uid, pid, genRef.id);
       slot = { uid, generationId: genRef.id };
+      const store = fileStore();
       const [files, recent] = await Promise.all([
-        readFiles(pid),
+        store.readAll(pid),
         proj.collection("messages").orderBy("createdAt", "desc").limit(RECENT_MESSAGES).get(),
       ]);
       const history = recent.docs
@@ -86,13 +87,13 @@ export const generate = onRequest(
       // The prompt and chat messages are saved only after the model accepts the request,
       // so declined (off-topic or harmful) requests never enter history or later model context.
       await genRef.set({ status: "streaming", createdAt: FieldValue.serverTimestamp() });
-      ctx = { uid, pid, prompt, proj, files, request, genRef, held };
+      ctx = { uid, pid, prompt, proj, store, files, request, genRef, held };
     } catch (err) {
       if (slot) await releaseBuildSlot(slot.uid, slot.generationId).catch((e) => console.error("generate: slot release failed", e));
       sendError(res, err);
       return;
     }
-    const { uid, pid, prompt, proj, files, request, genRef, held } = ctx;
+    const { uid, pid, prompt, proj, store, files, request, genRef, held } = ctx;
     const generationId = genRef.id;
 
     // ---- SSE setup ----
@@ -206,14 +207,14 @@ export const generate = onRequest(
       const result = validateOps(ops, existing);
       rejected.push(...result.rejected);
       if (result.valid.length) {
-        await applyOps(pid, result.valid);
+        await store.apply(pid, result.valid);
         applied = result.valid.map((o) => o.path);
         // A stopped build gets a fixed label instead of a model-written summary: no extra wait or cost.
         const summarized = cancelled
           ? { summary: "Stopped before finishing", usage: null }
           : await summarizeChange(client, summaryModel, { prompt, plan: planParts.join("").trim(), files: applied });
         if (summarized.usage) summaryUsage = toTokenUsage(summarized.usage);
-        snapshotId = await createSnapshot(pid, generationId, "generation", summarized.summary);
+        snapshotId = await store.snapshot(pid, generationId, "generation", summarized.summary);
       }
 
       if (!failure && rejected.length) {
