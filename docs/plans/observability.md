@@ -1,6 +1,6 @@
 # Plan: build observability with Langfuse
 
-Branch `feat/observability` (from `main` at `3f08450`). Status: **in progress**: Steps 0–3 done; Cloud Monitoring and docs next.
+Branch `feat/observability` (from `main` at `3f08450`). Status: **ready for review** (pull request). Steps 0–3 and 5 done; Step 4 (dashboard and alerts) deferred to a follow-up.
 
 ## Contents
 
@@ -65,8 +65,8 @@ One line per event with `generationId`, `uid`, `projectId`, metadata only (no pr
 | 1. Per-round reporting in the turn loop; structured logs | done | `turns.test.ts` (rounds, no double count) |
 | 2. Langfuse trace (shape, attributes, cost, masking) wired into `generate` | done | `observability/langfuse.test.ts` (7, through the real Langfuse processor with an in-memory exporter) |
 | 3. Run real builds and audit their traces in Langfuse (skill step 3) | done (2026-11-18, US region, project "My Project"): 4 real builds on the emulators; audit fixes applied and re-checked | `langfuse.test.ts` (8): conversation input, cut-off warning |
-| 4. Cloud Monitoring metrics, dashboard and alerts script | todo | |
-| 5. Docs, verify, pull request | todo | |
+| 4. Dashboard and alerts | deferred: a Genesis dashboard in Langfuse, and alerts via Langfuse (Slack) or Cloud Monitoring (email), to decide | |
+| 5. Docs, verify, pull request | done: ARCHITECTURE §14 (+ diagram, §11, §13), README (settings, AI and security rows, deployment); functions 79/79, e2e 43/43, frontend 36/36 + build, docs check | `langfuse.test.ts`: failing or hanging Langfuse |
 
 ## 4. Change log
 
@@ -96,7 +96,7 @@ Re-checked after the fixes: types, nesting, user/session/tags on every observati
 
 ## 5. Manual steps and open questions
 
-1. Create a Langfuse account and project (free plan), pick the region, and create a project API key pair.
-2. Locally: put the keys in `functions/.secret.local` (`LANGFUSE_PUBLIC_KEY=…`, `LANGFUSE_SECRET_KEY=…`), set `TRACING=langfuse` (and the region URL if not EU) in `functions/.env.local`. Never paste keys into chat.
-3. Before merging: `firebase functions:secrets:set LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY`; set the GitHub variables `TRACING=langfuse` and, for the US region, `LANGFUSE_BASE_URL`.
+1. ~~Langfuse account and project~~ done (US region).
+2. ~~Locally~~ done: put the keys in `functions/.secret.local` (`LANGFUSE_PUBLIC_KEY=…`, `LANGFUSE_SECRET_KEY=…`), set `TRACING=langfuse` (and the region URL if not EU) in `functions/.env.local`. Never paste keys into chat.
+3. ~~Secrets in Secret Manager and GitHub variables `TRACING=langfuse`, `LANGFUSE_BASE_URL=https://us.cloud.langfuse.com`~~ done 2026-11-18.
 4. Privacy policy: prompts and plan text are processed by Langfuse.
