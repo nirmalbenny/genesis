@@ -23,6 +23,7 @@ Describe an app in plain English. Genesis streams the code from Claude into a li
 - **Apps that read and write:** generated apps show live contacts, conversations and calendars, and can create and update contacts (with tags and notes), book, reschedule and cancel appointments, mark conversations read or starred, and send SMS or email. Deletes are never allowed.
 - **Prompt-first workspace:** describe an app and name it, then watch Claude's output stream into Monaco (read-only while it streams). The preview shows a "Building your app" overlay meanwhile.
 - **Live preview:** apps run in a Sandpack iframe and call HighLevel through a secure proxy. They never see your token.
+- **Generated apps look like Genesis:** they're built from injected components with shadcn-vue's API (buttons, cards, forms, tables, dialogs, menus, selects, tabs) on a shared UI kit in Genesis's coral, navy and Inter. Claude writes almost no CSS, and a user can still ask for another look.
 - **Generated apps paginate:** contacts, conversations and messages load 20 at a time behind Load more. Calendar apps can show events and open booking slots.
 - **Stop a build:** press Stop or Esc mid-stream. Finished files are kept, the half-written one is discarded, and only the tokens used are charged.
 - **Edit and refine:** edit code by hand or refine with follow-up prompts. Every build is a **snapshot** with an AI-written summary, and any of them can be restored from the History sheet.
@@ -178,7 +179,7 @@ Secrets go in `functions/.secret.local` for the emulator and in **Secret Manager
 |---|---|---|
 | `frontend/` | `npm run dev` | Tunnel plus Vite dev server |
 | `frontend/` | `npm run build` | Type-check (`vue-tsc`) and production build into `dist/` |
-| `frontend/` | `npm test` | Unit tests (Vitest): the SSE reader and the build state machine (streaming, refusals, declines, broken streams, Stop) |
+| `frontend/` | `npm test` | Unit tests (Vitest): the SSE reader and the build state machine (streaming, refusals, declines, broken streams, Stop); the injected client, UI kit and components (doc sync, add-only, rendering, preview-compiler limits); every ready-made app compiles |
 | `frontend/` | `npm run lint` | ESLint (Vue + TypeScript recommended rules) |
 | `functions/` | `npm run build` | Compile to `lib/` (runs automatically before deploy) |
 | `functions/` | `npm test` | Unit tests: stream parser, output validator, file metadata and manifests, build context and `read_files` turns, credits, rate-limit algorithms, token encryption, ready-made templates |
@@ -214,7 +215,8 @@ Secrets go in `functions/.secret.local` for the emulator and in **Secret Manager
 7. **HighLevel tokens are encrypted at rest and refreshed safely.** Each user's tokens are sealed with envelope encryption: a fresh AES-256-GCM key per record, wrapped by a Cloud KMS key that never leaves KMS, so reading them needs database access _and_ KMS permission. Refresh tokens are single-use, so concurrent refreshes are funnelled into one request per instance, and losing requests read back the winner's token.
 8. **The model's context is bounded and ranked, and the API reference is hand-written.** Files within a character budget (in a large app: entry files, open tabs, recent changes and files the prompt names first, the rest as an index the model can read with `read_files`), the last 6 messages, and a compact reference verified against a live sandbox. The model can't overwrite a file it hasn't seen. The prompt makes **pagination** mandatory and forbids hard-coding a location ID.
 9. **Ready-made apps are content-hashed templates seeded on first visit.** Seeding is safe to repeat, the apps are locked on the server and edited through copies, and template changes upgrade users' locked copies automatically.
-10. **Off-topic or harmful prompts are declined, and never stored.** They're detected through a `<refuse>` reply or the API's refusal stop reason, so a declined prompt can't influence later prompts.
+10. **Generated apps share an injected client, UI kit and component set.** The HighLevel client, `ui.css` and about 60 shadcn-style Vue components are injected into every preview and never saved, so the model writes less code and every app (ready-made ones included) gets the same look and accessible overlays. They're live for every app at once, so they only ever grow (add-only, enforced by tests).
+11. **Off-topic or harmful prompts are declined, and never stored.** They're detected through a `<refuse>` reply or the API's refusal stop reason, so a declined prompt can't influence later prompts.
 
 ## AI at a glance
 

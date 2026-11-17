@@ -103,8 +103,8 @@ onBeforeUnmount(() => clearTimeout(timer));
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: #fff;
-  border-right: 1px solid #dfe3eb;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
 }
 .search {
   display: flex;
@@ -113,15 +113,15 @@ onBeforeUnmount(() => clearTimeout(timer));
   margin: 16px 16px 0;
   padding: 0 12px;
   height: 40px;
-  border: 1px solid #dfe3eb;
+  border: 1px solid var(--border);
   border-radius: 8px;
-  color: #516f90;
-  background: #f5f8fa;
+  color: var(--muted);
+  background: var(--bg);
 }
 .search:focus-within {
-  border-color: #ff5c35;
+  border-color: var(--primary);
   box-shadow: 0 0 0 3px rgba(255, 92, 53, 0.15);
-  background: #fff;
+  background: var(--surface);
 }
 .search input {
   flex: 1;
@@ -129,14 +129,14 @@ onBeforeUnmount(() => clearTimeout(timer));
   border: 0;
   background: transparent;
   font: inherit;
-  color: #213343;
+  color: var(--text);
   outline: none;
 }
 .hint {
   margin: 12px 16px 6px;
   font-size: 11px;
   font-weight: 600;
-  color: #7c98b6;
+  color: color-mix(in srgb, var(--muted) 70%, var(--surface));
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
@@ -163,24 +163,24 @@ onBeforeUnmount(() => clearTimeout(timer));
   cursor: pointer;
 }
 .row:hover {
-  background: #f5f8fa;
+  background: var(--bg);
 }
 .row:focus-visible {
-  outline: 2px solid #ff5c35;
+  outline: 2px solid var(--primary);
   outline-offset: -2px;
 }
 .row.active {
-  background: #fff1ee;
+  background: var(--primary-soft);
 }
 .row.active .name {
-  color: #ff5c35;
+  color: var(--primary);
 }
 .avatar {
   flex: none;
   width: 34px;
   height: 34px;
   border-radius: 50%;
-  color: #fff;
+  color: var(--on-primary);
   display: grid;
   place-items: center;
   font-size: 12px;
@@ -200,7 +200,7 @@ onBeforeUnmount(() => clearTimeout(timer));
 }
 .sub {
   font-size: 12px;
-  color: #516f90;
+  color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

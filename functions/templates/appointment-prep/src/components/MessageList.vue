@@ -111,12 +111,12 @@ h3 {
   border-radius: 10px;
   white-space: pre-wrap;
   word-break: break-word;
-  background: #f5f8fa;
+  background: var(--bg);
   border: 1px solid var(--border);
 }
 .out .bubble {
-  background: #fff1ed;
-  border-color: #ffd5c9;
+  background: var(--primary-soft);
+  border-color: color-mix(in srgb, var(--primary) 25%, var(--surface));
 }
 .meta {
   font-size: 12px;

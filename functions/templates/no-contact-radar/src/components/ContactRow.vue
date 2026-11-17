@@ -49,7 +49,7 @@ const extraTags = computed(() =>
   gap: 16px;
   align-items: center;
   padding: 14px 20px;
-  border-top: 1px solid #dfe3eb;
+  border-top: 1px solid var(--border);
 }
 .row:first-child {
   border-top: 0;
@@ -58,8 +58,8 @@ const extraTags = computed(() =>
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  background: #fff1ed;
-  color: #ff5c35;
+  background: var(--primary-soft);
+  color: var(--primary);
   font-weight: 700;
   display: flex;
   align-items: center;
@@ -67,11 +67,11 @@ const extraTags = computed(() =>
 }
 .name {
   font-weight: 600;
-  color: #213343;
+  color: var(--text);
   overflow-wrap: anywhere;
 }
 .sub {
-  color: #516f90;
+  color: var(--muted);
   font-size: 13px;
   overflow-wrap: anywhere;
 }
@@ -81,16 +81,16 @@ const extraTags = computed(() =>
   gap: 6px;
 }
 .tag {
-  background: #eaf0f6;
-  color: #33475b;
+  background: var(--surface-muted);
+  color: color-mix(in srgb, var(--text) 85%, var(--muted));
   border-radius: 999px;
   padding: 2px 10px;
   font-size: 12px;
   overflow-wrap: anywhere;
 }
 .tag.more {
-  background: #f5f8fa;
-  color: #516f90;
+  background: var(--bg);
+  color: var(--muted);
 }
 .last {
   display: flex;
@@ -100,11 +100,11 @@ const extraTags = computed(() =>
 }
 .rel {
   font-weight: 600;
-  color: #213343;
+  color: var(--text);
 }
 .badge {
-  background: #ff5c35;
-  color: #fff;
+  background: var(--primary);
+  color: var(--on-primary);
   font-size: 12px;
   font-weight: 700;
   padding: 2px 10px;

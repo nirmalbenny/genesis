@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, watch } from "vue";
 import SectionCard from "./SectionCard.vue";
+import { Avatar, Badge } from "../genesis/ui";
 import { hlGet, LOCATION_ID } from "../api.js";
 import { useResource } from "../useResource.js";
 import { relativeTime, toDate, contactDisplayName } from "../utils.js";
@@ -55,111 +56,41 @@ function tags(c) {
 </script>
 
 <template>
-  <SectionCard
-    title="New leads"
-    :loading="loading"
-    :error="error"
-    :empty="leads.length === 0"
-    empty-text="No new leads in the last 7 days."
-    empty-icon="🌱"
-    :badge="data && data.maybeMore ? leads.length + '+' : leads.length"
-    @retry="load"
-  >
-    <ul class="list">
-      <li v-for="(c, i) in leads" :key="c.id || i" class="row">
-        <div class="avatar">{{ (contactDisplayName(c).match(/[\p{L}\p{N}]/u)?.[0] ?? "?").toUpperCase() }}</div>
-        <div class="info">
-          <div class="top">
-            <p class="name">{{ contactDisplayName(c) }}</p>
-            <span class="when">{{ relativeTime(c.dateAdded) }}</span>
-          </div>
-          <p class="source">{{ source(c) }}</p>
-          <div v-if="tags(c).length" class="tags">
-            <span v-for="t in tags(c).slice(0, 3)" :key="t" class="tag">{{ t }}</span>
-            <span v-if="tags(c).length > 3" class="tag more">+{{ tags(c).length - 3 }}</span>
-          </div>
+<SectionCard
+  title="New leads"
+  :loading="loading"
+  :error="error"
+  :empty="leads.length === 0"
+  empty-text="No new leads in the last 7 days."
+  empty-icon="🌱"
+  :badge="data && data.maybeMore ? leads.length + '+' : leads.length"
+  @retry="load"
+>
+  <ul class="list">
+    <li v-for="(c, i) in leads" :key="c.id || i" class="list-item" style="align-items: flex-start">
+      <Avatar :name="contactDisplayName(c)" />
+      <div class="info">
+        <div class="row" style="justify-content: space-between; flex-wrap: nowrap">
+          <p class="truncate name">{{ contactDisplayName(c) }}</p>
+          <span class="small muted" style="flex: none">{{ relativeTime(c.dateAdded) }}</span>
         </div>
-      </li>
-    </ul>
-  </SectionCard>
+        <p class="truncate small muted">{{ source(c) }}</p>
+        <div v-if="tags(c).length" class="row" style="margin-top: 6px; gap: 6px">
+          <Badge v-for="t in tags(c).slice(0, 3)" :key="t" variant="secondary">{{ t }}</Badge>
+          <Badge v-if="tags(c).length > 3" variant="outline">+{{ tags(c).length - 3 }}</Badge>
+        </div>
+      </div>
+    </li>
+  </ul>
+</SectionCard>
 </template>
 
 <style scoped>
-.list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.row {
-  display: flex;
-  gap: 12px;
-  padding: 12px;
-  border: 1px solid #eaeef3;
-  border-radius: 8px;
-}
-.avatar {
-  flex: none;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: #eef1f5;
-  color: #213343;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
 .info {
   flex: 1;
   min-width: 0;
 }
-.top {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-}
 .name {
-  margin: 0;
   font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.when {
-  flex: none;
-  font-size: 12px;
-  color: #516f90;
-}
-.source {
-  margin: 2px 0 0;
-  font-size: 13px;
-  color: #516f90;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 8px;
-}
-.tag {
-  font-size: 12px;
-  background: #eef1f5;
-  color: #516f90;
-  border-radius: 999px;
-  padding: 2px 10px;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.tag.more {
-  background: #fff1ed;
-  color: #ff5c35;
 }
 </style>

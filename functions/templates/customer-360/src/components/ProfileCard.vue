@@ -111,7 +111,7 @@ watch(() => props.contactId, load, { immediate: true });
   height: 56px;
   border-radius: 50%;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-primary);
   font-size: 1.2rem;
   font-weight: 700;
   display: flex;

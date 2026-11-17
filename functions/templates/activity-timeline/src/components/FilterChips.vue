@@ -36,7 +36,7 @@ const options = [
   gap: 2px;
   padding: 3px;
   border-radius: 9px;
-  background: #eaf0f6;
+  background: var(--surface-muted);
   max-width: 100%;
   overflow-x: auto;
 }
@@ -51,20 +51,20 @@ const options = [
   font: inherit;
   font-size: 13px;
   font-weight: 500;
-  color: #516f90;
+  color: var(--muted);
   cursor: pointer;
   white-space: nowrap;
 }
 .tab:hover {
-  color: #213343;
+  color: var(--text);
 }
 .tab:focus-visible {
-  outline: 2px solid #ff5c35;
+  outline: 2px solid var(--primary);
   outline-offset: 1px;
 }
 .tab.active {
-  background: #fff;
-  color: #213343;
+  background: var(--surface);
+  color: var(--text);
   font-weight: 600;
   box-shadow: 0 1px 2px rgba(33, 51, 67, 0.12);
 }
@@ -72,13 +72,13 @@ const options = [
   min-width: 18px;
   padding: 0 5px;
   border-radius: 999px;
-  background: #dfe3eb;
+  background: var(--border);
   font-size: 11px;
   line-height: 18px;
   text-align: center;
 }
 .tab.active .count {
-  background: #ff5c35;
-  color: #fff;
+  background: var(--primary);
+  color: var(--on-primary);
 }
 </style>

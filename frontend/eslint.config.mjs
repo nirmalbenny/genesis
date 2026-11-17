@@ -21,4 +21,7 @@ export default defineConfigWithVueTs(
   },
   // Route pages are named after the page (Dashboard, Workspace); the multi-word rule is for reusable components.
   { files: ['src/views/**'], rules: { 'vue/multi-word-component-names': 'off' } },
+  // Components injected into generated apps: plain JavaScript (the Sandpack preview doesn't compile TypeScript)
+  // and shadcn's single-word names (Button, Card), which the model already knows.
+  { files: ['src/sandbox/genesis/ui/**'], rules: { 'vue/multi-word-component-names': 'off', 'vue/block-lang': 'off' } },
 )

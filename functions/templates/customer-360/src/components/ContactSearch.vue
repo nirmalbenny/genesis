@@ -40,9 +40,9 @@
       </ul>
 
       <div v-if="moreError" class="more-error">{{ moreError }}</div>
-      <button v-if="hasMore" class="btn ghost more" :disabled="loadingMore" @click="loadMore">
+      <Button v-if="hasMore" variant="outline" class="more" :disabled="loadingMore" @click="loadMore">
         {{ loadingMore ? "Loading…" : moreError ? "Retry" : "Load more" }}
-      </button>
+      </Button>
     </StateBlock>
   </div>
 </template>
@@ -52,6 +52,7 @@ import { ref, computed, watch, onMounted, onBeforeUnmount } from "vue";
 import { hl, LOCATION_ID } from "../api.js";
 import { displayName, initials } from "../utils.js";
 import StateBlock from "./StateBlock.vue";
+import { Button } from "../genesis/ui";
 
 const props = defineProps({ modelValue: { type: String, default: null } });
 const emit = defineEmits(["update:modelValue", "picked"]);
@@ -154,21 +155,6 @@ onBeforeUnmount(() => clearTimeout(timer));
 </script>
 
 <style scoped>
-.input {
-  width: 100%;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  color: var(--navy);
-  background: #fff;
-  outline: none;
-}
-
-.input:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
-}
-
 .hint {
   margin: 8px 0 8px;
   font-size: 0.8rem;
@@ -191,7 +177,7 @@ onBeforeUnmount(() => clearTimeout(timer));
   align-items: center;
   gap: 12px;
   text-align: left;
-  background: #fff;
+  background: var(--surface);
   border: 1px solid transparent;
   border-radius: 8px;
   padding: 10px;
@@ -223,7 +209,7 @@ onBeforeUnmount(() => clearTimeout(timer));
 
 .item.active .avatar {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-primary);
 }
 
 .info {
@@ -254,7 +240,7 @@ onBeforeUnmount(() => clearTimeout(timer));
 
 .more-error {
   margin-top: 10px;
-  color: #b3261e;
+  color: var(--danger);
   font-size: 0.85rem;
   word-break: break-word;
 }

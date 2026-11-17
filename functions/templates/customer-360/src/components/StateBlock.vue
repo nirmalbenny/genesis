@@ -1,17 +1,18 @@
 <template>
-  <div v-if="loading" class="state">
-    <span class="spinner" aria-hidden="true"></span>
-    <span>{{ loadingText }}</span>
-  </div>
-  <div v-else-if="error" class="state error" role="alert">
-    <p class="msg">{{ error }}</p>
-    <button class="btn" @click="$emit('retry')">Retry</button>
-  </div>
-  <div v-else-if="empty" class="state muted">{{ emptyText }}</div>
+  <Loading v-if="loading" :text="loadingText" />
+  <Alert v-else-if="error" variant="destructive">
+    <AlertDescription class="stack" style="align-items: flex-start">
+      <span style="word-break: break-word">{{ error }}</span>
+      <Button size="sm" @click="$emit('retry')">Retry</Button>
+    </AlertDescription>
+  </Alert>
+  <EmptyState v-else-if="empty" title="" :description="emptyText" />
   <slot v-else />
 </template>
 
 <script setup>
+import { Alert, AlertDescription, Button, EmptyState, Loading } from "../genesis/ui";
+
 defineProps({
   loading: Boolean,
   error: { type: String, default: "" },
@@ -21,37 +22,3 @@ defineProps({
 });
 defineEmits(["retry"]);
 </script>
-
-<style scoped>
-.state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: 24px 12px;
-  text-align: center;
-  color: var(--muted);
-}
-
-.state.error .msg {
-  margin: 0;
-  color: #b3261e;
-  word-break: break-word;
-}
-
-.spinner {
-  width: 22px;
-  height: 22px;
-  border: 3px solid var(--border);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-</style>

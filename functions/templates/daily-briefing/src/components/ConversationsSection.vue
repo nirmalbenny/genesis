@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, watch } from "vue";
 import SectionCard from "./SectionCard.vue";
+import { Avatar, Badge } from "../genesis/ui";
 import { hlGet, LOCATION_ID } from "../api.js";
 import { useResource } from "../useResource.js";
 import { relativeTime, contactDisplayName } from "../utils.js";
@@ -43,109 +44,39 @@ function preview(c) {
 </script>
 
 <template>
-  <SectionCard
-    title="Unread conversations"
-    :loading="loading"
-    :error="error"
-    :empty="conversations.length === 0"
-    empty-text="You're all caught up — no unread conversations."
-    empty-icon="💬"
-    :badge="total"
-    @retry="load"
-  >
-    <ul class="list">
-      <li v-for="(c, i) in conversations" :key="c.id || i" class="row">
-        <div class="avatar">{{ (contactDisplayName(c).match(/[\p{L}\p{N}]/u)?.[0] ?? "?").toUpperCase() }}</div>
-        <div class="info">
-          <div class="top">
-            <p class="name">{{ contactDisplayName(c) }}</p>
-            <span class="when">{{ relativeTime(c.lastMessageDate) }}</span>
-          </div>
-          <p class="preview">{{ preview(c) }}</p>
+<SectionCard
+  title="Unread conversations"
+  :loading="loading"
+  :error="error"
+  :empty="conversations.length === 0"
+  empty-text="You're all caught up — no unread conversations."
+  empty-icon="💬"
+  :badge="total"
+  @retry="load"
+>
+  <ul class="list">
+    <li v-for="(c, i) in conversations" :key="c.id || i" class="list-item">
+      <Avatar :name="contactDisplayName(c)" />
+      <div class="info">
+        <div class="row" style="justify-content: space-between; flex-wrap: nowrap">
+          <p class="truncate name">{{ contactDisplayName(c) }}</p>
+          <span class="small muted" style="flex: none">{{ relativeTime(c.lastMessageDate) }}</span>
         </div>
-        <span v-if="c.unreadCount > 0" class="unread">{{ c.unreadCount }}</span>
-      </li>
-    </ul>
-    <p v-if="total > conversations.length" class="more">Showing {{ conversations.length }} of {{ total }}</p>
-  </SectionCard>
+        <p class="truncate small muted">{{ preview(c) }}</p>
+      </div>
+      <Badge v-if="c.unreadCount > 0">{{ c.unreadCount }}</Badge>
+    </li>
+  </ul>
+  <p v-if="total > conversations.length" class="small muted" style="text-align: center">Showing {{ conversations.length }} of {{ total }}</p>
+</SectionCard>
 </template>
 
 <style scoped>
-.list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px;
-  border: 1px solid #eaeef3;
-  border-radius: 8px;
-}
-.avatar {
-  flex: none;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: #fff1ed;
-  color: #ff5c35;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
 .info {
   flex: 1;
   min-width: 0;
 }
-.top {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-}
 .name {
-  margin: 0;
   font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.when {
-  flex: none;
-  font-size: 12px;
-  color: #516f90;
-}
-.preview {
-  margin: 2px 0 0;
-  font-size: 13px;
-  color: #516f90;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.unread {
-  flex: none;
-  min-width: 22px;
-  height: 22px;
-  padding: 0 6px;
-  border-radius: 999px;
-  background: #ff5c35;
-  color: #fff;
-  font-size: 12px;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.more {
-  margin: 12px 0 0;
-  font-size: 12px;
-  color: #516f90;
-  text-align: center;
 }
 </style>
