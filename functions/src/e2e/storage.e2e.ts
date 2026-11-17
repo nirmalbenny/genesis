@@ -4,18 +4,22 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { call, connectHl, createApp, db, FILE_STORE, newUser, STORAGE_HOST } from "./helpers";
+import { call, connectHl, createApp, db, FILE_STORE, newUser, PROJECT, STORAGE_HOST } from "./helpers";
 import { contentHash } from "../files/describe";
 
 const blobs = FILE_STORE === "blobs";
 const STORAGE = `http://${STORAGE_HOST}`;
 
-/** The emulator's bucket (the functions' default bucket), found from a stored object. */
-async function bucketName(): Promise<string> {
-  const res = await fetch(`${STORAGE}/storage/v1/b?project=any`);
-  const { items = [] } = (await res.json()) as { items?: { name: string }[] };
-  assert.equal(items.length, 1, `expected one bucket, got ${items.map((b) => b.name).join(", ")}`);
-  return items[0]!.name;
+/**
+ * The functions' default bucket: `<project>.firebasestorage.app` for current projects, `<project>.appspot.com` for
+ * older and demo ones. The emulator can't list buckets, so find the one holding a known object.
+ */
+async function bucketHolding(object: string): Promise<string> {
+  for (const bucket of [`${PROJECT}.firebasestorage.app`, `${PROJECT}.appspot.com`]) {
+    const res = await fetch(`${STORAGE}/storage/v1/b/${bucket}/o/${encodeURIComponent(object)}`);
+    if (res.ok) return bucket;
+  }
+  throw new Error(`no bucket holds ${object}`);
 }
 
 test("files are stored as per-user blobs plus a manifest; snapshots keep only the manifest", { skip: !blobs && "FILE_STORE is not blobs" }, async () => {
@@ -30,8 +34,9 @@ test("files are stored as per-user blobs plus a manifest; snapshots keep only th
   assert.ok(project.manifestVersion >= 2);
   assert.equal((await db.collection(`projects/${id}/files`).get()).size, 0, "no Firestore file documents");
 
-  const bucket = await bucketName();
-  const object = encodeURIComponent(`users/${u.uid}/blobs/${contentHash(content)}`);
+  const path = `users/${u.uid}/blobs/${contentHash(content)}`;
+  const bucket = await bucketHolding(path);
+  const object = encodeURIComponent(path);
   const stored = await fetch(`${STORAGE}/storage/v1/b/${bucket}/o/${object}?alt=media`);
   assert.equal(await stored.text(), content);
 
@@ -46,8 +51,9 @@ test("no client can read or write Storage, not even the owner of the content", {
   await connectHl(owner);
   await createApp(owner);
   const hash = (await db.collection("projects").where("ownerId", "==", owner.uid).get()).docs[0]!.get("manifest")["src/App.vue"].hash;
-  const bucket = await bucketName();
-  const object = encodeURIComponent(`users/${owner.uid}/blobs/${hash}`);
+  const path = `users/${owner.uid}/blobs/${hash}`;
+  const bucket = await bucketHolding(path);
+  const object = encodeURIComponent(path);
   // The Firebase client SDK's REST API, which enforces storage.rules (the Admin SDK and the GCS API bypass them).
   const asClient = (u: { token: string } | null, method: string, body?: string) =>
     fetch(method === "POST" ? `${STORAGE}/v0/b/${bucket}/o?name=${object}` : `${STORAGE}/v0/b/${bucket}/o/${object}${method === "GET" ? "?alt=media" : ""}`, {
@@ -56,6 +62,9 @@ test("no client can read or write Storage, not even the owner of the content", {
       body,
     }).then((r) => r.status);
 
+  // Control: the same request as an admin (the emulator's "Bearer owner") is allowed, so the 403s below come from the rules.
+  const admin = await fetch(`${STORAGE}/v0/b/${bucket}/o/${object}?alt=media`, { headers: { Authorization: "Bearer owner" } });
+  assert.equal(admin.status, 200);
   assert.equal(await asClient(owner, "GET"), 403);
   assert.equal(await asClient(other, "GET"), 403);
   assert.equal(await asClient(null, "GET"), 403);
