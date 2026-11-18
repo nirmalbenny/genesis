@@ -11,12 +11,14 @@ import path from "node:path";
 
 const root = path.resolve(import.meta.dirname, "..");
 process.chdir(root);
-// hlReference.md and uiKit.md are model input, not documentation: kept compact on purpose because every build sends them.
+// Model input, not documentation: kept compact on purpose because builds send them (hlReference.md and uiKit.md in
+// every build, the hl-resources/*.md guides when a build needs that resource).
 const MODEL_INPUT = ["functions/src/llm/hlReference.md", "functions/src/llm/uiKit.md"];
+const isModelInput = (f) => MODEL_INPUT.includes(f) || /^hl-resources\/[^/]+\.md$/.test(f);
 // Third-party agent skills, kept exactly as published (see each folder's SOURCE.md): not ours to restyle.
 const VENDORED = [".claude/skills/langfuse/"];
 const files = execFileSync("git", ["ls-files", "*.md"], { encoding: "utf8" })
-  .split("\n").filter((f) => f && !f.startsWith("functions/templates/") && !MODEL_INPUT.includes(f) && !VENDORED.some((d) => f.startsWith(d)));
+  .split("\n").filter((f) => f && !f.startsWith("functions/templates/") && !isModelInput(f) && !VENDORED.some((d) => f.startsWith(d)));
 let failed = false;
 
 // 1. markdownlint (config: .markdownlint-cli2.jsonc)

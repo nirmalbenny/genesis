@@ -202,6 +202,7 @@ Details and per-case numbers: [the tool-protocol plan](docs/plans/tool-protocol.
 | `FILE_STORE` | `functions/.env.local` · GitHub variable | `firestore` (default: a document per file) or `blobs` (Cloud Storage + manifest, used in production). See [ARCHITECTURE §3.1](docs/ARCHITECTURE.md#31-project-files-blobs-and-a-manifest) |
 | `CONTEXT_TOOLS` | `functions/.env.local` · GitHub variable | `on` (default): large apps get a file index and builds have the `read_files` tool; `off` is a kill switch |
 | `BLOB_CLEANUP` | GitHub variable | `dry-run` (default: the daily cleanup only logs) or `delete` |
+| `READ_SCOPES` | `functions/.env.local` · GitHub variable | `log` (default): a read whose HighLevel scope the connection lacks is served and logged (`hl.read_scope_missing`); `enforce` refuses it. Writes always need their scope |
 | `TRACING` | `functions/.env.local` · GitHub variable | `off` (default) or `langfuse`: one trace per build ([ARCHITECTURE §14](docs/ARCHITECTURE.md#14-observability)) |
 | `LANGFUSE_BASE_URL` | `functions/.env.local` · GitHub variable | `https://cloud.langfuse.com` (EU, default) or `https://us.cloud.langfuse.com` (US) |
 | `ANTHROPIC_API_KEY` | secret | Claude API key |

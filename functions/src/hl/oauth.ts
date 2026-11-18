@@ -5,6 +5,7 @@ import { APP_ORIGINS, APP_URL, HL_API_BASE, HL_CLIENT_ID, HL_CLIENT_SECRET, HL_R
 import { HL_SCOPES } from "./registry";
 import { rateLimited, requireVerifiedUser, sendError } from "../http";
 import { createLimiter, LIMITS } from "../rateLimits";
+import { scopeList } from "./scopes";
 import { requestToken, sealedRecord } from "./token";
 
 const STATE_TTL_MS = 10 * 60 * 1000;
@@ -86,6 +87,8 @@ export const hlAuthCallback = onRequest(
               timezone: location?.location?.timezone ?? null,
             },
             connectedAt: Date.now(),
+            // What the user granted (scope names, not secrets): the app shows "Reconnect to enable …" for the rest.
+            scopes: scopeList(t.scope),
           },
         },
         { merge: true },

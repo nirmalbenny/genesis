@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import AppCard from '@/components/AppCard.vue'
 import AppDetailsDialog from '@/components/AppDetailsDialog.vue'
 import CopyAppDialog from '@/components/CopyAppDialog.vue'
+import ReconnectNotice from '@/components/ReconnectNotice.vue'
 import TopBar from '@/components/TopBar.vue'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -52,6 +53,7 @@ function startBuild() {
 <template>
   <div class="min-h-screen bg-background">
     <TopBar />
+    <ReconnectNotice />
 
     <main class="mx-auto w-full max-w-[1040px] px-4 pb-16 pt-10 sm:px-6 sm:pt-14">
       <div class="mx-auto mb-6 grid max-w-[760px] gap-2 empty:hidden">

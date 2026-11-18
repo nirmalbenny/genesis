@@ -1,12 +1,12 @@
 import type { Response } from "express";
 import { onRequest } from "firebase-functions/v2/https";
-import { HL_API_BASE, HL_CLIENT_ID, HL_CLIENT_SECRET, PREVIEW_TOKEN_SECRET } from "./config";
+import { HL_API_BASE, HL_CLIENT_ID, HL_CLIENT_SECRET, PREVIEW_TOKEN_SECRET, READ_SCOPES } from "./config";
 import { httpError, rateLimited, sendError, type HttpError } from "./http";
 import { getValidHlToken } from "./hl/token";
 import { verifyPreviewToken } from "./previewToken";
 import { getOwnedProject } from "./projects";
 import { createLimiter, LIMITS } from "./rateLimits";
-import { ROUTES, type Route } from "./hl/registry";
+import { labelOf, ROUTES, type Route } from "./hl/registry";
 
 /**
  * Everything generated apps may call is declared in the resource registry (hl-resources/*.json, see hl/registry.ts):
@@ -141,10 +141,9 @@ export const hlProxy = onRequest(
       if (locationId !== claims.locationId) {
         throw httpError(409, "connection_changed", "The HighLevel connection changed. Refresh the preview to load the current sub-account.");
       }
-      // Writes only for now: a connection made before writes existed is told to reconnect.
-      if (route.write && !scopes.includes(route.scope)) {
-        throw httpError(403, "hl_scope_missing", "This app needs permission to make changes in HighLevel. Reconnect HighLevel to grant it.");
-      }
+      const decision = scopeDecision(route, scopes, READ_SCOPES.value());
+      if (decision === "log") console.warn("hl.read_scope_missing", { uid: claims.uid, resource: route.resource, endpoint: route.name, scope: route.scope });
+      if (decision === "refuse") throw scopeMissing(route);
 
       if (isWrite) {
         const paused = (pausedUntil.get(locationId) ?? 0) - Date.now();
@@ -209,6 +208,22 @@ export const hlProxy = onRequest(
     }
   },
 );
+
+/**
+ * What to do when a connection may lack the scope an endpoint needs: writes are refused; reads are refused under
+ * READ_SCOPES=enforce and only logged under `log` (the default, until the logs show every connection has them).
+ */
+export function scopeDecision(route: Route, granted: string[], readScopes: string): "ok" | "log" | "refuse" {
+  if (granted.includes(route.scope)) return "ok";
+  if (route.write || readScopes === "enforce") return "refuse";
+  return "log";
+}
+
+/** hl_scope_missing, naming what the app needs: the user reconnects HighLevel to grant it. */
+export function scopeMissing(route: Route): HttpError {
+  const what = `${route.write ? "change" : "read"} ${labelOf(route.resource)}`;
+  return httpError(403, "hl_scope_missing", `This app needs permission to ${what} in HighLevel. Reconnect HighLevel to grant it.`);
+}
 
 /** Maps a HighLevel error to the proxy's error format, and starts the pause on a 429. */
 async function sendUpstreamError(res: Response, upstream: globalThis.Response, path: string, locationId: string) {

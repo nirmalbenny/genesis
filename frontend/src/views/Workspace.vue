@@ -7,6 +7,7 @@ import CopyAppDialog from '@/components/CopyAppDialog.vue'
 import EditorPanel from '@/components/EditorPanel.vue'
 import FileTree from '@/components/FileTree.vue'
 import PreviewPanel from '@/components/PreviewPanel.vue'
+import ReconnectNotice from '@/components/ReconnectNotice.vue'
 import SnapshotSheet from '@/components/SnapshotSheet.vue'
 import TopBar from '@/components/TopBar.vue'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -155,6 +156,7 @@ onMounted(async () => {
       <p class="flex-1"><b class="font-semibold">Preview needs HighLevel.</b> Connect a location to build and load real contacts here.</p>
       <Button size="sm" :disabled="hlState.busy.value !== null" @click="hlState.connect()">Connect HighLevel</Button>
     </div>
+    <ReconnectNotice />
     <Alert v-if="hlState.error.value" variant="destructive" class="rounded-none border-0 bg-danger-100"><AlertDescription class="text-foreground">{{ hlState.error.value }}</AlertDescription></Alert>
     <Alert v-if="project.loadError.value" variant="destructive" class="rounded-none border-0 bg-danger-100"><AlertDescription class="text-foreground">{{ project.loadError.value }}</AlertDescription></Alert>
     <Alert v-if="saveError" variant="destructive" class="rounded-none border-0 bg-danger-100"><AlertDescription class="text-foreground">{{ saveError }}</AlertDescription></Alert>

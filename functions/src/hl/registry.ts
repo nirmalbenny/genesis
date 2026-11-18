@@ -148,6 +148,9 @@ export const RESOURCES = loadRegistry();
 const problems = validateRegistry(RESOURCES);
 if (problems.length) throw new Error(`Invalid HighLevel resource registry:\n${problems.join("\n")}`);
 
+/** A resource's name for people ("Contacts"); its id when it has none. */
+export const labelOf = (id: string): string => RESOURCES.find((r) => r.id === id)?.label ?? id;
+
 /** Every resource's scopes: what connecting asks the user to grant. */
 export const HL_SCOPES = [...new Set(RESOURCES.flatMap((r) => r.scopes))].join(" ");
 export const ROUTES = compileRoutes(RESOURCES);

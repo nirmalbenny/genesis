@@ -8,6 +8,8 @@ export type HlInfo = {
   locationId: string
   locationName: string
   location?: { email: string | null; phone: string | null; timezone: string | null; owner: string | null }
+  /** Scopes the user granted (names only); absent until the server has synced them. */
+  scopes?: string[]
 }
 
 // One shared store: every screen and the top-bar pill read the same connection state.
