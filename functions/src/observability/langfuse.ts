@@ -158,7 +158,7 @@ export async function sendBuildTrace(t: BuildTraceInput): Promise<string | null>
       const contextStart = t.startedAt + t.timings.checksMs;
       under(root, () => startObservation("prepare-context", {
         input: { activePath: t.context.activePath, openPaths: t.context.openPaths, recentPaths: t.context.recentPaths },
-        output: { sentInFull: t.context.full, listedOnly: t.context.indexed, characters: t.context.chars },
+        output: { sentInFull: t.context.full, listedOnly: t.context.indexed, characters: t.context.chars, guides: t.context.guides },
       }, { startTime: at(contextStart) })).end(at(contextStart + t.timings.contextMs));
 
       for (const r of t.rounds) {

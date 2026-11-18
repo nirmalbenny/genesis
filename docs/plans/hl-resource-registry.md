@@ -183,6 +183,15 @@ About 5–6 days in total. Each phase ships alone; 1 to 3 give most of the value
   route; the e2e write test now covers every registry write. Unit 109/109, e2e 43/43. Live check: all 9 reads through
   the proxy on the sandbox return 200 with their version and location handling (free slots without a location).
 
+- **Phase 2 (2026-11-18):** the reference split into the core with a catalog (`functions/src/llm/hlReference.md`,
+  `llm/guides.ts`) and one guide per resource (`hl-resources/<id>.md`), attached as a second cached system block
+  (registry order, one cache entry per set). Shared block 18,123 → 13,605 characters; a contacts-only build 15,880;
+  a build with every guide 19,337 (+7%: the catalog). Eval `registry-phase2`: 13 of 13 pass; input cost unchanged
+  except that the first build needing a new set of guides within 5 minutes writes it to the cache (about 4–6
+  credits: inbox +4, the declined poem +6). With three resources that's a small net cost at today's traffic; the
+  benefit grows with every resource added, since the shared prompt no longer grows. Unit 116/116, e2e 43/43,
+  frontend 152/152 (the client's sync test reads the core and every guide).
+
 ## 10. The skill: `/hl-resource` (after phase 6)
 
 Replaces `/hl-endpoint`:

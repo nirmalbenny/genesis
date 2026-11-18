@@ -15,6 +15,7 @@ import { httpError, requireVerifiedUser, sendError } from "./http";
 import { summarizeChange } from "./llm/summary";
 import type { ToolCall } from "./llm/assemble";
 import { renderContext, selectContext } from "./llm/context";
+import { selectGuides } from "./llm/guides";
 import { RECENT_MESSAGES, systemBlocks } from "./llm/prompt";
 import { buildTools, runBuildTool, runReadFiles } from "./llm/tools";
 import { createFieldReader } from "./llm/toolInput";
@@ -123,9 +124,15 @@ export const generate = onRequest(
         .reverse()
         .map((d) => ({ role: d.get("role") as "user" | "assistant", content: d.get("content") as string }));
       const filesText = renderContext(files, manifest, selection.index, contextTools);
+      // The HighLevel guides this build needs: what the app uses already, and what the request mentions.
+      const guides = selectGuides({
+        prompt,
+        helpers: Object.values(manifest).flatMap((e) => e.hlHelpers),
+        sources: files.map((f) => f.content),
+      });
       const request = {
         model,
-        system: systemBlocks(),
+        system: systemBlocks(guides),
         tools: buildTools(contextTools),
         messages: [
           ...history,
@@ -147,7 +154,7 @@ export const generate = onRequest(
         projectName, fileStore: FILE_STORE.value(), contextTools,
         followUp: { previousGenerationId: lastBuilds.docs[0]?.id ?? null, historyMessages: history.length },
         history,
-        context: { full: selection.full, indexed: selection.index, chars: filesText.length, activePath, openPaths, recentPaths },
+        context: { guides, full: selection.full, indexed: selection.index, chars: filesText.length, activePath, openPaths, recentPaths },
         checksMs: checksDone - startedAt, contextMs: contextDone - checksDone, holdMs: Date.now() - contextDone,
       };
       ctx = { uid, pid, prompt, proj, store, manifest, files, contextTools, request, genRef, held, trace };

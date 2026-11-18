@@ -27,7 +27,8 @@ export type BuildTraceInput = {
   fileStore: string;
   /** Whether this build offered the read_files tool (CONTEXT_TOOLS). */
   contextTools: boolean;
-  context: { full: string[]; indexed: string[]; chars: number; activePath: string | null; openPaths: string[]; recentPaths: string[] };
+  /** `guides`: the HighLevel resource guides attached to this build (llm/guides.ts). */
+  context: { guides: string[]; full: string[]; indexed: string[]; chars: number; activePath: string | null; openPaths: string[]; recentPaths: string[] };
   rounds: Round[];
   actions: { written: { path: string; bytes: number }[]; deleted: string[]; rejected: { path: string; reason: string }[]; snapshotId: string | null; summary: string | null };
   /** Tool calls refused when they ran (the model was told why and could correct them). */
@@ -111,7 +112,7 @@ export function logBuild(t: BuildTraceInput, traceId: string | null): void {
     thinkingTokens: t.rounds.reduce((n, r) => n + r.thinkingTokens, 0),
     systemCacheHit: t.rounds[0] ? t.rounds[0].usage.cacheReadTokens > 0 : null,
     creditsHeld: t.credits.held, creditsCharged: t.credits.charged,
-    filesInFull: t.context.full.length, filesIndexed: t.context.indexed.length, contextChars: t.context.chars,
+    filesInFull: t.context.full.length, filesIndexed: t.context.indexed.length, contextChars: t.context.chars, guides: t.context.guides,
     written: t.actions.written.length, deleted: t.actions.deleted.length, rejected: t.actions.rejected.length, toolErrors: t.toolErrors.length, problems: t.problems.length, codeInText: t.codeInText,
     followUp: t.followUp.previousGenerationId !== null,
     ...t.timings, totalMs: t.endedAt - t.startedAt,

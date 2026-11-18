@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { nextTick, ref, toDisplayString } from 'vue'
 // @ts-expect-error untyped: plain JS, injected as-is into the sandbox
@@ -263,10 +263,12 @@ describe('shape helpers', () => {
 })
 
 describe('API reference stays in sync', () => {
-  it('documents exactly the functions the client exports', () => {
+  it('documents exactly the functions the client exports (the core reference plus every resource guide)', () => {
     const md = readFileSync(new URL('../../../../functions/src/llm/hlReference.md', import.meta.url), 'utf8')
     const section = md.split('\n## Client')[1].split('\n## ')[0]
-    const documented = new Set([...section.matchAll(/`(\w+)\(/g)].map((m) => m[1]))
+    const guidesDir = new URL('../../../../hl-resources/', import.meta.url)
+    const guides = readdirSync(guidesDir).filter((f) => f.endsWith('.md')).map((f) => readFileSync(new URL(f, guidesDir), 'utf8'))
+    const documented = new Set([section, ...guides].flatMap((text) => [...text.matchAll(/`(\w+)\(/g)].map((m) => m[1])))
     const exported = Object.entries(hl).filter(([, v]) => typeof v === 'function').map(([k]) => k)
     expect([...documented].sort()).toEqual(exported.sort())
     for (const name of ['LOCATION_ID', 'LOCATION_NAME']) {

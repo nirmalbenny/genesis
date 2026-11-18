@@ -24,7 +24,7 @@ function build(over: Partial<BuildTraceInput> = {}): BuildTraceInput {
     followUp: { previousGenerationId: "gen0", historyMessages: 2 },
     history: [{ role: "user", content: "Build a leads board" }, { role: "assistant", content: "A board of leads.\n\nFiles: src/App.vue" }],
     model: "claude-sonnet-5-5", summaryModel: "claude-haiku-5-5", fileStore: "blobs", contextTools: true,
-    context: { full: ["src/App.vue"], indexed: ["src/components/Leads.vue"], chars: 61_000, activePath: "src/App.vue", openPaths: [], recentPaths: [] },
+    context: { guides: ["contacts"], full: ["src/App.vue"], indexed: ["src/components/Leads.vue"], chars: 61_000, activePath: "src/App.vue", openPaths: [], recentPaths: [] },
     rounds: [
       { n: 1, startedAt: T0 + 1000, ms: 4000, responseMs: 3500, toolMs: 500, firstTokenMs: null, usage: usage(10, 40, 6641, 23_800), thinkingTokens: 0, stopReason: "tool_use",
         toolCalls: [{ name: "read_files", paths: ["src/components/Leads.vue", "src/nope.vue"], read: ["src/components/Leads.vue"], isError: false, result: "read 1" }] },
