@@ -1,0 +1,94 @@
+{
+  "messages": {
+    "lastMessageId": "id-1",
+    "nextPage": true,
+    "messages": [
+      {
+        "id": "id-2",
+        "direction": "outbound",
+        "type": 31,
+        "locationId": "id-3",
+        "body": "redacted",
+        "contactId": "id-4",
+        "conversationId": "id-5",
+        "dateAdded": "2026-11-11T05:24:05.416Z",
+        "dateUpdated": "2026-11-11T05:24:05.416Z",
+        "source": "redacted",
+        "from": "redacted",
+        "to": "redacted",
+        "activity": {
+          "data": {
+            "appointmentTitle": "redacted",
+            "timestamp": "2026-11-12T10:30:00.000Z",
+            "members": {},
+            "id": "id-6",
+            "serviceBookingId": null,
+            "industryType": null
+          },
+          "title": "redacted",
+          "type": "appointment_created"
+        },
+        "messageType": "redacted"
+      },
+      {
+        "id": "id-7",
+        "direction": "outbound",
+        "status": "failed",
+        "type": 3,
+        "locationId": "id-3",
+        "body": "redacted",
+        "contactId": "id-4",
+        "contentType": "redacted",
+        "conversationId": "id-5",
+        "dateAdded": "2026-11-11T05:23:48.582Z",
+        "dateUpdated": "2026-11-11T05:23:50.208Z",
+        "meta": {
+          "email": {
+            "messageIds": [
+              "id-8"
+            ],
+            "direction": "outbound",
+            "subject": "redacted"
+          },
+          "marketplace": {
+            "appId": "id-9",
+            "appName": "redacted"
+          }
+        },
+        "source": "redacted",
+        "error": "redacted",
+        "messageType": "redacted"
+      },
+      {
+        "id": "id-10",
+        "direction": "outbound",
+        "status": "failed",
+        "type": 3,
+        "locationId": "id-3",
+        "body": "redacted",
+        "contactId": "id-4",
+        "contentType": "redacted",
+        "conversationId": "id-5",
+        "dateAdded": "2026-11-11T04:59:53.220Z",
+        "dateUpdated": "2026-11-11T04:59:54.668Z",
+        "meta": {
+          "email": {
+            "messageIds": [
+              "id-11"
+            ],
+            "direction": "outbound",
+            "subject": "redacted"
+          },
+          "marketplace": {
+            "appId": "id-9",
+            "appName": "redacted"
+          }
+        },
+        "source": "redacted",
+        "error": "redacted",
+        "messageType": "redacted"
+      }
+    ]
+  },
+  "traceId": "id-12"
+}

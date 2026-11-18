@@ -1,0 +1,249 @@
+{
+  "calendars": [
+    {
+      "id": "id-1",
+      "notifications": [
+        {
+          "shouldSendToContact": false,
+          "shouldSendToSelectedUsers": false,
+          "selectedUsers": "redacted",
+          "shouldSendToUser": false,
+          "templateId": "id-2",
+          "type": "email",
+          "shouldSendToGuest": false
+        }
+      ],
+      "locationId": "id-3",
+      "groupId": "id-4",
+      "teamMembers": [],
+      "eventType": "redacted",
+      "name": "redacted",
+      "description": "redacted",
+      "widgetSlug": "redacted",
+      "calendarType": "service_booking",
+      "widgetType": "default",
+      "eventTitle": "redacted",
+      "eventColor": "redacted",
+      "slotDuration": 60,
+      "slotDurationUnit": "mins",
+      "slotInterval": 15,
+      "slotIntervalUnit": "mins",
+      "slotBuffer": 0,
+      "slotBufferUnit": "mins",
+      "appoinmentPerSlot": 1,
+      "appoinmentPerDay": 9007199254740991,
+      "appointmentPerSlot": 1,
+      "appointmentPerDay": 9007199254740991,
+      "openHours": [
+        {
+          "hours": [
+            {
+              "closeHour": 0,
+              "openHour": 0,
+              "closeMinute": 0,
+              "openMinute": 0
+            }
+          ],
+          "daysOfTheWeek": [
+            0
+          ]
+        },
+        {
+          "hours": [
+            {
+              "closeHour": 0,
+              "openHour": 0,
+              "closeMinute": 0,
+              "openMinute": 0
+            }
+          ],
+          "daysOfTheWeek": [
+            1
+          ]
+        },
+        {
+          "hours": [
+            {
+              "closeHour": 0,
+              "openHour": 0,
+              "closeMinute": 0,
+              "openMinute": 0
+            }
+          ],
+          "daysOfTheWeek": [
+            2
+          ]
+        }
+      ],
+      "enableRecurring": false,
+      "recurring": {
+        "monthDays": [],
+        "weekDays": [],
+        "bookingOption": "skip",
+        "count": 1,
+        "freq": "DAILY",
+        "bookingOverlapDefaultStatus": "redacted",
+        "interval": null
+      },
+      "formId": "id-5",
+      "stickyContact": false,
+      "autoConfirm": true,
+      "googleInvitationEmails": false,
+      "allowReschedule": true,
+      "allowCancellation": true,
+      "shouldAssignContactToTeamMember": false,
+      "shouldSkipAssigningContactForExisting": false,
+      "notes": "redacted",
+      "pixelId": "id-5",
+      "formSubmitType": "ThankYouMessage",
+      "formSubmitThanksMessage": "redacted",
+      "availabilityType": 0,
+      "availabilities": [],
+      "guestType": "collect_detail",
+      "consentLabel": "redacted",
+      "allowBookingAfterUnit": "days",
+      "allowBookingForUnit": "days",
+      "preBuffer": 0,
+      "preBufferUnit": "mins",
+      "isActive": false,
+      "enableClientPortalBooking": false
+    },
+    {
+      "id": "id-6",
+      "locationId": "id-3",
+      "teamMembers": [],
+      "name": "redacted",
+      "description": "redacted",
+      "calendarType": "event",
+      "eventTitle": "redacted",
+      "eventColor": "redacted",
+      "slotDuration": 30,
+      "slotDurationUnit": "mins",
+      "slotInterval": 30,
+      "slotIntervalUnit": "mins",
+      "slotBufferUnit": "mins",
+      "openHours": {},
+      "enableRecurring": false,
+      "autoConfirm": true,
+      "googleInvitationEmails": true,
+      "allowReschedule": true,
+      "allowCancellation": true,
+      "formSubmitType": "ThankYouMessage",
+      "formSubmitThanksMessage": "redacted",
+      "availabilities": [],
+      "consentLabel": "redacted",
+      "preBufferUnit": "mins",
+      "isActive": true,
+      "enableClientPortalBooking": false
+    },
+    {
+      "id": "id-7",
+      "notifications": [
+        {
+          "shouldSendToContact": false,
+          "shouldSendToSelectedUsers": false,
+          "selectedUsers": "redacted",
+          "shouldSendToUser": false,
+          "templateId": "id-2",
+          "type": "email",
+          "shouldSendToGuest": false
+        }
+      ],
+      "locationId": "id-3",
+      "groupId": "id-4",
+      "teamMembers": [],
+      "eventType": "redacted",
+      "name": "redacted",
+      "description": "redacted",
+      "widgetSlug": "redacted",
+      "calendarType": "service_booking",
+      "widgetType": "default",
+      "eventTitle": "redacted",
+      "eventColor": "redacted",
+      "slotDuration": 60,
+      "slotDurationUnit": "mins",
+      "slotInterval": 15,
+      "slotIntervalUnit": "mins",
+      "slotBuffer": 0,
+      "slotBufferUnit": "mins",
+      "appoinmentPerSlot": 1,
+      "appoinmentPerDay": 9007199254740991,
+      "appointmentPerSlot": 1,
+      "appointmentPerDay": 9007199254740991,
+      "openHours": [
+        {
+          "hours": [
+            {
+              "closeHour": 0,
+              "openHour": 0,
+              "closeMinute": 0,
+              "openMinute": 0
+            }
+          ],
+          "daysOfTheWeek": [
+            0
+          ]
+        },
+        {
+          "hours": [
+            {
+              "closeHour": 0,
+              "openHour": 0,
+              "closeMinute": 0,
+              "openMinute": 0
+            }
+          ],
+          "daysOfTheWeek": [
+            1
+          ]
+        },
+        {
+          "hours": [
+            {
+              "closeHour": 0,
+              "openHour": 0,
+              "closeMinute": 0,
+              "openMinute": 0
+            }
+          ],
+          "daysOfTheWeek": [
+            2
+          ]
+        }
+      ],
+      "enableRecurring": false,
+      "recurring": {
+        "monthDays": [],
+        "weekDays": [],
+        "bookingOption": "skip",
+        "count": 1,
+        "freq": "DAILY",
+        "bookingOverlapDefaultStatus": "redacted",
+        "interval": null
+      },
+      "formId": "id-5",
+      "stickyContact": false,
+      "autoConfirm": true,
+      "googleInvitationEmails": false,
+      "allowReschedule": true,
+      "allowCancellation": true,
+      "shouldAssignContactToTeamMember": false,
+      "shouldSkipAssigningContactForExisting": false,
+      "notes": "redacted",
+      "pixelId": "id-5",
+      "formSubmitType": "ThankYouMessage",
+      "formSubmitThanksMessage": "redacted",
+      "availabilityType": 0,
+      "availabilities": [],
+      "guestType": "collect_detail",
+      "consentLabel": "redacted",
+      "allowBookingAfterUnit": "days",
+      "allowBookingForUnit": "days",
+      "preBuffer": 0,
+      "preBufferUnit": "mins",
+      "isActive": false,
+      "enableClientPortalBooking": false
+    }
+  ],
+  "traceId": "id-8"
+}

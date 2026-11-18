@@ -228,12 +228,13 @@ Details and per-case numbers: [the tool-protocol plan](docs/plans/tool-protocol.
 | `functions/` | `npm test` | Unit tests: the tool loop and stream assembly, tool-input streaming, the workspace and code checks, context ranking, credits, rate limits, token encryption, file manifests, templates, traces |
 | `functions/` | `npm run test:e2e` | Integration tests on the emulators: auth gate, projects, isolation between users, snapshots, the file store, build limits, cancel, the proxy, and the security rules. Never calls Claude or HighLevel |
 | `functions/` | `npm run migrate:files -- --bucket <bucket> [--dry-run]` | Backfills every project into Storage + manifests (resumable, verified) |
+| `functions/` | `npm run hl:probe -- <resource> --email <account>` | Checks a HighLevel resource in `hl-resources/` against the real sandbox through the local proxy (every read, each list paged to its end), records anonymized fixtures and compares the guide with the real fields. Emulators only |
 | `functions/` | `npm run measure:files` | Times both file stores on the emulators |
 | `functions/` | `npm run lint` | ESLint (TypeScript) |
 | repo root | `node scripts/eval-builds.mjs <label> [case…]` | Build eval: 13 real builds against the running emulators (real Claude, about $1), each saved file compiled; results in `eval-results.jsonl` |
 | repo root | `node scripts/check-docs.mjs` | Docs check: markdownlint, every local link and anchor, and that every Mermaid diagram renders |
 
-CI runs lint, unit and integration tests and the production build on every push and pull request (the integration tests on a throwaway `demo-` project). **Claude Code skills** in [`.claude/skills/`](.claude/skills) automate the routine work: `/verify` (definition of done), `/hl-endpoint`, `/new-template`, `/docs-check` and `/prod-check`.
+CI runs lint, unit and integration tests and the production build on every push and pull request (the integration tests on a throwaway `demo-` project). **Claude Code skills** in [`.claude/skills/`](.claude/skills) automate the routine work: `/verify` (definition of done), `/hl-resource`, `/new-template`, `/docs-check` and `/prod-check`.
 
 ## HighLevel setup
 

@@ -1,0 +1,118 @@
+{
+  "conversations": [
+    {
+      "id": "id-1",
+      "lastMessageDate": 1794374629386,
+      "dateUpdated": 1794374629393,
+      "contactId": "id-2",
+      "type": "TYPE_PHONE",
+      "lastMessageType": "redacted",
+      "lastMessageBody": "redacted",
+      "locationId": "id-3",
+      "unreadCount": 0,
+      "lastManualMessageDate": 1794374629386,
+      "email": "redacted",
+      "contactName": "redacted",
+      "scoring": [],
+      "lastMessageDirection": "redacted",
+      "tags": [
+        "redacted",
+        "redacted"
+      ],
+      "messageTypes": [
+        100,
+        3
+      ],
+      "isLastMessageInternalComment": false,
+      "dateAdded": 1794373165337,
+      "followers": [],
+      "fullName": "redacted",
+      "mentions": [],
+      "companyName": null,
+      "lastOutboundMessageAction": "redacted",
+      "inbox": true,
+      "sort": [
+        1794374629386
+      ]
+    },
+    {
+      "id": "id-4",
+      "lastMessageDate": 1794374124371,
+      "dateUpdated": 1794374124376,
+      "contactId": "id-5",
+      "type": "TYPE_PHONE",
+      "lastMessageType": "redacted",
+      "lastMessageBody": "redacted",
+      "locationId": "id-3",
+      "unreadCount": 0,
+      "starred": false,
+      "lastManualMessageDate": 1794374124371,
+      "email": "redacted",
+      "contactName": "redacted",
+      "scoring": [],
+      "attributed": true,
+      "lastMessageDirection": "redacted",
+      "tags": [
+        "redacted",
+        "redacted",
+        "redacted"
+      ],
+      "messageTypes": [
+        2,
+        3
+      ],
+      "isLastMessageInternalComment": false,
+      "dateAdded": 1793907165189,
+      "followers": [],
+      "fullName": "redacted",
+      "phone": "redacted",
+      "mentions": [],
+      "companyName": null,
+      "lastOutboundMessageAction": "redacted",
+      "inbox": true,
+      "opportunities": [],
+      "sort": [
+        1794374124371
+      ]
+    },
+    {
+      "id": "id-6",
+      "lastMessageDate": 1793907162967,
+      "contactName": "redacted",
+      "scoring": [],
+      "dateUpdated": 1793907221634,
+      "lastMessageDirection": "redacted",
+      "contactId": "id-7",
+      "type": "TYPE_PHONE",
+      "lastMessageType": "redacted",
+      "lastMessageBody": "redacted",
+      "locationId": "id-3",
+      "tags": [
+        "redacted",
+        "redacted",
+        "redacted"
+      ],
+      "messageTypes": [
+        2
+      ],
+      "isLastMessageInternalComment": false,
+      "dateAdded": 1793907162967,
+      "unreadCount": 0,
+      "followers": [],
+      "fullName": "redacted",
+      "lastManualMessageDate": 1793907163465,
+      "phone": "redacted",
+      "mentions": [],
+      "companyName": null,
+      "email": "redacted",
+      "profilePhoto": null,
+      "attributed": null,
+      "opportunities": [],
+      "sort": [
+        1793907162967
+      ]
+    }
+  ],
+  "total": 49,
+  "traceId": "id-8"
+}

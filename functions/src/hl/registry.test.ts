@@ -110,6 +110,7 @@ test("the registry is checked strictly: deletes, loose paths, unknown scopes and
     [[resource({}, { pager: { strategy: "page", items: "deals", search: { param: "q", min: -1 } } })], /search needs/],
     [[resource({}, { method: "POST", scope: "deals.write", location: "body", pager: { strategy: "page", items: "deals" } })], /pager is only for GET/],
     [[resource({}, { unwrap: "deal.name" })], /unwrap must be a field name/],
+    [[resource({}, { probe: { startTime: 5 } })], /probe must map parameter names to strings/],
   ];
   for (const [resources, error] of cases) {
     assert.match(validateRegistry(resources).join("\n"), error);

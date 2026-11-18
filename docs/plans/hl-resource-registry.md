@@ -213,9 +213,18 @@ About 5–6 days in total. Each phase ships alone; 1 to 3 give most of the value
   and the eval now requires that case to build. Final eval `registry-phase4-final`: 13 of 13. Unit 120/120, e2e
   44/44, frontend 162/162.
 
-## 10. The skill: `/hl-resource` (after phase 6)
+- **Phase 5 (2026-11-18):** `npm run hl:probe -- <id> --email <account>` (`functions/src/scripts/hl-probe.ts`),
+  emulators only. On the three resources: contacts 58 in 12 pages (stopped, total matches), conversations 49 in 10,
+  messages 6 in 2; every read 200; the guide comparison flagged one optional field (`companyName`). Anonymized
+  fixtures (names, emails, phones, tags and free text redacted; ids replaced; enums, dates and totals kept) in
+  `hl-resources/fixtures/`; `frontend/src/lib/fixtures.test.ts` checks every list's pager paths against them.
+  Endpoints may carry `probe` hints (`now+7d`, `{calendarId}`).
+- **Phase 6 (2026-11-18):** the `/hl-resource` skill (`.claude/skills/hl-resource/SKILL.md`) replaced
+  `/hl-endpoint`. The Opportunities trial is next: it needs the scopes enabled on the Marketplace app first.
 
-Replaces `/hl-endpoint`:
+## 10. The skill: `/hl-resource`
+
+Written in phase 6 (`.claude/skills/hl-resource/SKILL.md`); it replaced `/hl-endpoint`. In short:
 
 1. **Classify:** a new endpoint on an existing resource, or a new resource. No deletes. Writes only when asked;
    message sends are `send`.

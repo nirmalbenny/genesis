@@ -7,8 +7,8 @@
   "version": "2021-04-15",
   "endpoints": [
     {"name": "listCalendars", "method": "GET", "path": "/calendars/", "scope": "calendars.readonly", "location": "query", "unwrap": "calendars"},
-    {"name": "listEvents", "method": "GET", "path": "/calendars/events", "scope": "calendars/events.readonly", "location": "query"},
-    {"name": "freeSlots", "method": "GET", "path": "/calendars/{calendarId}/free-slots", "scope": "calendars.readonly", "location": "none"},
+    {"name": "listEvents", "method": "GET", "path": "/calendars/events", "scope": "calendars/events.readonly", "location": "query", "probe": {"calendarId": "{calendarId}", "startTime": "now", "endTime": "now+7d"}},
+    {"name": "freeSlots", "method": "GET", "path": "/calendars/{calendarId}/free-slots", "scope": "calendars.readonly", "location": "none", "probe": {"startDate": "now", "endDate": "now+7d", "timezone": "UTC"}},
     {"name": "bookAppointment", "method": "POST", "path": "/calendars/events/appointments", "scope": "calendars/events.write", "location": "body"},
     {"name": "updateAppointment", "method": "PUT", "path": "/calendars/events/appointments/{eventId}", "scope": "calendars/events.write", "location": "none"}
   ]

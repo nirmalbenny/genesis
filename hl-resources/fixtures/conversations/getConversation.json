@@ -1,0 +1,24 @@
+{
+  "locationId": "id-1",
+  "contactId": "id-2",
+  "inbox": true,
+  "unreadCount": 0,
+  "type": 1,
+  "deleted": false,
+  "id": "id-3",
+  "isLastMessageInternalComment": false,
+  "lastMessageType": 3,
+  "lastMessageBody": "redacted",
+  "lastMessageDate": {
+    "seconds": 1794374629,
+    "nanoseconds": 386000000
+  },
+  "lastMessageDirection": "redacted",
+  "messageTypes": [
+    100,
+    3
+  ],
+  "firstUnreadInboundMessageId": null,
+  "firstUnreadInboundTimestamp": null,
+  "traceId": "id-4"
+}

@@ -1,0 +1,131 @@
+{
+  "contacts": [
+    {
+      "id": "id-1",
+      "locationId": "id-2",
+      "contactName": "redacted",
+      "firstName": "redacted",
+      "lastName": "redacted",
+      "firstNameRaw": "redacted",
+      "lastNameRaw": "redacted",
+      "companyName": null,
+      "email": "redacted",
+      "phone": "redacted",
+      "dnd": false,
+      "dndSettings": {},
+      "type": "lead",
+      "source": "redacted",
+      "assignedTo": null,
+      "city": null,
+      "state": null,
+      "postalCode": null,
+      "address1": null,
+      "dateAdded": "2026-11-18T09:05:27.686Z",
+      "dateUpdated": "2026-11-18T09:05:27.686Z",
+      "dateOfBirth": null,
+      "businessId": null,
+      "tags": [
+        "redacted"
+      ],
+      "followers": [],
+      "country": "IN",
+      "website": null,
+      "timezone": null,
+      "profilePhoto": null,
+      "additionalEmails": [],
+      "customFields": [],
+      "startAfter": [
+        1794992727686,
+        "redacted"
+      ]
+    },
+    {
+      "id": "id-3",
+      "locationId": "id-2",
+      "contactName": "redacted",
+      "firstName": "redacted",
+      "lastName": "redacted",
+      "firstNameRaw": "redacted",
+      "lastNameRaw": "redacted",
+      "companyName": null,
+      "email": "redacted",
+      "phone": "redacted",
+      "dnd": false,
+      "dndSettings": {},
+      "type": "lead",
+      "source": "redacted",
+      "assignedTo": null,
+      "city": null,
+      "state": null,
+      "postalCode": null,
+      "address1": null,
+      "dateAdded": "2026-11-14T12:13:37.813Z",
+      "dateUpdated": "2026-11-14T12:13:38.907Z",
+      "dateOfBirth": null,
+      "businessId": "id-4",
+      "tags": [
+        "redacted"
+      ],
+      "followers": [],
+      "country": "IN",
+      "website": null,
+      "timezone": null,
+      "profilePhoto": null,
+      "additionalEmails": [],
+      "customFields": [],
+      "startAfter": [
+        1794658417813,
+        "redacted"
+      ]
+    },
+    {
+      "id": "id-5",
+      "locationId": "id-2",
+      "contactName": "redacted",
+      "firstName": "redacted",
+      "lastName": "redacted",
+      "firstNameRaw": "redacted",
+      "lastNameRaw": "redacted",
+      "companyName": null,
+      "email": "redacted",
+      "phone": "redacted",
+      "dnd": false,
+      "dndSettings": {},
+      "type": "lead",
+      "source": "redacted",
+      "assignedTo": null,
+      "city": null,
+      "state": null,
+      "postalCode": null,
+      "address1": null,
+      "dateAdded": "2026-11-14T12:08:18.179Z",
+      "dateUpdated": "2026-11-14T12:08:19.398Z",
+      "dateOfBirth": null,
+      "businessId": "id-4",
+      "tags": [
+        "redacted"
+      ],
+      "followers": [],
+      "country": "IN",
+      "website": null,
+      "timezone": null,
+      "profilePhoto": null,
+      "additionalEmails": [],
+      "customFields": [],
+      "startAfter": [
+        1794658098179,
+        "redacted"
+      ]
+    }
+  ],
+  "meta": {
+    "total": 58,
+    "nextPageUrl": "redacted",
+    "startAfterId": "id-6",
+    "startAfter": 1793907164395,
+    "currentPage": 1,
+    "nextPage": 2,
+    "prevPage": null
+  },
+  "traceId": "id-7"
+}

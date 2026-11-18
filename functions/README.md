@@ -21,6 +21,7 @@ Firebase Cloud Functions (2nd gen, **Node 24**, TypeScript). See the [root READM
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm test` | Builds, then runs the unit tests (tool loop, stream assembly, tool-input streaming, workspace rules and code checks, context, credits, rate limits, token encryption, templates, traces) |
 | `npm run test:e2e` | Integration tests against the running emulators (API, limits, proxy, security rules); never calls Claude or HighLevel |
+| `npm run hl:probe -- <resource> --email <account>` | Checks a resource of the HighLevel registry against the sandbox (emulators only) and records its fixtures |
 | `npm run lint` | ESLint (TypeScript recommended rules) |
 
 ## Layout

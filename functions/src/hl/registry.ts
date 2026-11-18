@@ -31,6 +31,11 @@ export type Endpoint = {
   pager?: Pager;
   /** For `call(<name>)`: return this field of the response (`{ contact: … }` → the contact). */
   unwrap?: string;
+  /**
+   * Query values the probe (scripts/hl-probe.ts) sends to read this endpoint: "now", "now+7d", "now-30d", or
+   * "{name}" for an id found in an earlier list (e.g. "{calendarId}"). Also documents what the endpoint requires.
+   */
+  probe?: Record<string, string>;
 };
 
 /**
@@ -128,6 +133,9 @@ export function validateRegistry(resources: Resource[]): string[] {
       if (e.send && e.method !== "POST") errors.push(`${where}: only a POST can send a message`);
       if (e.unwrap !== undefined && (typeof e.unwrap !== "string" || !NAME.test(e.unwrap))) errors.push(`${where}: unwrap must be a field name`);
       if (e.pager) errors.push(...pagerProblems(e.pager, e.method).map((p) => `${where}: pager ${p}`));
+      if (e.probe !== undefined && (typeof e.probe !== "object" || e.probe === null || Object.entries(e.probe).some(([k, v]) => !NAME.test(k) || typeof v !== "string"))) {
+        errors.push(`${where}: probe must map parameter names to strings`);
+      }
       const key = `${e.method} ${e.path?.replace(/\{\w+\}/g, "{}").replace(/\/$/, "")}`;
       if (routes.has(key)) errors.push(`${where}: another endpoint has the same method and path`);
       routes.add(key);

@@ -1,0 +1,32 @@
+{
+  "contact": {
+    "id": "id-1",
+    "dateAdded": "2026-11-18T09:05:27.686Z",
+    "dateUpdated": "2026-11-18T09:05:27.686Z",
+    "tags": [
+      "redacted"
+    ],
+    "type": "lead",
+    "locationId": "id-2",
+    "firstName": "redacted",
+    "firstNameLowerCase": "redacted",
+    "fullNameLowerCase": "redacted",
+    "lastName": "redacted",
+    "lastNameLowerCase": "redacted",
+    "email": "redacted",
+    "emailLowerCase": "redacted",
+    "phone": "redacted",
+    "country": "IN",
+    "source": "redacted",
+    "createdBy": {
+      "source": "redacted",
+      "channel": "OAUTH",
+      "sourceId": "id-3",
+      "timestamp": "2026-11-18T09:05:27.686Z"
+    },
+    "customFields": [],
+    "additionalEmails": [],
+    "additionalPhones": []
+  },
+  "traceId": "id-4"
+}

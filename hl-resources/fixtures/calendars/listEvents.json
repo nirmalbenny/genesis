@@ -1,0 +1,83 @@
+{
+  "events": [
+    {
+      "appointmentStatus": "new",
+      "appoinmentStatus": "new",
+      "statusId": "id-1",
+      "state": "pending",
+      "address": "redacted",
+      "calendarId": "id-2",
+      "contactId": "id-3",
+      "dateAdded": "2026-11-05T19:31:16.000Z",
+      "dateUpdated": "2026-11-05T19:31:16.000Z",
+      "endTime": "2026-11-19T13:30:00+05:30",
+      "id": "id-4",
+      "locationId": "id-5",
+      "startTime": "2026-11-19T11:30:00+05:30",
+      "title": "redacted",
+      "assignedResources": [],
+      "isRecurring": false,
+      "createdBy": {
+        "source": "redacted",
+        "userId": null
+      },
+      "appointmentMeta": {
+        "slotType": "custom"
+      },
+      "deleted": false
+    },
+    {
+      "appointmentStatus": "confirmed",
+      "appoinmentStatus": "confirmed",
+      "statusId": "id-6",
+      "state": "active",
+      "address": "redacted",
+      "calendarId": "id-2",
+      "contactId": "id-7",
+      "dateAdded": "2026-11-05T19:32:22.000Z",
+      "dateUpdated": "2026-11-05T19:32:22.000Z",
+      "endTime": "2026-11-20T13:00:00+05:30",
+      "id": "id-8",
+      "locationId": "id-5",
+      "startTime": "2026-11-20T09:00:00+05:30",
+      "title": "redacted",
+      "assignedResources": [],
+      "isRecurring": false,
+      "createdBy": {
+        "source": "redacted",
+        "userId": null
+      },
+      "appointmentMeta": {
+        "slotType": "custom"
+      },
+      "deleted": false
+    },
+    {
+      "appointmentStatus": "new",
+      "appoinmentStatus": "new",
+      "statusId": "id-1",
+      "state": "pending",
+      "address": "redacted",
+      "calendarId": "id-2",
+      "contactId": "id-9",
+      "dateAdded": "2026-11-05T19:31:19.000Z",
+      "dateUpdated": "2026-11-05T19:31:19.000Z",
+      "endTime": "2026-11-24T12:30:00+05:30",
+      "id": "id-10",
+      "locationId": "id-5",
+      "startTime": "2026-11-24T09:30:00+05:30",
+      "title": "redacted",
+      "assignedResources": [],
+      "isRecurring": false,
+      "createdBy": {
+        "source": "redacted",
+        "userId": null
+      },
+      "appointmentMeta": {
+        "slotType": "custom"
+      },
+      "deleted": false
+    }
+  ],
+  "traceId": "id-11"
+}
