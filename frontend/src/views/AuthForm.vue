@@ -98,7 +98,7 @@ async function submit() {
       </div>
 
       <p class="flex items-center gap-1.5 text-[11px] text-white/40">
-        <ShieldCheck class="size-3.5" />Read-only HighLevel access · Tokens stay on the server · 6 ready-made apps included
+        <ShieldCheck class="size-3.5" />No deletes in HighLevel · Tokens stay on the server · 6 ready-made apps included
       </p>
      </div>
     </aside>

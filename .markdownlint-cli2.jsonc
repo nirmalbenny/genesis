@@ -1,5 +1,10 @@
 // markdownlint rules for the repo's docs (used by scripts/check-docs.mjs and editors).
-// Default rules, except line length: long table rows and code lines are normal here.
+// Default rules, except line length (long table rows and code lines are normal here) and inline HTML, which is
+// allowed only for the GitHub-safe elements the README's header and collapsible sections use.
 {
-  "config": { "default": true, "MD013": false }
+  "config": {
+    "default": true,
+    "MD013": false,
+    "MD033": { "allowed_elements": ["h1", "p", "a", "img", "br", "b", "details", "summary"] }
+  }
 }

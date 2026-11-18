@@ -10,7 +10,7 @@ Vue 3 + TypeScript + Vite single-page app. UI is built with **shadcn-vue** (Tail
 | `npm run dev:local` | Plain Vite, no tunnel (the live preview can't reach local functions in Chrome). |
 | `npm run build` | Type-checks (`vue-tsc`) and builds to `dist/` using `.env.production`. |
 | `npm run preview` | Serves the production build locally. |
-| `npm test` | Unit tests (Vitest): the SSE reader and the build state machine. |
+| `npm test` | Unit tests (Vitest): the SSE reader, the build state machine, and the injected client, UI kit and components (doc sync, rendering, preview-compiler limits); every ready-made app compiles. |
 | `npm run lint` | ESLint (Vue + TypeScript). |
 
 ## Layout
@@ -25,6 +25,8 @@ src/
                 SignIn/SignUp/AuthForm · VerifyEmail (/verify)
   components/   TopBar · SideNav · AppCard · ChatPanel · EditorPanel · FileTree · PreviewPanel · BuildingOverlay
                 SnapshotSheet · dialogs (AppDetails, CopyApp, ConnectRequired) · ui/ (generated shadcn-vue)
+  sandbox/      genesis/: injected into every preview, never saved: hl.js (HighLevel client), ui.css (UI kit),
+                ui/ (66 shadcn-style components for generated apps); hl.config.js (dev placeholder)
 ```
 
 Unit tests sit next to the code they test (`*.test.ts`).
