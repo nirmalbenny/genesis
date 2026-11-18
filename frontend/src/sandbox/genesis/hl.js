@@ -1,7 +1,7 @@
 // Genesis HighLevel client. Injected into every preview as src/genesis/hl.js (never saved, never written by
 // the model), so generated apps import it instead of writing their own fetch and pagination code.
 // It is live for every app at once: only ever ADD to this API, never change or remove what exists.
-// The exports are documented for the model in functions/src/llm/hlReference.md ("Client"); a test keeps them in sync.
+// The exports are documented for the model in functions/src/llm/hlReference.md (shared helpers) and hl-resources/<id>.md (each resource); a test keeps them in sync.
 import { getCurrentScope, onScopeDispose, ref, unref, watch } from 'vue'
 import { HL_PROXY, LOCATION_ID, LOCATION_NAME, PREVIEW_TOKEN } from '../hl.config.js'
 

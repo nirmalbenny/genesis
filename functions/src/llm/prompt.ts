@@ -1,8 +1,8 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { coreReference, guidesBlock } from "./guides";
 
-const hlReference = readFileSync(join(__dirname, "hlReference.md"), "utf8");
 const uiKit = readFileSync(join(__dirname, "uiKit.md"), "utf8");
 
 export const FILE_BUDGET_CHARS = 60_000;
@@ -34,16 +34,16 @@ Rules:
 - Get ALL HighLevel data through the system client described under "Client" below: import what you need from "./genesis/hl.js" (adjust the relative path, e.g. "../genesis/hl.js" from src/components). Never write your own fetch, retry or pagination code for HighLevel. If the project already has its own fetch helper, code you don't change may keep using it; new and rewritten code uses the client. Never invent data, never hard-code sample records.
 - The same app runs on whichever HighLevel sub-account is connected. Never write a sub-account's name or id into the code: to show the name, import LOCATION_NAME from the client (it may be empty: then show nothing); the client already sends the id.
 - Show loading, empty, and error states. Display the error.message of failed calls (the client throws errors with the proxy's message).
-- Lists of contacts, conversations and messages always use usePager (it pages with the verified cursors, skips duplicates, and resets when its options change):
+- Paginated lists (every usePager kind in the guides) always use usePager (it pages with the verified cursors, skips duplicates, and resets when its options change):
   - Show the first page only. Offer a "Load more" button (for message threads: "Load older messages") bound to loadMore(), with its own loading state, shown only while hasMore is true.
   - Show how much is loaded when total is known, e.g. "Showing 40 of 54 contacts".
   - Pass search text, filters and sort as a getter, e.g. usePager('contacts', () => ({ query: search.value })), so changes reload page 1.
   - Never fetch every page automatically.
 - Search, filters, sort and counts must cover all the data, not just the loaded page:
   - Use the server-side option when the client has one (usePager's query, status and sortBy/order; total for counts).
-  - When it has none (e.g. filtering contacts by tag, custom field or date; see "Not available to apps"), never present work on loaded items as the full result: either call loadMore() at most 4 times and label the result ("Based on the latest 100 contacts"), or leave the feature out and say why in the plan.
+  - When it has none (e.g. filtering contacts by tag, custom field or date; see each guide's "Not available"), never present work on loaded items as the full result: either call loadMore() at most 4 times and label the result ("Based on the latest 100 contacts"), or leave the feature out and say why in the plan.
   - Calendar events (listEvents) are not paginated: query a bounded time window and let the user move it.
-- Writes (create/update contacts, tags, notes, appointments, conversation read/starred, sending SMS or email) only for features the user asked for, using the client's write functions:
+- Writes (the write functions in the guides: creating and updating records, sending messages) only for features the user asked for, using the client's write functions:
   - Run a write only from an explicit user action (a button or form submit). Never on page load, on a timer, or as a side effect of reading data.
   - Disable the control while the write runs, show a clear success message or the returned error.message, then re-fetch the affected record or list (e.g. pager.reset()).
   - Never retry a failed write (the client already retries a 429 once). Never try to delete anything (deletes are not available).
@@ -60,14 +60,19 @@ Rules:
   - An existing app without the kit import keeps its own CSS unless the user asks for a restyle. An app using the kit's classes without the components keeps them; use the components for new parts.
 
 ${uiKit}
-${hlReference}`;
+${coreReference()}`;
 }
 
 /**
- * The system prompt as one cached block. It is the same for every user and build (it changes only on deploy), so a
- * build started within 5 minutes of any other reads it from Anthropic's prompt cache at 0.05x the input price.
- * Nothing per-user may ever be added to it: that would split the cache and could leak between users.
+ * The system prompt as two cached blocks:
+ * 1. the rules, UI kit and HighLevel core with the catalog: the same for every user and build (it changes only on
+ *    deploy), so a build started within 5 minutes of any other reads it from the prompt cache at 0.1x the price;
+ * 2. the HighLevel guides this build needs (llm/guides.ts), in a fixed order: builds needing the same set share it.
+ * Nothing per-user may ever be added to either: that would split the cache and could leak between users.
  */
-export function systemBlocks(): Anthropic.TextBlockParam[] {
-  return [{ type: "text", text: buildSystemPrompt(), cache_control: { type: "ephemeral" } }];
+export function systemBlocks(guides: string[]): Anthropic.TextBlockParam[] {
+  return [
+    { type: "text", text: buildSystemPrompt(), cache_control: { type: "ephemeral" } },
+    { type: "text", text: guidesBlock(guides), cache_control: { type: "ephemeral" } },
+  ];
 }

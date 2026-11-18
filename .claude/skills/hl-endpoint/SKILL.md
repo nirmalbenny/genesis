@@ -30,7 +30,7 @@ Never print or log access or refresh tokens.
 | File | Change |
 |---|---|
 | `hl-resources/<id>.json` | Add the endpoint: `name`, `method`, `path` template (`{placeholders}`), `scope`, `location` (`query` / `body` / `none`, or `{ in, name }`), `send` for messages, `version` if it differs from the resource's. The OAuth scopes and the proxy's routes are derived from it (`functions/src/hl/registry.ts`); a new resource is a new file. |
-| `functions/src/llm/hlReference.md` | Endpoint and verified response shape; if it gets a client function, document it under "Client". Keep it compact: it's sent with every build. |
+| `hl-resources/<id>.md` | The resource's guide for Claude: its client functions as `` `name(args)` `` (the code check and the client's sync test read this form), verified response shapes, quirks and "Not available" limits. Attached only to builds that need the resource; its catalog line (from the JSON's `label` and `summary`) is in every build. Shared helpers stay in `functions/src/llm/hlReference.md`. |
 | `frontend/src/sandbox/genesis/hl.js` (+ `hl.test.ts`) | A named function (a write) or a `usePager` kind (a paginated list) with its verified cursor. Only add, never change existing exports. |
 | Tests | Generated for every registry endpoint (`hl/registry.test.ts`: allowed, neighbours and deletes refused; `e2e/proxy.e2e.ts`: every write passes the checks). Add a test only for behaviour the registry can't express. |
 | `CLAUDE.md` | The proxy allowlist line under "Key decisions" (and the pagination contract if relevant). |

@@ -5,11 +5,11 @@ import { buildSystemPrompt, systemBlocks } from "./prompt";
 import { buildTools } from "./tools";
 
 test("the system prompt is one cached block, byte-identical on every call", () => {
-  const blocks = systemBlocks();
-  assert.equal(blocks.length, 1);
+  const blocks = systemBlocks([]);
+  assert.equal(blocks.length, 2, "the shared prompt, then this build's HighLevel guides");
   assert.deepEqual(blocks[0]!.cache_control, { type: "ephemeral" }, "5-minute TTL: the rate card has no 1-hour price");
   assert.equal(blocks[0]!.text, buildSystemPrompt());
-  assert.equal(systemBlocks()[0]!.text, blocks[0]!.text, "any variation would make every build a cache miss");
+  assert.equal(systemBlocks([])[0]!.text, blocks[0]!.text, "any variation would make every build a cache miss");
 });
 
 test("the system prompt carries no sub-account name or id, and points the model to LOCATION_NAME", () => {
@@ -48,7 +48,7 @@ test("the system prompt forbids presenting work on loaded items as the full resu
   const prompt = buildSystemPrompt();
   assert.match(prompt, /must cover all the data, not just the loaded page/);
   assert.match(prompt, /never present work on loaded items as the full result/);
-  assert.match(prompt, /Not available to apps \(no endpoint\)/, "the reference lists what has no endpoint");
+  assert.match(prompt, /Anything not listed here has no endpoint/, "the reference says what has no endpoint");
 });
 
 test("the tool definitions are frozen and identical on every build (they are part of the cached prefix)", () => {

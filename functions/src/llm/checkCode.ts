@@ -1,6 +1,7 @@
 import { babelParse, compileScript, compileTemplate, parse, type BindingMetadata } from "@vue/compiler-sfc";
 import { readFileSync } from "node:fs";
 import { join, posix } from "node:path";
+import { CLIENT_FUNCTIONS } from "./guides";
 
 /**
  * Checks generated code before it's saved, with the same Vue compiler the editor's preview builds on. Two levels:
@@ -15,10 +16,9 @@ import { join, posix } from "node:path";
 // What the preview injects (src/genesis/, src/hl.config.js), read from the same documents the model is given;
 // frontend tests keep both in sync with the injected code (ui.test.ts, hl.test.ts).
 const uiKit = readFileSync(join(__dirname, "uiKit.md"), "utf8");
-const hlReference = readFileSync(join(__dirname, "hlReference.md"), "utf8");
 const COMPONENTS = new Set([...uiKit.matchAll(/`([A-Z]\w+)`/g)].map((m) => m[1]!));
-const clientSection = hlReference.split("\n## Client")[1]?.split("\n## ")[0] ?? "";
-const CLIENT = new Set([...[...clientSection.matchAll(/`(\w+)\(/g)].map((m) => m[1]!), "LOCATION_ID", "LOCATION_NAME"]);
+// The client's functions as the reference documents them (the core and every resource guide).
+const CLIENT = new Set([...CLIENT_FUNCTIONS, "usePager", "LOCATION_ID", "LOCATION_NAME"]);
 const CONFIG = new Set(["HL_PROXY", "PREVIEW_TOKEN", "LOCATION_ID", "LOCATION_NAME"]);
 const BUILT_IN = new Set(["Transition", "TransitionGroup", "KeepAlive", "Teleport", "Suspense", "Component", "RouterView", "RouterLink"]);
 const PACKAGES = new Set(["vue"]);
