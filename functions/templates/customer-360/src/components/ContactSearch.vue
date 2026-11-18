@@ -1,247 +1,144 @@
 <template>
-  <div class="card search">
-    <h2 class="card-title">
-      Contacts
-      <span v-if="total !== null" class="count">{{ total }}</span>
-    </h2>
+  <el-card shadow="never">
+    <template #header>
+      <div class="head">
+        <span class="title">Contacts</span>
+        <el-tag v-if="total !== null" size="small" type="info" round>{{ total }}</el-tag>
+      </div>
+    </template>
 
-    <input
+    <el-input
       v-model="query"
-      class="input"
-      type="search"
+      clearable
+      :prefix-icon="Search"
       placeholder="Search by name, email or phone"
       aria-label="Search contacts"
     />
-    <p v-if="hint" class="hint muted">{{ hint }}</p>
-    <p v-else class="hint muted">{{ effective ? `Results for “${effective}”` : "20 newest contacts" }}</p>
+    <p class="hint">
+      {{ hint || (effective ? `Results for “${effective}”` : "Newest contacts first") }}
+    </p>
 
     <StateBlock
-      :loading="loading"
-      :error="error"
-      :empty="!contacts.length"
+      :loading="loading && !items.length"
+      :error="error ? error.message : ''"
+      :empty="!items.length"
       :empty-text="effective ? `No contacts match “${effective}”.` : 'No contacts found in this location yet.'"
       loading-text="Loading contacts…"
-      @retry="load(true)"
+      @retry="pager.reset()"
     >
-      <ul class="list">
-        <li v-for="c in contacts" :key="c.id">
-          <button
-            class="item"
-            :class="{ active: c.id === modelValue }"
-            @click="pick(c.id)"
-          >
-            <span class="avatar">{{ initials(c) }}</span>
-            <span class="info">
-              <span class="name">{{ displayName(c) }}</span>
-              <span class="sub">{{ c.email || c.phone || "No email or phone" }}</span>
-            </span>
-          </button>
-        </li>
-      </ul>
+      <el-table
+        :data="items"
+        row-key="id"
+        :show-header="false"
+        highlight-current-row
+        :current-row-key="modelValue"
+        max-height="480"
+        style="width: 100%"
+        @row-click="(row) => pick(row.id)"
+      >
+        <el-table-column>
+          <template #default="{ row }">
+            <div class="cell">
+              <el-avatar :size="36">{{ initials(row) }}</el-avatar>
+              <div class="info">
+                <div class="name">{{ contactName(row) }}</div>
+                <div class="sub">{{ row.email || row.phone || "No email or phone" }}</div>
+              </div>
+            </div>
+          </template>
+        </el-table-column>
+      </el-table>
 
-      <div v-if="moreError" class="more-error">{{ moreError }}</div>
-      <Button v-if="hasMore" variant="outline" class="more" :disabled="loadingMore" @click="loadMore">
-        {{ loadingMore ? "Loading…" : moreError ? "Retry" : "Load more" }}
-      </Button>
+      <div class="foot">
+        <span class="sub">
+          {{ total !== null ? `Showing ${items.length} of ${total} contacts` : `${items.length} contacts loaded` }}
+        </span>
+        <el-button v-if="hasMore" :loading="loading" @click="pager.loadMore()">Load more</el-button>
+      </div>
     </StateBlock>
-  </div>
+  </el-card>
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onBeforeUnmount } from "vue";
-import { hl, LOCATION_ID } from "../api.js";
-import { displayName, initials } from "../utils.js";
+import { ref, computed, watch } from "vue";
+import { Search } from "@element-plus/icons-vue";
+import { usePager, contactName } from "../genesis/hl.js";
+import { initials } from "../utils.js";
 import StateBlock from "./StateBlock.vue";
-import { Button } from "../genesis/ui";
 
 const props = defineProps({ modelValue: { type: String, default: null } });
 const emit = defineEmits(["update:modelValue", "picked"]);
 
-const PAGE = 20;
 const query = ref("");
-const contacts = ref([]);
-const loading = ref(false);
-const loadingMore = ref(false);
-const error = ref("");
-const moreError = ref("");
-const total = ref(null);
-const cursor = ref(null);
-const hasMore = ref(false);
-
-let reqId = 0;
-let timer = null;
-
 const trimmed = computed(() => query.value.trim());
 const effective = computed(() => (trimmed.value.length >= 3 ? trimmed.value : ""));
 const hint = computed(() =>
-  trimmed.value.length > 0 && trimmed.value.length < 3
-    ? "Type at least 3 characters to search."
-    : ""
+  trimmed.value.length > 0 && trimmed.value.length < 3 ? "Type at least 3 characters to search." : ""
 );
 
-function buildParams() {
-  const p = { locationId: LOCATION_ID, limit: PAGE };
-  if (effective.value) p.query = effective.value;
-  else {
-    p.sortBy = "date_added";
-    p.order = "desc";
-  }
-  return p;
-}
+const pager = usePager("contacts", () =>
+  effective.value
+    ? { query: effective.value, limit: 20 }
+    : { sortBy: "date_added", order: "desc", limit: 20 }
+);
+const { items, total, hasMore, loading, error } = pager;
 
-function readMeta(data, list) {
-  const meta = data.meta || {};
-  total.value = typeof meta.total === "number" ? meta.total : null;
-  cursor.value = meta.startAfterId ? { id: meta.startAfterId, ts: meta.startAfter } : null;
-  hasMore.value = !!cursor.value && list.length >= PAGE;
-}
-
-async function load(reset) {
-  const id = ++reqId;
-  loading.value = true;
-  error.value = "";
-  moreError.value = "";
-  if (reset) contacts.value = [];
-  try {
-    const data = await hl("/contacts/", buildParams());
-    if (id !== reqId) return;
-    const list = Array.isArray(data.contacts) ? data.contacts : [];
-    contacts.value = list;
-    readMeta(data, list);
-    if (!props.modelValue && list.length) emit("update:modelValue", list[0].id);
-  } catch (e) {
-    if (id !== reqId) return;
-    error.value = e.message;
-  } finally {
-    if (id === reqId) loading.value = false;
-  }
-}
-
-async function loadMore() {
-  if (!cursor.value || loadingMore.value) return;
-  const id = reqId;
-  loadingMore.value = true;
-  moreError.value = "";
-  try {
-    const params = buildParams();
-    params.startAfterId = cursor.value.id;
-    if (cursor.value.ts) params.startAfter = cursor.value.ts;
-    const data = await hl("/contacts/", params);
-    if (id !== reqId) return;
-    const list = Array.isArray(data.contacts) ? data.contacts : [];
-    const seen = new Set(contacts.value.map((c) => c.id));
-    contacts.value = contacts.value.concat(list.filter((c) => !seen.has(c.id)));
-    readMeta(data, list);
-  } catch (e) {
-    if (id !== reqId) return;
-    moreError.value = e.message;
-  } finally {
-    loadingMore.value = false;
-  }
-}
+watch(
+  items,
+  (list) => {
+    if (!props.modelValue && list && list.length) emit("update:modelValue", list[0].id);
+  },
+  { immediate: true }
+);
 
 function pick(id) {
   emit("update:modelValue", id);
   emit("picked", id);
 }
-
-watch(effective, () => {
-  clearTimeout(timer);
-  timer = setTimeout(() => load(true), 350);
-});
-
-onMounted(() => load(true));
-onBeforeUnmount(() => clearTimeout(timer));
 </script>
 
 <style scoped>
-.hint {
-  margin: 8px 0 8px;
-  font-size: 0.8rem;
-}
-
-.list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+.head {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  max-height: 60vh;
-  overflow-y: auto;
+  align-items: center;
+  gap: 8px;
 }
-
-.item {
-  width: 100%;
+.title {
+  font-weight: 600;
+}
+.hint {
+  margin: 8px 0;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+.cell {
   display: flex;
   align-items: center;
   gap: 12px;
-  text-align: left;
-  background: var(--surface);
-  border: 1px solid transparent;
-  border-radius: 8px;
-  padding: 10px;
   cursor: pointer;
-  color: var(--navy);
 }
-
-.item:hover {
-  background: var(--bg);
-}
-
-.item.active {
-  background: var(--accent-soft);
-  border-color: var(--accent);
-}
-
-.avatar {
-  flex: none;
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  background: var(--accent-soft);
-  color: var(--accent);
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.item.active .avatar {
-  background: var(--accent);
-  color: var(--on-primary);
-}
-
 .info {
-  display: flex;
-  flex-direction: column;
   min-width: 0;
 }
-
 .name {
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
 .sub {
-  font-size: 0.85rem;
-  color: var(--muted);
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-.more {
-  width: 100%;
-  margin-top: 10px;
-}
-
-.more-error {
-  margin-top: 10px;
-  color: var(--danger);
-  font-size: 0.85rem;
-  word-break: break-word;
+.foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
 }
 </style>

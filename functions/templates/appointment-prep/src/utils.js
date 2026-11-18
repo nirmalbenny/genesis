@@ -1,15 +1,4 @@
-export function parseDate(value) {
-  if (value === undefined || value === null || value === "") return null;
-  let d;
-  if (typeof value === "number") {
-    d = new Date(value);
-  } else {
-    let s = String(value).trim();
-    if (/^\d{4}-\d{2}-\d{2} \d/.test(s)) s = s.replace(" ", "T");
-    d = new Date(s);
-  }
-  return isNaN(d.getTime()) ? null : d;
-}
+import { toDate } from "./genesis/hl.js";
 
 export function dayKey(date) {
   if (!date) return "unknown";
@@ -33,7 +22,7 @@ export function fmtTime(date) {
 }
 
 export function fmtDateTime(value) {
-  const d = value instanceof Date ? value : parseDate(value);
+  const d = value instanceof Date ? value : toDate(value);
   if (!d) return "—";
   return d.toLocaleString(undefined, {
     month: "short",
@@ -45,7 +34,7 @@ export function fmtDateTime(value) {
 }
 
 export function fmtDate(value) {
-  const d = parseDate(value);
+  const d = toDate(value);
   if (!d) return "—";
   return d.toLocaleDateString(undefined, {
     month: "short",
@@ -54,10 +43,15 @@ export function fmtDate(value) {
   });
 }
 
-export function statusClass(status) {
+export function statusType(status) {
   const s = String(status || "").toLowerCase();
   if (["confirmed", "showed", "booked"].includes(s)) return "success";
   if (["cancelled", "canceled", "noshow", "no_show", "invalid"].includes(s)) return "danger";
   if (["new", "pending"].includes(s)) return "warning";
-  return "";
+  return "info";
+}
+
+export function capitalize(text) {
+  const s = String(text || "");
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }

@@ -1,9 +1,11 @@
 <template>
-  <div class="card">
-    <h2 class="card-title">
-      Appointments
-      <span v-if="!loading && !error" class="count">{{ events.length }}</span>
-    </h2>
+  <el-card shadow="never">
+    <template #header>
+      <div class="head">
+        <span class="title">Appointments</span>
+        <el-tag v-if="!loading && !error" size="small" type="info" round>{{ events.length }}</el-tag>
+      </div>
+    </template>
 
     <StateBlock
       :loading="loading"
@@ -13,42 +15,20 @@
       loading-text="Loading appointments…"
       @retry="load"
     >
-      <div class="group">
-        <h3 class="sub">Upcoming <span class="count">{{ upcoming.length }}</span></h3>
-        <p v-if="!upcoming.length" class="muted none">No upcoming appointments.</p>
-        <ul v-else class="list">
-          <li v-for="e in upcoming" :key="e.id" class="appt up">
-            <div class="when">{{ fmtDateTime(e.startTime) }}</div>
-            <div class="what">
-              <span class="t">{{ e.title || "Untitled appointment" }}</span>
-              <span v-if="e.appointmentStatus" class="badge">{{ e.appointmentStatus }}</span>
-            </div>
-          </li>
-        </ul>
-      </div>
+      <h3 class="sub">Upcoming ({{ upcoming.length }})</h3>
+      <AppointmentList :items="upcoming" upcoming empty-text="No upcoming appointments." />
 
-      <div class="group">
-        <h3 class="sub">Past <span class="count">{{ past.length }}</span></h3>
-        <p v-if="!past.length" class="muted none">No past appointments.</p>
-        <ul v-else class="list">
-          <li v-for="e in past" :key="e.id" class="appt">
-            <div class="when">{{ fmtDateTime(e.startTime) }}</div>
-            <div class="what">
-              <span class="t">{{ e.title || "Untitled appointment" }}</span>
-              <span v-if="e.appointmentStatus" class="badge">{{ e.appointmentStatus }}</span>
-            </div>
-          </li>
-        </ul>
-      </div>
+      <h3 class="sub">Past ({{ past.length }})</h3>
+      <AppointmentList :items="past" empty-text="No past appointments." />
     </StateBlock>
-  </div>
+  </el-card>
 </template>
 
 <script setup>
 import { ref, computed, watch } from "vue";
-import { hl } from "../api.js";
-import { fmtDateTime, toDate } from "../utils.js";
+import { contactAppointments, toDate } from "../genesis/hl.js";
 import StateBlock from "./StateBlock.vue";
+import AppointmentList from "./AppointmentList.vue";
 
 const props = defineProps({ contactId: { type: String, required: true } });
 
@@ -57,23 +37,23 @@ const loading = ref(false);
 const error = ref("");
 let reqId = 0;
 
-function time(e) {
-  const d = toDate(e && e.startTime);
-  return d ? d.getTime() : null;
-}
+const withTime = computed(() =>
+  events.value.map((e) => {
+    const d = e.start instanceof Date ? e.start : toDate(e.start || e.startTime);
+    return { ...e, when: d, ts: d ? d.getTime() : null };
+  })
+);
 
 const upcoming = computed(() => {
   const now = Date.now();
-  return events.value
-    .filter((e) => time(e) !== null && time(e) >= now)
-    .sort((a, b) => time(a) - time(b));
+  return withTime.value.filter((e) => e.ts !== null && e.ts >= now).sort((a, b) => a.ts - b.ts);
 });
 
 const past = computed(() => {
   const now = Date.now();
-  return events.value
-    .filter((e) => time(e) === null || time(e) < now)
-    .sort((a, b) => (time(b) ?? -Infinity) - (time(a) ?? -Infinity));
+  return withTime.value
+    .filter((e) => e.ts === null || e.ts < now)
+    .sort((a, b) => (b.ts ?? -Infinity) - (a.ts ?? -Infinity));
 });
 
 async function load() {
@@ -82,9 +62,9 @@ async function load() {
   error.value = "";
   events.value = [];
   try {
-    const data = await hl(`/contacts/${encodeURIComponent(props.contactId)}/appointments`);
+    const list = await contactAppointments(props.contactId);
     if (id !== reqId) return;
-    events.value = Array.isArray(data.events) ? data.events : [];
+    events.value = Array.isArray(list) ? list : [];
   } catch (e) {
     if (id !== reqId) return;
     error.value = e.message;
@@ -97,65 +77,19 @@ watch(() => props.contactId, load, { immediate: true });
 </script>
 
 <style scoped>
-.group + .group {
-  margin-top: 20px;
-}
-
-.sub {
-  margin: 0 0 8px;
-  font-size: 0.85rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--muted);
+.head {
   display: flex;
   align-items: center;
   gap: 8px;
 }
-
-.none {
-  margin: 0;
-  font-size: 0.9rem;
-}
-
-.list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.appt {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  border: 1px solid var(--border);
-  border-left: 4px solid var(--border);
-  border-radius: 8px;
-  padding: 10px 12px;
-}
-
-.appt.up {
-  border-left-color: var(--accent);
-}
-
-.when {
+.title {
   font-weight: 600;
 }
-
-.what {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  min-width: 0;
-}
-
-.t {
-  color: var(--muted);
-  word-break: break-word;
+.sub {
+  margin: 8px 0;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--el-text-color-secondary);
 }
 </style>

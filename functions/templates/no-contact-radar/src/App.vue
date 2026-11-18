@@ -1,10 +1,11 @@
 <script setup>
-import { ref, computed, onMounted } from "vue";
-import { fetchContacts, fetchConversations } from "./api.js";
-import { parseDate, contactDisplayName, daysSince, DAY_MS } from "./utils.js";
+import { ref, computed, watch } from "vue";
+import { usePager, contactName, toDate, LOCATION_NAME } from "./genesis/hl.js";
+import { daysSince } from "./utils.js";
 import ControlsBar from "./components/ControlsBar.vue";
-import ContactRow from "./components/ContactRow.vue";
+import ContactsTable from "./components/ContactsTable.vue";
 import StatusBlock from "./components/StatusBlock.vue";
+import LoadMoreBar from "./components/LoadMoreBar.vue";
 
 const OPTIONS = [7, 14, 30, 90];
 
@@ -13,54 +14,29 @@ const includeNever = ref(true);
 const query = ref("");
 const now = ref(Date.now());
 
-const contacts = ref([]);
-const contactsState = ref("loading"); // loading | ready | error
-const contactsError = ref("");
+const contactsPager = usePager("contacts", { sortBy: "date_added", order: "desc", limit: 100 });
+const convPager = usePager("conversations", { limit: 100 });
 
-const conversations = ref([]);
-const convState = ref("loading");
-const convError = ref("");
+const contacts = computed(() => contactsPager.items.value || []);
+const conversations = computed(() => convPager.items.value || []);
 
-async function loadContacts() {
-  contactsState.value = "loading";
-  contactsError.value = "";
-  try {
-    contacts.value = await fetchContacts();
-    now.value = Date.now();
-    contactsState.value = "ready";
-  } catch (e) {
-    contactsError.value = (e && e.message) || "Something went wrong.";
-    contactsState.value = "error";
-  }
-}
-
-async function loadConversations() {
-  convState.value = "loading";
-  convError.value = "";
-  try {
-    conversations.value = await fetchConversations();
-    now.value = Date.now();
-    convState.value = "ready";
-  } catch (e) {
-    convError.value = (e && e.message) || "Something went wrong.";
-    convState.value = "error";
-  }
-}
-
-onMounted(() => {
-  loadContacts();
-  loadConversations();
+watch([contacts, conversations], () => {
+  now.value = Date.now();
 });
 
-const ready = computed(() => contactsState.value === "ready" && convState.value === "ready");
+const loadingFirst = computed(
+  () =>
+    (contactsPager.loading.value && !contacts.value.length && !contactsPager.error.value) ||
+    (convPager.loading.value && !conversations.value.length && !convPager.error.value)
+);
 
 // contactId -> latest lastMessageDate (ms)
 const lastByContact = computed(() => {
   const map = new Map();
   for (const conv of conversations.value) {
     if (!conv || !conv.contactId) continue;
-    const ts = parseDate(conv.lastMessageDate);
-    if (ts === null) continue;
+    const ts = toDate(conv.lastMessageDate)?.getTime();
+    if (!Number.isFinite(ts)) continue;
     const prev = map.get(conv.contactId);
     if (prev === undefined || ts > prev) map.set(conv.contactId, ts);
   }
@@ -74,23 +50,20 @@ const allRows = computed(() =>
       const lastDate = lastByContact.value.has(c.id) ? lastByContact.value.get(c.id) : null;
       return {
         id: c.id,
-        name: contactDisplayName(c),
+        name: contactName(c) || c.email || c.phone || "Unnamed contact",
         email: c.email || "",
         phone: c.phone || "",
         tags: Array.isArray(c.tags) ? c.tags.filter((t) => typeof t === "string") : [],
-        added: parseDate(c.dateAdded),
+        added: toDate(c.dateAdded)?.getTime() ?? null,
         lastDate,
         days: daysSince(lastDate, now.value),
       };
     })
 );
 
-const overdueRows = computed(() => {
-  const cutoff = days.value;
-  return allRows.value.filter((r) =>
-    r.lastDate === null ? includeNever.value : r.days >= cutoff
-  );
-});
+const overdueRows = computed(() =>
+  allRows.value.filter((r) => (r.lastDate === null ? includeNever.value : r.days >= days.value))
+);
 
 const visibleRows = computed(() => {
   const q = query.value.trim().toLowerCase();
@@ -128,130 +101,102 @@ const emptyMessage = computed(() => {
 </script>
 
 <template>
-  <main class="page">
-    <div class="wrap">
-      <header class="head">
-        <h1>No-Contact Radar</h1>
-        <p class="lead">Find contacts you haven't talked to in a while.</p>
-      </header>
-
-      <ControlsBar
-        v-model:days="days"
-        v-model:includeNever="includeNever"
-        v-model:query="query"
-        :options="OPTIONS"
-      />
-
-      <p class="note">Based on the latest 100 contacts and conversations</p>
-
-      <StatusBlock
-        v-if="contactsState === 'error'"
-        kind="error"
-        title="Couldn't load contacts"
-        :message="contactsError"
-        @retry="loadContacts"
-      />
-      <StatusBlock
-        v-if="convState === 'error'"
-        kind="error"
-        title="Couldn't load conversations"
-        :message="convError"
-        @retry="loadConversations"
-      />
-
-      <StatusBlock
-        v-if="
-          contactsState !== 'error' &&
-          convState !== 'error' &&
-          (contactsState === 'loading' || convState === 'loading')
-        "
-        kind="loading"
-        title="Scanning your contacts…"
-        message="Loading contacts and conversations"
-      />
-
-      <template v-if="ready">
-        <StatusBlock
-          v-if="!visibleRows.length"
-          kind="empty"
-          :title="emptyMessage.title"
-          :message="emptyMessage.message"
-        />
-        <section v-else class="card">
-          <div class="summary">
-            <strong>{{ visibleRows.length }}</strong>
-            {{ visibleRows.length === 1 ? "contact" : "contacts" }} to reach out to
-            <span class="muted">
-              · {{ neverCount }} never contacted · {{ allRows.length }} contacts loaded
-            </span>
-          </div>
-          <ul class="list">
-            <ContactRow v-for="r in visibleRows" :key="r.id" :row="r" />
-          </ul>
-        </section>
-      </template>
+  <div class="page">
+    <div>
+      <h1>No-Contact Radar<template v-if="LOCATION_NAME"> · {{ LOCATION_NAME }}</template></h1>
+      <p class="lead">Find contacts you haven't talked to in a while.</p>
     </div>
-  </main>
+
+    <ControlsBar
+      v-model:days="days"
+      v-model:includeNever="includeNever"
+      v-model:query="query"
+      :options="OPTIONS"
+    />
+
+    <p class="lead small">
+      Based on the contacts and conversations loaded so far (the latest 100 of each to start with).
+    </p>
+
+    <StatusBlock
+      v-if="contactsPager.error.value"
+      kind="error"
+      title="Couldn't load contacts"
+      :message="contactsPager.error.value.message"
+      @retry="contactsPager.reset()"
+    />
+    <StatusBlock
+      v-if="convPager.error.value"
+      kind="error"
+      title="Couldn't load conversations"
+      :message="convPager.error.value.message"
+      @retry="convPager.reset()"
+    />
+
+    <StatusBlock
+      v-if="loadingFirst"
+      kind="loading"
+      title="Scanning your contacts…"
+    />
+
+    <template v-else-if="!contactsPager.error.value && !convPager.error.value">
+      <StatusBlock
+        v-if="!visibleRows.length"
+        kind="empty"
+        :title="emptyMessage.title"
+        :message="emptyMessage.message"
+      />
+      <el-card v-else shadow="never">
+        <template #header>
+          <strong>{{ visibleRows.length }}</strong>
+          {{ visibleRows.length === 1 ? "contact" : "contacts" }} to reach out to
+          <span class="lead small">
+            · {{ neverCount }} never contacted · {{ allRows.length }} contacts loaded
+          </span>
+        </template>
+        <ContactsTable :rows="visibleRows" />
+      </el-card>
+
+      <el-card shadow="never">
+        <div class="loaders">
+          <LoadMoreBar
+            noun="contacts"
+            :loaded="contacts.length"
+            :total="contactsPager.total.value"
+            :has-more="contactsPager.hasMore.value"
+            :loading="contactsPager.loading.value"
+            @more="contactsPager.loadMore()"
+          />
+          <LoadMoreBar
+            noun="conversations"
+            :loaded="conversations.length"
+            :total="convPager.total.value"
+            :has-more="convPager.hasMore.value"
+            :loading="convPager.loading.value"
+            @more="convPager.loadMore()"
+          />
+        </div>
+      </el-card>
+    </template>
+  </div>
 </template>
 
 <style scoped>
-.page {
-  min-height: 100vh;
-  background: var(--bg);
-  color: var(--text);
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  padding: 32px 16px 48px;
-  box-sizing: border-box;
-}
-.wrap {
-  max-width: 920px;
-  margin: 0 auto;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-.head h1 {
+h1 {
   margin: 0 0 4px;
-  font-size: 26px;
+  font-size: 22px;
+  font-weight: 600;
 }
 .lead {
   margin: 0;
-  color: var(--muted);
+  color: var(--el-text-color-secondary);
 }
-.note {
-  margin: 0;
-  font-size: 13px;
-  color: var(--muted);
-}
-.card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  overflow: hidden;
-}
-.summary {
-  padding: 14px 20px;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface);
-}
-.summary strong {
-  color: var(--primary);
-}
-.muted {
-  color: var(--muted);
+.small {
   font-size: 13px;
 }
-.list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-@media (max-width: 480px) {
-  .page {
-    padding: 20px 12px 32px;
-  }
-  .head h1 {
-    font-size: 22px;
-  }
+.loaders {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 </style>

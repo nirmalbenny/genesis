@@ -53,10 +53,11 @@ function connectNow() {
 
 <template>
   <div class="flex h-screen flex-col bg-background">
-    <header class="flex h-14 shrink-0 items-center gap-3 bg-ink-100 px-4 text-white">
+    <!-- On phones the app's name and the button labels give way, so the bar never pushes the page wider. -->
+    <header class="flex h-14 shrink-0 items-center gap-2 bg-ink-100 px-3 text-white sm:gap-3 sm:px-4">
       <AppLogo inverted />
-      <span class="text-white/50">/</span>
-      <span class="max-w-60 truncate text-[13px] font-semibold">{{ project.name.value }}</span>
+      <span class="hidden text-white/50 sm:inline">/</span>
+      <span class="hidden max-w-60 truncate text-[13px] font-semibold sm:inline">{{ project.name.value }}</span>
       <div class="flex-1" />
 
       <!-- One HighLevel location per user: the menu shows the connected one and lets you re-authorize -->
@@ -92,11 +93,11 @@ function connectNow() {
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <Button size="sm" variant="outline" class="h-7 gap-1.5 border-white/25 bg-white/10 text-xs text-white hover:bg-white/20 hover:text-white" :disabled="!hl" @click="preview?.refresh({ force: true })">
-        <RefreshCw class="size-3.5" />Refresh
+      <Button size="sm" variant="outline" class="h-7 shrink-0 gap-1.5 border-white/25 bg-white/10 text-xs text-white hover:bg-white/20 hover:text-white" aria-label="Refresh" :disabled="!hl" @click="preview?.refresh({ force: true })">
+        <RefreshCw class="size-3.5" /><span class="hidden sm:inline">Refresh</span>
       </Button>
-      <Button size="sm" class="h-7 gap-1.5 text-xs" as-child>
-        <RouterLink :to="`/p/${projectId}`"><Pencil class="size-3.5" />Edit</RouterLink>
+      <Button size="sm" class="h-7 shrink-0 gap-1.5 text-xs" as-child>
+        <RouterLink :to="`/p/${projectId}`" aria-label="Edit"><Pencil class="size-3.5" /><span class="hidden sm:inline">Edit</span></RouterLink>
       </Button>
     </header>
 

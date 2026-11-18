@@ -1,261 +1,203 @@
 <script setup>
-import { Button } from "./genesis/ui";
-import { reactive, computed, onMounted, ref } from "vue";
-import { loadContacts, loadConversations, loadAppointments } from "./api.js";
-import { contactDisplayName, parseDate } from "./utils.js";
+import { computed, onMounted, ref, watch } from "vue";
+import { Search, Refresh } from "@element-plus/icons-vue";
+import { usePager, LOCATION_NAME } from "./genesis/hl.js";
+import { useAppointments } from "./useAppointments.js";
+import { buildCards, matchesSearch } from "./board.js";
+import { toDate } from "./genesis/hl.js";
 import BoardColumn from "./components/BoardColumn.vue";
 import SourceStatus from "./components/SourceStatus.vue";
 
-const loaders = {
-  contacts: loadContacts,
-  conversations: loadConversations,
-  appointments: loadAppointments,
-};
-
-const sources = reactive({
-  contacts: { key: "contacts", label: "Contacts (50 newest)", status: "idle", error: "", data: [] },
-  conversations: { key: "conversations", label: "Conversations (up to 100)", status: "idle", error: "", data: [] },
-  appointments: { key: "appointments", label: "Appointments (next 30 days)", status: "idle", error: "", data: [] },
-});
+const contacts = usePager("contacts", () => ({ sortBy: "date_added", order: "desc", limit: 50 }));
+const conversations = usePager("conversations", () => ({ limit: 100 }));
+const appts = useAppointments();
 
 const search = ref("");
 
-async function run(key) {
-  const s = sources[key];
-  s.status = "loading";
-  s.error = "";
-  try {
-    s.data = await loaders[key]();
-    s.status = "ready";
-  } catch (e) {
-    s.error = (e && e.message) || "Something went wrong.";
-    s.status = "error";
+// A pager counts as "started" once it has begun loading at least once.
+function useStarted(pager) {
+  const started = ref(false);
+  watch(pager.loading, (v) => { if (v) started.value = true; }, { immediate: true });
+  return started;
+}
+const contactsStarted = useStarted(contacts);
+const convStarted = useStarted(conversations);
+
+function pagerStatus(pager, started) {
+  if (!pager.items.value.length) {
+    if (pager.error.value) return "error";
+    if (!started.value || pager.loading.value) return "loading";
   }
+  return "ready";
 }
 
-function loadAll() {
-  return Promise.all(Object.keys(loaders).map(run));
+const sources = computed(() => [
+  {
+    key: "contacts",
+    label: "Contacts (newest first)",
+    status: pagerStatus(contacts, contactsStarted),
+    error: contacts.error.value && contacts.error.value.message,
+  },
+  {
+    key: "conversations",
+    label: "Conversations (latest 100)",
+    status: pagerStatus(conversations, convStarted),
+    error: conversations.error.value && conversations.error.value.message,
+  },
+  {
+    key: "appointments",
+    label: "Appointments (next 30 days)",
+    status: appts.error.value ? "error" : appts.loaded.value ? "ready" : "loading",
+    error: appts.error.value && appts.error.value.message,
+  },
+]);
+
+const allReady = computed(() => sources.value.every((s) => s.status === "ready"));
+const anyLoading = computed(
+  () => contacts.loading.value || conversations.loading.value || appts.loading.value
+);
+
+function retry(key) {
+  if (key === "contacts") contacts.reset();
+  else if (key === "conversations") conversations.reset();
+  else appts.load();
 }
 
-onMounted(loadAll);
+function refreshAll() {
+  contacts.reset();
+  conversations.reset();
+  appts.load();
+}
 
-const sourceList = computed(() => Object.values(sources));
-const allReady = computed(() => sourceList.value.every((s) => s.status === "ready"));
-const anyLoading = computed(() => sourceList.value.some((s) => s.status === "loading" || s.status === "idle"));
+onMounted(appts.load);
 
-const cards = computed(() => {
-  if (!allReady.value) return [];
-
-  const convByContact = new Map();
-  for (const conv of sources.conversations.data) {
-    if (!conv || !conv.contactId) continue;
-    const existing = convByContact.get(conv.contactId);
-    if (!existing) {
-      convByContact.set(conv.contactId, { latest: conv, unread: Number(conv.unreadCount) || 0 });
-    } else {
-      existing.unread += Number(conv.unreadCount) || 0;
-      const a = parseDate(conv.lastMessageDate);
-      const b = parseDate(existing.latest.lastMessageDate);
-      if (a && (!b || a > b)) existing.latest = conv;
-    }
-  }
-
-  const now = Date.now();
-  const apptByContact = new Map();
-  for (const ev of sources.appointments.data) {
-    if (!ev || !ev.contactId) continue;
-    const status = String(ev.appointmentStatus || "").toLowerCase();
-    if (status === "cancelled" || status === "canceled") continue;
-    const start = parseDate(ev.startTime);
-    if (!start || start.getTime() < now) continue;
-    const existing = apptByContact.get(ev.contactId);
-    if (!existing || start < parseDate(existing.startTime)) apptByContact.set(ev.contactId, ev);
-  }
-
-  return sources.contacts.data
-    .filter((c) => c && c.id)
-    .map((c) => {
-      const conv = convByContact.get(c.id);
-      const appt = apptByContact.get(c.id);
-      const column = appt ? "booked" : conv ? "conversation" : "first";
-      return {
-        id: c.id,
-        name: contactDisplayName(c),
-        email: c.email || "",
-        phone: c.phone || "",
-        source: c.source || "Unknown",
-        tags: Array.isArray(c.tags) ? c.tags.filter(Boolean) : [],
-        dateAdded: c.dateAdded,
-        column,
-        appointment: appt || null,
-        lastMessageBody: conv ? conv.latest.lastMessageBody : "",
-        lastMessageDate: conv ? conv.latest.lastMessageDate : null,
-        unread: conv ? conv.unread : 0,
-      };
-    });
-});
-
-const filtered = computed(() => {
-  const q = search.value.trim().toLowerCase();
-  if (!q) return cards.value;
-  return cards.value.filter((c) =>
-    [c.name, c.email, c.phone, c.source, c.lastMessageBody, c.appointment && c.appointment.title, ...c.tags]
-      .filter(Boolean)
-      .some((v) => String(v).toLowerCase().includes(q))
-  );
-});
-
+const cards = computed(() =>
+  allReady.value ? buildCards(contacts.items.value, conversations.items.value, appts.events.value) : []
+);
+const filtered = computed(() => cards.value.filter((c) => matchesSearch(c, search.value)));
 const first = computed(() => filtered.value.filter((c) => c.column === "first"));
 const conversation = computed(() => filtered.value.filter((c) => c.column === "conversation"));
 const booked = computed(() =>
   filtered.value
     .filter((c) => c.column === "booked")
-    .sort((a, b) => parseDate(a.appointment.startTime) - parseDate(b.appointment.startTime))
+    .sort((a, b) => toDate(a.appointment.startTime) - toDate(b.appointment.startTime))
 );
 const filtering = computed(() => search.value.trim().length > 0);
+
+const loadedNote = computed(() => {
+  const n = contacts.items.value.length;
+  const t = contacts.total.value;
+  return t ? `Based on the ${n} newest of ${t} contacts` : `Based on the ${n} newest contacts`;
+});
 </script>
 
 <template>
   <div class="page">
-    <header class="top">
+    <div class="header">
       <div>
-        <h1>Lead Follow-up Board</h1>
-        <p class="note">Based on the 50 newest leads</p>
+        <h1>Lead Follow-up Board<span v-if="LOCATION_NAME"> · {{ LOCATION_NAME }}</span></h1>
+        <p class="note">{{ loadedNote }}</p>
       </div>
       <div class="tools">
-        <input
+        <el-input
           v-model="search"
-          class="search"
-          type="search"
+          clearable
+          :prefix-icon="Search"
           placeholder="Search name, tag, source, message…"
           aria-label="Search leads"
         />
-        <Button variant="outline" :disabled="anyLoading" @click="loadAll">
-          {{ anyLoading ? "Loading…" : "Refresh" }}
-        </Button>
+        <el-button :icon="Refresh" :loading="anyLoading" @click="refreshAll">Refresh</el-button>
       </div>
-    </header>
-
-    <SourceStatus v-if="!allReady" :sources="sourceList" @retry="run" />
-
-    <section v-else-if="!sources.contacts.data.length" class="empty-state">
-      <h2>No leads yet</h2>
-      <p>New contacts added to this location will show up here.</p>
-    </section>
-
-    <div v-else class="board">
-      <BoardColumn
-        title="Needs first touch"
-        hint="No conversation yet"
-        :cards="first"
-        :filtering="filtering"
-      />
-      <BoardColumn
-        title="In conversation"
-        hint="Talking, nothing booked"
-        :cards="conversation"
-        :filtering="filtering"
-      />
-      <BoardColumn
-        title="Booked"
-        hint="Upcoming appointment in the next 30 days"
-        :cards="booked"
-        :filtering="filtering"
-      />
     </div>
+
+    <SourceStatus v-if="!allReady" :sources="sources" @retry="retry" />
+
+    <el-card v-else-if="!contacts.items.value.length" shadow="never">
+      <el-empty description="No leads yet. New contacts added to this location will show up here." />
+    </el-card>
+
+    <template v-else>
+      <el-alert
+        v-if="contacts.error.value"
+        type="error"
+        show-icon
+        :closable="false"
+        :title="contacts.error.value.message"
+      />
+      <el-row :gutter="16">
+        <el-col :xs="24" :md="8" class="col">
+          <BoardColumn title="Needs first touch" hint="No conversation yet" :cards="first" :filtering="filtering" />
+        </el-col>
+        <el-col :xs="24" :md="8" class="col">
+          <BoardColumn title="In conversation" hint="Talking, nothing booked" :cards="conversation" :filtering="filtering" />
+        </el-col>
+        <el-col :xs="24" :md="8" class="col">
+          <BoardColumn
+            title="Booked"
+            hint="Upcoming appointment in the next 30 days"
+            :cards="booked"
+            :filtering="filtering"
+          />
+        </el-col>
+      </el-row>
+      <div class="more">
+        <span class="note">
+          Showing {{ contacts.items.value.length }}<template v-if="contacts.total.value"> of {{ contacts.total.value }}</template> contacts
+        </span>
+        <el-button v-if="contacts.hasMore.value" :loading="contacts.loading.value" @click="contacts.loadMore()">
+          Load more
+        </el-button>
+      </div>
+    </template>
   </div>
 </template>
 
 <style scoped>
-.page {
-  min-height: 100vh;
-  background: var(--bg);
-  color: var(--text);
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  padding: 32px 24px 48px;
-  box-sizing: border-box;
-}
-.top {
-  max-width: 1200px;
-  margin: 0 auto 24px;
+.header {
   display: flex;
   flex-wrap: wrap;
-  gap: 16px 24px;
+  gap: 12px 24px;
   align-items: flex-end;
   justify-content: space-between;
 }
 h1 {
   margin: 0;
-  font-size: 26px;
+  font-size: 22px;
+  font-weight: 600;
 }
 .note {
   margin: 4px 0 0;
-  color: var(--muted);
+  color: var(--el-text-color-secondary);
   font-size: 14px;
 }
 .tools {
   display: flex;
   gap: 10px;
-  flex-wrap: wrap;
   flex: 1 1 320px;
   justify-content: flex-end;
 }
-.search {
-  flex: 1 1 220px;
+.tools .el-input {
   max-width: 360px;
-  min-width: 0;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  font: inherit;
-  color: var(--text);
-  background: var(--surface);
 }
-.search:focus {
-  outline: 2px solid var(--primary);
-  outline-offset: -1px;
+.col {
+  margin-bottom: 16px;
 }
-.board {
-  max-width: 1200px;
-  margin: 0 auto;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 20px;
-  align-items: start;
+.more {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: center;
 }
-.empty-state {
-  max-width: 640px;
-  margin: 0 auto;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 40px 24px;
-  text-align: center;
-}
-.empty-state h2 {
-  margin: 0 0 8px;
-}
-.empty-state p {
+.more .note {
   margin: 0;
-  color: var(--muted);
 }
-@media (max-width: 900px) {
-  .board {
-    grid-template-columns: minmax(0, 1fr);
-  }
+@media (max-width: 640px) {
   .tools {
-    justify-content: flex-start;
+    justify-content: stretch;
   }
-  .search {
+  .tools .el-input {
     max-width: none;
-  }
-}
-@media (max-width: 480px) {
-  .page {
-    padding: 20px 12px 32px;
-  }
-  h1 {
-    font-size: 22px;
   }
 }
 </style>

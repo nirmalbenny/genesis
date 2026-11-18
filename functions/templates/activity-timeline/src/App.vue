@@ -1,9 +1,8 @@
 <script setup>
-import { Button } from "./genesis/ui";
 import { ref, computed } from "vue";
-import { hlGet } from "./api.js";
-import { LOCATION_ID } from "./hl.config.js";
-import { parseDate } from "./utils.js";
+import { Refresh } from "@element-plus/icons-vue";
+import { LOCATION_NAME } from "./genesis/hl.js";
+import { fetchTimeline } from "./timeline.js";
 import ContactPicker from "./components/ContactPicker.vue";
 import ContactHeader from "./components/ContactHeader.vue";
 import FilterChips from "./components/FilterChips.vue";
@@ -18,91 +17,16 @@ const filter = ref("all");
 
 let reqId = 0;
 
-function messageChannel(m) {
-  const t = m && m.messageType ? String(m.messageType) : "";
-  if (!t) return "";
-  const s = t.replace(/^TYPE_/i, "").replace(/[_-]+/g, " ").toLowerCase();
-  return s.toUpperCase() === s.toUpperCase() && s.length <= 5
-    ? s.toUpperCase()
-    : s.charAt(0).toUpperCase() + s.slice(1);
-}
-
 async function loadTimeline() {
   if (!contact.value) return;
   const id = ++reqId;
-  const contactId = contact.value.id;
   loading.value = true;
   error.value = "";
   items.value = [];
   try {
-    const messagesPromise = (async () => {
-      const convData = await hlGet("/conversations/search", {
-        locationId: LOCATION_ID,
-        contactId,
-        limit: 20,
-        sortBy: "last_message_date",
-        sort: "desc",
-      });
-      const convs = (
-        Array.isArray(convData.conversations) ? convData.conversations : []
-      ).slice(0, 3);
-      const results = await Promise.all(
-        convs.map((c) =>
-          hlGet(`/conversations/${encodeURIComponent(c.id)}/messages`, {
-            limit: 20,
-          })
-        )
-      );
-      const all = [];
-      results.forEach((r) => {
-        const list = r && r.messages && r.messages.messages;
-        if (Array.isArray(list)) all.push(...list);
-      });
-      return all;
-    })();
-
-    const apptPromise = hlGet(
-      `/contacts/${encodeURIComponent(contactId)}/appointments`
-    );
-
-    const [messages, apptData] = await Promise.all([messagesPromise, apptPromise]);
+    const result = await fetchTimeline(contact.value.id);
     if (id !== reqId) return;
-
-    const merged = [];
-    const seen = new Set();
-    messages.forEach((m, i) => {
-      // Activity entries (e.g. "appointment booked") duplicate the appointment itself.
-      if (!m || /^TYPE_ACTIVITY/i.test(String(m.messageType || ""))) return;
-      const key = "m-" + (m.id || `idx${i}`);
-      if (seen.has(key)) return;
-      seen.add(key);
-      merged.push({
-        id: key,
-        type: m.direction === "inbound" ? "inbound" : "outbound",
-        date: parseDate(m.dateAdded),
-        body: m.body ? String(m.body) : "",
-        channel: messageChannel(m),
-      });
-    });
-    const events = Array.isArray(apptData.events) ? apptData.events : [];
-    events.forEach((e, i) => {
-      if (!e) return;
-      merged.push({
-        id: "a-" + (e.id || `idx${i}`),
-        type: "appointment",
-        date: parseDate(e.startTime),
-        title: e.title ? String(e.title) : "",
-        status: e.appointmentStatus || "",
-      });
-    });
-
-    merged.sort((a, b) => {
-      if (!a.date && !b.date) return 0;
-      if (!a.date) return 1;
-      if (!b.date) return -1;
-      return b.date - a.date;
-    });
-    items.value = merged;
+    items.value = result;
   } catch (e) {
     if (id !== reqId) return;
     error.value = e.message;
@@ -124,8 +48,7 @@ function onSelect(c) {
 
 const counts = computed(() => {
   const msgs = items.value.filter((i) => i.type !== "appointment").length;
-  const appts = items.value.length - msgs;
-  return { all: items.value.length, messages: msgs, appointments: appts };
+  return { all: items.value.length, messages: msgs, appointments: items.value.length - msgs };
 });
 
 const stats = computed(() => {
@@ -134,59 +57,55 @@ const stats = computed(() => {
   const appts = items.value.filter((i) => i.type === "appointment");
   const next = appts.filter((a) => a.date && a.date.getTime() > now).sort((a, b) => a.date - b.date)[0];
   const last = items.value.filter((i) => i.date && i.date.getTime() <= now).sort((a, b) => b.date - a.date)[0];
-  return { messages: items.value.length - appts.length, appointments: appts.length, next: next?.date ?? null, last: last?.date ?? null };
+  return {
+    messages: items.value.length - appts.length,
+    appointments: appts.length,
+    next: next?.date ?? null,
+    last: last?.date ?? null,
+  };
 });
 
 const filtered = computed(() => {
-  if (filter.value === "messages")
-    return items.value.filter((i) => i.type !== "appointment");
-  if (filter.value === "appointments")
-    return items.value.filter((i) => i.type === "appointment");
+  if (filter.value === "messages") return items.value.filter((i) => i.type !== "appointment");
+  if (filter.value === "appointments") return items.value.filter((i) => i.type === "appointment");
   return items.value;
 });
 </script>
 
 <template>
-  <div class="app">
-    <header class="topbar">
+  <div class="page">
+    <div class="head">
       <div>
-        <h1>Activity Timeline</h1>
-        <p>Every message and appointment for a contact, in one place.</p>
+        <h1>Activity Timeline<template v-if="LOCATION_NAME"> · {{ LOCATION_NAME }}</template></h1>
+        <p class="sub">Every message and appointment for a contact, in one place.</p>
       </div>
-      <Button v-if="contact" variant="outline" :disabled="loading" @click="loadTimeline">
-        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4L21 8" /><path d="M21 3v5h-5" /></svg>
-        Refresh
-      </Button>
-    </header>
+      <el-button v-if="contact" :icon="Refresh" :loading="loading" @click="loadTimeline">Refresh</el-button>
+    </div>
 
-    <div class="layout">
-      <ContactPicker class="side" :selected-id="contact ? contact.id : ''" @select="onSelect" @loaded="onContactsLoaded" />
+    <el-row :gutter="16">
+      <el-col :xs="24" :md="9" :lg="7" class="col">
+        <ContactPicker :selected-id="contact ? contact.id : ''" @select="onSelect" @loaded="onContactsLoaded" />
+      </el-col>
 
-      <main class="main">
-        <StatusBlock
-          v-if="!contact"
-          state="empty"
-          title="Select a contact"
-          message="Pick someone from the list to see their messages and appointments."
-        />
+      <el-col :xs="24" :md="15" :lg="17" class="col">
+        <el-card v-if="!contact" shadow="never">
+          <StatusBlock state="empty" title="Select a contact" message="Pick someone from the list to see their messages and appointments." />
+        </el-card>
 
-        <template v-else>
+        <div v-else class="main">
           <ContactHeader :contact="contact" :stats="stats" />
 
-          <section class="activity">
-            <div class="activity-head">
-              <h2>Activity</h2>
-              <FilterChips v-if="items.length" v-model="filter" :counts="counts" />
-            </div>
+          <el-card shadow="never">
+            <template #header>
+              <div class="activity-head">
+                <span class="card-title">Activity</span>
+                <FilterChips v-if="items.length" v-model="filter" :counts="counts" />
+              </div>
+            </template>
 
-            <StatusBlock v-if="loading" state="loading" message="Loading activity…" />
+            <StatusBlock v-if="loading" state="loading" />
             <StatusBlock v-else-if="error" state="error" title="Couldn't load the timeline" :message="error" @retry="loadTimeline" />
-            <StatusBlock
-              v-else-if="!items.length"
-              state="empty"
-              title="No activity yet"
-              message="Messages and appointments with this contact will show up here."
-            />
+            <StatusBlock v-else-if="!items.length" state="empty" title="No activity yet" message="Messages and appointments with this contact will show up here." />
             <StatusBlock
               v-else-if="!filtered.length"
               state="empty"
@@ -194,60 +113,38 @@ const filtered = computed(() => {
               message="Nothing matches this filter. Try another one."
             />
             <Timeline v-else :items="filtered" />
-          </section>
-        </template>
-      </main>
-    </div>
+          </el-card>
+        </div>
+      </el-col>
+    </el-row>
   </div>
 </template>
 
 <style scoped>
-.app {
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  background: var(--bg);
-  color: var(--text);
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  line-height: 1.5;
-}
-.topbar {
+.head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 14px 20px;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
+  gap: 12px;
+  flex-wrap: wrap;
 }
-.topbar h1 {
+.head h1 {
   margin: 0;
-  font-size: 18px;
+  font-size: 22px;
+  font-weight: 600;
 }
-.topbar p {
-  margin: 0;
-  font-size: 13px;
-  color: var(--muted);
+.sub {
+  margin: 2px 0 0;
+  color: var(--el-text-color-secondary);
+  font-size: 14px;
 }
-.layout {
-  flex: 1;
-  min-height: 0;
-  display: grid;
-  grid-template-columns: 300px minmax(0, 1fr);
+.col {
+  margin-bottom: 16px;
 }
 .main {
-  min-width: 0;
-  overflow-y: auto;
-  padding: 20px 24px 48px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
-}
-.main > * {
-  flex: none; /* never squash the profile card when the activity list is long */
-  width: 100%;
-  max-width: 860px;
-  margin: 0 auto;
+  gap: 16px;
 }
 .activity-head {
   display: flex;
@@ -255,28 +152,8 @@ const filtered = computed(() => {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  margin-bottom: 14px;
 }
-.activity-head h2 {
-  margin: 0;
-  font-size: 16px;
-}
-@media (max-width: 760px) {
-  .app {
-    height: auto;
-    min-height: 100vh;
-  }
-  .layout {
-    grid-template-columns: 1fr;
-  }
-  .side {
-    max-height: 300px;
-    border-right: 0;
-    border-bottom: 1px solid var(--border);
-  }
-  .main {
-    overflow: visible;
-    padding: 16px 12px 40px;
-  }
+.card-title {
+  font-weight: 600;
 }
 </style>

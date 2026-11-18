@@ -1,6 +1,4 @@
 <script setup>
-import { Stat } from "../genesis/ui";
-
 defineProps({
   label: { type: String, required: true },
   value: { type: [Number, String], default: null },
@@ -8,5 +6,7 @@ defineProps({
 </script>
 
 <template>
-<Stat :label="label" :value="value === null || value === undefined ? '—' : value" />
+<el-card shadow="never">
+  <el-statistic :title="label" :value="value === null || value === undefined ? '—' : value" />
+</el-card>
 </template>

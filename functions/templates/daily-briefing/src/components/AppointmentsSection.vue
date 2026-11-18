@@ -1,10 +1,9 @@
 <script setup>
 import { computed, onMounted, watch } from "vue";
 import SectionCard from "./SectionCard.vue";
-import { Alert, Badge } from "../genesis/ui";
-import { hlGet, LOCATION_ID } from "../api.js";
+import { hlGet, LOCATION_ID, toDate } from "../genesis/hl.js";
 import { useResource } from "../useResource.js";
-import { toDate, formatTime } from "../utils.js";
+import { formatTime } from "../utils.js";
 
 const props = defineProps({ refreshKey: { type: Number, default: 0 } });
 const emit = defineEmits(["count"]);
@@ -20,16 +19,20 @@ async function fetchToday() {
     (c) => c && c.id && c.isActive !== false
   );
 
-  const results = await Promise.allSettled(
-    calendars.map((cal) =>
-      hlGet("/calendars/events", {
+  const results = [];
+  for (const cal of calendars) {
+    try {
+      const value = await hlGet("/calendars/events", {
         locationId: LOCATION_ID,
         calendarId: cal.id,
         startTime: start.getTime(),
         endTime: end.getTime(),
-      })
-    )
-  );
+      });
+      results.push({ status: "fulfilled", value });
+    } catch (reason) {
+      results.push({ status: "rejected", reason });
+    }
+  }
 
   const failures = results.filter((r) => r.status === "rejected");
   if (calendars.length > 0 && failures.length === calendars.length) {
@@ -77,11 +80,11 @@ watch(
   { immediate: true }
 );
 
-function statusVariant(s) {
+function statusType(s) {
   const v = String(s || "").toLowerCase();
   if (v === "confirmed" || v === "showed") return "success";
-  if (v === "cancelled" || v === "noshow" || v === "invalid") return "destructive";
-  return "secondary";
+  if (v === "cancelled" || v === "noshow" || v === "invalid") return "danger";
+  return "info";
 }
 function statusLabel(s) {
   if (!s) return "Unknown";
@@ -97,28 +100,38 @@ function statusLabel(s) {
   :error="error"
   :empty="events.length === 0"
   empty-text="No appointments scheduled for today."
-  empty-icon="📅"
   :badge="events.length"
   @retry="load"
 >
-  <Alert v-if="data && data.warning" variant="warning">{{ data.warning }}</Alert>
-  <ul class="list">
-    <li v-for="(ev, i) in events" :key="ev.id || i" class="list-item">
-      <div class="time">
-        <strong>{{ formatTime(ev.startTime) || "—" }}</strong>
-        <span v-if="formatTime(ev.endTime)" class="small muted">{{ formatTime(ev.endTime) }}</span>
-      </div>
-      <div class="info">
-        <p class="truncate title">{{ ev.title || "Untitled appointment" }}</p>
-        <p class="truncate small muted">{{ ev.calendarName }}</p>
-      </div>
-      <Badge :variant="statusVariant(ev.appointmentStatus)">{{ statusLabel(ev.appointmentStatus) }}</Badge>
-    </li>
-  </ul>
+  <el-alert v-if="data && data.warning" type="warning" show-icon :closable="false" :title="data.warning" class="warn" />
+  <div v-for="(ev, i) in events" :key="ev.id || i" class="item">
+    <div class="time">
+      <strong>{{ formatTime(ev.startTime) || "—" }}</strong>
+      <span v-if="formatTime(ev.endTime)" class="muted">{{ formatTime(ev.endTime) }}</span>
+    </div>
+    <div class="info">
+      <div class="title">{{ ev.title || "Untitled appointment" }}</div>
+      <div class="muted">{{ ev.calendarName }}</div>
+    </div>
+    <el-tag :type="statusType(ev.appointmentStatus)">{{ statusLabel(ev.appointmentStatus) }}</el-tag>
+  </div>
 </SectionCard>
 </template>
 
 <style scoped>
+.warn {
+  margin-bottom: 12px;
+}
+.item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
+.item:last-child {
+  border-bottom: 0;
+}
 .time {
   display: flex;
   flex-direction: column;
@@ -130,18 +143,22 @@ function statusLabel(s) {
 }
 .title {
   font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.muted {
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
 }
 @media (max-width: 480px) {
-  .list-item {
+  .item {
     flex-wrap: wrap;
   }
   .time {
     flex-direction: row;
     gap: 6px;
     min-width: 100%;
-  }
-  .info {
-    flex-basis: 60%;
   }
 }
 </style>

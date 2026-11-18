@@ -29,17 +29,19 @@ const history = computed(() => {
 
 <template>
   <div class="timeline">
-    <section v-if="upcoming.length" class="block">
+    <section v-if="upcoming.length">
       <h3 class="block-title">Upcoming</h3>
       <ul class="upcoming">
         <TimelineItem v-for="it in upcoming" :key="it.id" :item="it" upcoming />
       </ul>
     </section>
 
-    <section v-if="history.length" class="block">
+    <section v-if="history.length">
       <h3 class="block-title">History</h3>
-      <div v-for="g in history" :key="g.key" class="day">
-        <div class="day-header"><span>{{ g.label }}</span></div>
+      <div v-for="g in history" :key="g.key">
+        <div class="day-header">
+          <el-tag type="info" effect="plain" round>{{ g.label }}</el-tag>
+        </div>
         <ul class="thread">
           <TimelineItem v-for="it in g.items" :key="it.id" :item="it" />
         </ul>
@@ -58,7 +60,7 @@ const history = computed(() => {
   margin: 0 0 10px;
   font-size: 12px;
   font-weight: 700;
-  color: color-mix(in srgb, var(--muted) 70%, var(--surface));
+  color: var(--el-text-color-secondary);
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
@@ -71,22 +73,9 @@ const history = computed(() => {
   gap: 10px;
 }
 .day-header {
-  position: sticky;
-  top: 0;
-  z-index: 2;
   display: flex;
   justify-content: center;
-  padding: 10px 0;
-  background: linear-gradient(var(--bg) 70%, rgba(245, 248, 250, 0));
-}
-.day-header span {
-  padding: 3px 12px;
-  border-radius: 999px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--muted);
+  padding: 8px 0;
 }
 .thread {
   list-style: none;

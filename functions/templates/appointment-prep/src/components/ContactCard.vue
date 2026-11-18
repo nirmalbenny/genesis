@@ -1,6 +1,6 @@
 <script setup>
 import { ref, onMounted, computed } from "vue";
-import { hlGet } from "../api.js";
+import { getContact, contactName } from "../genesis/hl.js";
 import { fmtDate } from "../utils.js";
 import LoadState from "./LoadState.vue";
 
@@ -13,8 +13,7 @@ const error = ref("");
 const name = computed(() => {
   const c = contact.value;
   if (!c) return "";
-  const full = [c.firstName, c.lastName].filter(Boolean).join(" ");
-  return full || c.contactName || c.email || "Unnamed contact";
+  return contactName(c) || c.email || "Unnamed contact";
 });
 
 const tags = computed(() => (Array.isArray(contact.value?.tags) ? contact.value.tags : []));
@@ -27,8 +26,7 @@ async function load() {
   loading.value = true;
   error.value = "";
   try {
-    const data = await hlGet(`/contacts/${encodeURIComponent(props.contactId)}`);
-    contact.value = data.contact || null;
+    contact.value = (await getContact(props.contactId)) || null;
   } catch (e) {
     error.value = e.message;
   } finally {
@@ -40,8 +38,8 @@ onMounted(load);
 </script>
 
 <template>
-  <section class="card">
-    <h3>Contact</h3>
+  <el-card>
+    <template #header><span class="head">Contact</span></template>
     <LoadState
       :loading="loading"
       :error="error"
@@ -52,67 +50,45 @@ onMounted(load);
       @retry="load"
     >
       <div v-if="contact">
-        <p class="name">{{ name }}</p>
-        <dl>
-          <dt>Email</dt>
-          <dd>{{ contact.email || "—" }}</dd>
-          <dt>Phone</dt>
-          <dd>{{ contact.phone || "—" }}</dd>
-          <dt>Company</dt>
-          <dd>{{ contact.companyName || "—" }}</dd>
-          <dt>Source</dt>
-          <dd>{{ contact.source || "—" }}</dd>
-          <dt>Date added</dt>
-          <dd>{{ fmtDate(contact.dateAdded) }}</dd>
-          <dt>Tags</dt>
-          <dd>
-            <span v-if="tags.length" class="chips">
-              <span v-for="t in tags" :key="t" class="chip">{{ t }}</span>
+        <div class="who">
+          <el-avatar>{{ name.charAt(0).toUpperCase() }}</el-avatar>
+          <strong class="name">{{ name }}</strong>
+        </div>
+        <el-descriptions :column="1" border>
+          <el-descriptions-item label="Email">{{ contact.email || "—" }}</el-descriptions-item>
+          <el-descriptions-item label="Phone">{{ contact.phone || "—" }}</el-descriptions-item>
+          <el-descriptions-item label="Company">{{ contact.companyName || "—" }}</el-descriptions-item>
+          <el-descriptions-item label="Source">{{ contact.source || "—" }}</el-descriptions-item>
+          <el-descriptions-item label="Date added">{{ fmtDate(contact.dateAdded) }}</el-descriptions-item>
+          <el-descriptions-item label="Tags">
+            <span v-if="tags.length" class="tags">
+              <el-tag v-for="t in tags" :key="t" type="info" size="small">{{ t }}</el-tag>
             </span>
             <span v-else>—</span>
-          </dd>
-        </dl>
+          </el-descriptions-item>
+        </el-descriptions>
       </div>
     </LoadState>
-  </section>
+  </el-card>
 </template>
 
 <style scoped>
-h3 {
-  margin: 0 0 12px;
-  font-size: 16px;
+.head {
+  font-weight: 600;
+}
+.who {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
 }
 .name {
-  margin: 0 0 12px;
   font-size: 18px;
-  font-weight: 700;
-}
-dl {
-  display: grid;
-  grid-template-columns: 110px 1fr;
-  gap: 8px 12px;
-  margin: 0;
-}
-dt {
-  color: var(--muted);
-  font-size: 14px;
-}
-dd {
-  margin: 0;
   word-break: break-word;
 }
-.chips {
+.tags {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-}
-@media (max-width: 420px) {
-  dl {
-    grid-template-columns: 1fr;
-    gap: 2px;
-  }
-  dd {
-    margin-bottom: 8px;
-  }
 }
 </style>

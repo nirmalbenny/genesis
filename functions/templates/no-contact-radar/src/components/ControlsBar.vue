@@ -1,4 +1,6 @@
 <script setup>
+import { Search } from "@element-plus/icons-vue";
+
 defineProps({
   days: { type: Number, required: true },
   includeNever: { type: Boolean, required: true },
@@ -9,90 +11,33 @@ defineEmits(["update:days", "update:includeNever", "update:query"]);
 </script>
 
 <template>
-  <div class="controls">
-    <label class="field">
-      <span class="label">No conversation in the last</span>
-      <select
-        :value="days"
-        @change="$emit('update:days', Number($event.target.value))"
-      >
-        <option v-for="o in options" :key="o" :value="o">{{ o }} days</option>
-      </select>
-    </label>
-
-    <label class="field grow">
-      <span class="label">Filter</span>
-      <input
-        type="search"
-        placeholder="Name, email, phone or tag"
-        :value="query"
-        @input="$emit('update:query', $event.target.value)"
+  <el-card shadow="never">
+    <el-form label-position="top" @submit.prevent>
+      <el-row :gutter="16">
+        <el-col :xs="24" :sm="8">
+          <el-form-item label="No conversation in the last">
+            <el-select :model-value="days" @update:model-value="$emit('update:days', $event)">
+              <el-option v-for="o in options" :key="o" :label="`${o} days`" :value="o" />
+            </el-select>
+          </el-form-item>
+        </el-col>
+        <el-col :xs="24" :sm="16">
+          <el-form-item label="Filter">
+            <el-input
+              :model-value="query"
+              clearable
+              :prefix-icon="Search"
+              placeholder="Name, email, phone or tag"
+              @update:model-value="$emit('update:query', $event ?? '')"
+            />
+          </el-form-item>
+        </el-col>
+      </el-row>
+      <el-checkbox
+        :model-value="includeNever"
+        label="Include never contacted"
+        @update:model-value="$emit('update:includeNever', $event)"
       />
-    </label>
-
-    <label class="toggle">
-      <input
-        type="checkbox"
-        :checked="includeNever"
-        @change="$emit('update:includeNever', $event.target.checked)"
-      />
-      <span>Include never contacted</span>
-    </label>
-  </div>
+    </el-form>
+  </el-card>
 </template>
-
-<style scoped>
-.controls {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-  align-items: flex-end;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 16px 20px;
-}
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 150px;
-}
-.grow {
-  flex: 1 1 220px;
-}
-.label {
-  font-size: 12px;
-  color: var(--muted);
-  font-weight: 600;
-}
-select,
-input[type="search"] {
-  font: inherit;
-  color: var(--text);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 9px 12px;
-  width: 100%;
-  box-sizing: border-box;
-}
-select:focus,
-input[type="search"]:focus {
-  outline: 2px solid var(--primary);
-  outline-offset: -1px;
-}
-.toggle {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--text);
-  padding-bottom: 10px;
-  cursor: pointer;
-}
-.toggle input {
-  accent-color: var(--primary);
-  width: 16px;
-  height: 16px;
-}
-</style>

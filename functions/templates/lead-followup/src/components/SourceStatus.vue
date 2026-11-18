@@ -1,48 +1,34 @@
 <script setup>
-import { Button } from "../genesis/ui";
+import { Loading } from "@element-plus/icons-vue";
+
 defineProps({
+  // [{ key, label, status: 'loading' | 'ready' | 'error', error }]
   sources: { type: Array, required: true },
 });
 defineEmits(["retry"]);
 </script>
 
 <template>
-  <section class="status-panel" aria-live="polite">
-    <h2>Loading your board</h2>
-    <ul>
-      <li v-for="s in sources" :key="s.key" class="row">
+  <el-card shadow="never">
+    <template #header><strong>Loading your board</strong></template>
+    <div class="rows">
+      <div v-for="s in sources" :key="s.key" class="row">
         <span class="label">{{ s.label }}</span>
-        <span v-if="s.status === 'loading' || s.status === 'idle'" class="state loading">
-          <span class="spinner" aria-hidden="true"></span> Loading…
-        </span>
-        <span v-else-if="s.status === 'ready'" class="state ok">Loaded</span>
-        <span v-else class="state err">
-          <span class="msg">{{ s.error }}</span>
-          <Button size="sm" @click="$emit('retry', s.key)">Retry</Button>
-        </span>
-      </li>
-    </ul>
-  </section>
+        <el-text v-if="s.status === 'loading'" type="info">
+          <el-icon class="is-loading"><Loading /></el-icon> Loading…
+        </el-text>
+        <el-tag v-else-if="s.status === 'ready'" type="success">Loaded</el-tag>
+        <div v-else class="err">
+          <el-alert type="error" show-icon :closable="false" :title="s.error || 'Something went wrong.'" />
+          <el-button size="small" type="primary" @click="$emit('retry', s.key)">Retry</el-button>
+        </div>
+      </div>
+    </div>
+  </el-card>
 </template>
 
 <style scoped>
-.status-panel {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 24px;
-  max-width: 640px;
-  margin: 0 auto;
-}
-h2 {
-  margin: 0 0 16px;
-  font-size: 18px;
-  color: var(--text);
-}
-ul {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+.rows {
   display: grid;
   gap: 14px;
 }
@@ -52,42 +38,20 @@ ul {
   gap: 8px 16px;
   align-items: center;
   justify-content: space-between;
-  padding-bottom: 14px;
-  border-bottom: 1px solid var(--surface-muted);
-}
-.row:last-child {
-  border-bottom: none;
-  padding-bottom: 0;
 }
 .label {
-  color: var(--text);
   font-weight: 600;
 }
-.state {
-  color: var(--muted);
-  font-size: 14px;
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
+.err {
+  display: flex;
   flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  flex: 1 1 260px;
+  justify-content: flex-end;
 }
-.state.ok {
-  color: var(--success);
-}
-.state.err .msg {
-  color: var(--danger);
-}
-.spinner {
-  width: 14px;
-  height: 14px;
-  border: 2px solid var(--border);
-  border-top-color: var(--primary);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
+.err :deep(.el-alert) {
+  flex: 1 1 200px;
+  width: auto;
 }
 </style>

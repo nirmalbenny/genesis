@@ -1,14 +1,7 @@
-export function parseDate(value) {
-  if (value === undefined || value === null || value === "") return null;
-  let d;
-  if (typeof value === "number") d = new Date(value);
-  else if (/^\d{10,}$/.test(String(value))) d = new Date(Number(value));
-  else d = new Date(value);
-  return isNaN(d.getTime()) ? null : d;
-}
+import { toDate } from "./genesis/hl.js";
 
 export function formatDate(value) {
-  const d = parseDate(value);
+  const d = toDate(value);
   if (!d) return "Unknown date";
   return d.toLocaleDateString(undefined, {
     year: "numeric",
@@ -18,7 +11,7 @@ export function formatDate(value) {
 }
 
 export function formatDateTime(value) {
-  const d = parseDate(value);
+  const d = toDate(value);
   if (!d) return "Time unknown";
   return d.toLocaleString(undefined, {
     weekday: "short",
@@ -30,7 +23,7 @@ export function formatDateTime(value) {
 }
 
 export function relativeTime(value) {
-  const d = parseDate(value);
+  const d = toDate(value);
   if (!d) return "";
   const diff = Date.now() - d.getTime();
   const abs = Math.abs(diff);
@@ -45,16 +38,4 @@ export function relativeTime(value) {
   else if (abs < 365 * day) text = `${Math.round(abs / (30 * day))}mo`;
   else text = `${Math.round(abs / (365 * day))}y`;
   return diff >= 0 ? `${text} ago` : `in ${text}`;
-}
-
-export function contactDisplayName(c) {
-  if (!c) return "Unnamed lead";
-  const full = [c.firstName, c.lastName].filter(Boolean).join(" ").trim();
-  return (
-    (c.contactName && String(c.contactName).trim()) ||
-    full ||
-    c.email ||
-    c.phone ||
-    "Unnamed lead"
-  );
 }

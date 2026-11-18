@@ -22,7 +22,7 @@ Rendering uses Chrome; set `CHROME_PATH` if it isn't found. The rules are in `.m
 
 ## Leave alone
 
-`functions/src/llm/hlReference.md` is model input, not documentation. It's compact on purpose (it's sent with every build), so the checker skips it.
+Model input, not documentation, compact on purpose because builds send it: `functions/src/llm/hlReference.md` and `uiKit.md` (every build) and the guides `hl-resources/<id>.md` (builds that need the resource). The checker skips them, and the vendored `.claude/skills/langfuse/`.
 
 ## Keep the docs in step with the code
 

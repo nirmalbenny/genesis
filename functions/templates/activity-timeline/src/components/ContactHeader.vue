@@ -1,90 +1,69 @@
 <script setup>
 import { computed } from "vue";
-import { avatarColor, contactDisplayName, initials, relative, dayLabel, timeLabel } from "../utils.js";
+import { Message, Phone } from "@element-plus/icons-vue";
+import { contactName } from "../genesis/hl.js";
+import { initials, relative, dayLabel, timeLabel } from "../utils.js";
 
 const props = defineProps({
   contact: { type: Object, required: true },
   /** { messages, appointments, next: Date|null, last: Date|null } once the timeline has loaded. */
   stats: { type: Object, default: null },
 });
-const name = computed(() => contactDisplayName(props.contact));
+const name = computed(() => contactName(props.contact));
 const tags = computed(() => (Array.isArray(props.contact.tags) ? props.contact.tags.filter((t) => t !== "genesis-demo") : []));
 const place = computed(() => [props.contact.address1, props.contact.city].filter(Boolean).join(", "));
+
+const nextText = computed(() =>
+  props.stats && props.stats.next ? `${dayLabel(props.stats.next)}, ${timeLabel(props.stats.next)}` : "None booked",
+);
+const lastText = computed(() => (props.stats && props.stats.last ? relative(props.stats.last) : "No activity"));
+const valueStyle = { fontSize: "18px", fontWeight: 600 };
 </script>
 
 <template>
-  <section class="profile">
+  <el-card shadow="never">
     <div class="who">
-      <span class="avatar" :style="{ background: avatarColor(name) }">{{ initials(name) }}</span>
+      <el-avatar :size="56">{{ initials(name) }}</el-avatar>
       <div class="id">
         <h2>{{ name }}</h2>
-        <p class="sub">
+        <p v-if="contact.companyName || place || contact.source" class="sub">
           <span v-if="contact.companyName">{{ contact.companyName }}</span>
           <span v-if="place">{{ place }}</span>
           <span v-if="contact.source">via {{ contact.source }}</span>
         </p>
-        <div class="contact-links">
-          <a v-if="contact.email" :href="`mailto:${contact.email}`" class="pill">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m3 7 9 6 9-6" /></svg>
-            {{ contact.email }}
-          </a>
-          <a v-if="contact.phone" :href="`tel:${contact.phone}`" class="pill">
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z" /></svg>
-            {{ contact.phone }}
-          </a>
+        <div class="links">
+          <el-link v-if="contact.email" :href="`mailto:${contact.email}`" :icon="Message" underline="never">{{ contact.email }}</el-link>
+          <el-link v-if="contact.phone" :href="`tel:${contact.phone}`" :icon="Phone" underline="never">{{ contact.phone }}</el-link>
         </div>
         <div v-if="tags.length" class="tags">
-          <span v-for="t in tags" :key="t" class="tag">{{ t }}</span>
+          <el-tag v-for="t in tags" :key="t" type="info" size="small">{{ t }}</el-tag>
         </div>
       </div>
     </div>
 
-    <dl class="stats">
-      <div>
-        <dt>Messages</dt>
-        <dd>{{ stats ? stats.messages : "–" }}</dd>
-      </div>
-      <div>
-        <dt>Appointments</dt>
-        <dd>{{ stats ? stats.appointments : "–" }}</dd>
-      </div>
-      <div>
-        <dt>Next appointment</dt>
-        <dd :class="{ muted: !stats || !stats.next }">
-          <template v-if="stats && stats.next">{{ dayLabel(stats.next) }}, {{ timeLabel(stats.next) }}</template>
-          <template v-else>None booked</template>
-        </dd>
-      </div>
-      <div>
-        <dt>Last activity</dt>
-        <dd :class="{ muted: !stats || !stats.last }">{{ stats && stats.last ? relative(stats.last) : "No activity" }}</dd>
-      </div>
-    </dl>
-  </section>
+    <el-divider />
+
+    <el-row :gutter="12" class="stats">
+      <el-col :xs="12" :sm="6">
+        <el-statistic title="Messages" :value="stats ? stats.messages : 0" :formatter="stats ? undefined : () => '–'" :value-style="valueStyle" />
+      </el-col>
+      <el-col :xs="12" :sm="6">
+        <el-statistic title="Appointments" :value="stats ? stats.appointments : 0" :formatter="stats ? undefined : () => '–'" :value-style="valueStyle" />
+      </el-col>
+      <el-col :xs="12" :sm="6">
+        <el-statistic title="Next appointment" :value="0" :formatter="() => nextText" :value-style="{ ...valueStyle, fontSize: '15px' }" />
+      </el-col>
+      <el-col :xs="12" :sm="6">
+        <el-statistic title="Last activity" :value="0" :formatter="() => lastText" :value-style="{ ...valueStyle, fontSize: '15px' }" />
+      </el-col>
+    </el-row>
+  </el-card>
 </template>
 
 <style scoped>
-.profile {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  overflow: hidden;
-}
 .who {
   display: flex;
   gap: 16px;
-  padding: 20px;
-}
-.avatar {
-  flex: none;
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  color: var(--on-primary);
-  display: grid;
-  place-items: center;
-  font-size: 20px;
-  font-weight: 700;
 }
 .id {
   min-width: 0;
@@ -93,100 +72,27 @@ h2 {
   margin: 0;
   font-size: 22px;
   line-height: 1.25;
+  overflow-wrap: anywhere;
 }
 .sub {
   display: flex;
   flex-wrap: wrap;
   gap: 4px 12px;
   margin: 4px 0 0;
-  color: var(--muted);
+  color: var(--el-text-color-secondary);
   font-size: 14px;
 }
-.sub span + span::before {
-  content: "·";
-  margin-right: 12px;
-  color: var(--input-border);
-}
-.contact-links {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 12px;
-}
-.pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 10px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  font-size: 13px;
-  color: var(--text);
-  text-decoration: none;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.pill:hover {
-  border-color: var(--primary);
-  color: var(--primary);
-}
+.links,
 .tags {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 6px 16px;
   margin-top: 10px;
 }
-.tag {
-  padding: 2px 8px;
-  border-radius: 4px;
-  background: var(--surface-muted);
-  color: color-mix(in srgb, var(--text) 85%, var(--muted));
-  font-size: 12px;
+.tags {
+  gap: 6px;
 }
-.stats {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  margin: 0;
-  border-top: 1px solid var(--border);
-  background: var(--bg);
-}
-.stats div {
-  padding: 12px 20px;
-  min-width: 0;
-}
-.stats div + div {
-  border-left: 1px solid var(--border);
-}
-dt {
-  font-size: 11px;
-  font-weight: 600;
-  color: color-mix(in srgb, var(--muted) 70%, var(--surface));
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-dd {
-  margin: 2px 0 0;
-  font-size: 15px;
-  font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-dd.muted {
-  color: color-mix(in srgb, var(--muted) 70%, var(--surface));
-  font-weight: 500;
-}
-@media (max-width: 640px) {
-  .stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .stats div:nth-child(3) {
-    border-left: 0;
-  }
-  .stats div:nth-child(n + 3) {
-    border-top: 1px solid var(--border);
-  }
+.stats .el-col {
+  margin-bottom: 8px;
 }
 </style>

@@ -14,9 +14,10 @@ Create `functions/templates/<slug>/src/` (`<slug>` in kebab-case, unique). Follo
 - **Required:** `src/main.js` and `src/App.vue`.
 - **Allowed:** `.vue`, `.js`, `.ts`, `.css`, `.json` under `src/`, each under 100 KB.
 - **Never include** `package.json`, `src/hl.config.js` or anything under `src/genesis/`: they're system-owned and injected by the preview.
-- **Data access:** new templates import from `./genesis/hl.js` (the injected client: `usePager`, `listEvents`, `freeSlots`, `hlGet`, named writes; see the "Client" section of `functions/src/llm/hlReference.md`). Older templates have their own `api.js` built on `./hl.config.js`, which keeps working. For styling, new templates can import `./genesis/ui.css` in `main.js` and use its classes (`functions/src/llm/uiKit.md`). Call HighLevel only through the proxy, and **never hard-code a location ID or sample data**.
-- **Pagination:** follow `functions/src/llm/hlReference.md` exactly: 20 at a time behind **Load more**, "Showing N of total".
-- **Errors:** show the proxy's `error.message`; on 429, wait `error.retryAfter` and retry once.
+- **Data access:** new templates import from `./genesis/hl.js`, the injected client: `usePager(<list>)`, `call(<endpoint>)` and the helpers (`contactName`, `toDate`…). The "Client" section of `functions/src/llm/hlReference.md` describes it, and each resource's lists and endpoints are in its guide, `hl-resources/<id>.md`. The current templates still have their own `api.js` built on `./hl.config.js`, which keeps working. Call HighLevel only through the proxy, and **never hard-code a location ID or sample data**.
+- **UI:** Element Plus, as for generated apps. `src/main.js` is `mountApp(App)` from `./genesis/setup.js` (the test requires it); build with its components, icons from `@element-plus/icons-vue`, charts with `vue-chartjs`, following `functions/src/llm/ui/element-plus.md` (no `el-pagination` for HighLevel lists: Load more). No CSS that restyles Element Plus; scoped CSS only for layout. The quickest start is a real build: describe the app in Genesis on the emulators, then copy and refine its files.
+- **Pagination:** `usePager`, first page only (`limit` 20 by default), a **Load more** button while `hasMore`, "Showing N of total" (the rules Claude follows, under "Paginated lists" in `functions/src/llm/prompt.ts`).
+- **Errors:** show the client's `error.message` as is. The client already retries a 429 once: don't add your own retries.
 - **States:** loading, empty and error states for every panel.
 
 ## 2. Register it
@@ -34,8 +35,8 @@ Add an entry to `functions/templates/templates.json`:
 
 1. `cd functions && npm test`: the template test checks validation, entry files, category, name, description and icon.
 2. On the emulators, open the dashboard: the app appears with the others after setup. Launch it and check it shows **real sandbox data**, pages correctly and handles an empty result.
-3. Screenshots at desktop and phone width.
+3. Screenshots at desktop and phone width: `node scripts/shoot.mjs --email <local account> --app "<name>" --run --full`.
 
 ## 4. Update the counts in the docs
 
-The number of ready-made apps appears in `README.md` (features), `docs/ARCHITECTURE.md` (§1, §9) and `CLAUDE.md`. Update each, then run the `docs-check` skill.
+The number of ready-made apps ("six") appears in `README.md` (features, a screenshot's alt text, the repo tree), `docs/ARCHITECTURE.md` (§1, §9) and `CLAUDE.md`, and the README's features line names each app. Grep for the old number, update each, then run the `docs-check` skill.

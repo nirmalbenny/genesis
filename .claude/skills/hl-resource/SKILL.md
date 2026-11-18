@@ -50,20 +50,23 @@ signalled, the response shape, and the scope. Note what the docs claim; the prob
 {
   "id": "opportunities",
   "label": "Opportunities",
-  "summary": "deals in pipelines, with stage, value, status and contact",
-  "aliases": ["opportunity", "opportunities", "deal", "deals", "pipeline", "pipelines", "stage", "forecast"],
+  "summary": "deals in sales pipelines (stage, value, status, contact) and the pipelines with their stages",
+  "aliases": ["opportunity", "opportunities", "deal", "deals", "pipeline", "pipelines", "stage", "stages", "funnel", "forecast"],
   "scopes": ["opportunities.readonly", "opportunities.write"],
-  "version": "2021-07-28",
+  "version": "v3",
   "endpoints": [
     { "name": "opportunities", "method": "GET", "path": "/opportunities/search", "scope": "opportunities.readonly", "location": "query",
-      "pager": { "strategy": "cursorFields", "items": "opportunities", "total": "meta.total", "cursor": { "startAfterId": "meta.startAfterId", "startAfter": "meta.startAfter" }, "search": { "param": "q", "min": 2 }, "options": ["pipelineId", "status"] } },
+      "pager": { "strategy": "cursorFields", "items": "opportunities", "total": "meta.total", "cursor": { "startAfterId": "meta.startAfterId", "startAfter": "meta.startAfter" }, "search": { "param": "query", "min": 2 }, "options": ["pipelineId", "pipelineStageId", "status", "contactId", "assignedTo", "order"] } },
+    { "name": "getPipelines", "method": "GET", "path": "/opportunities/pipelines", "scope": "opportunities.readonly", "location": "query", "unwrap": "pipelines" },
     { "name": "getOpportunity", "method": "GET", "path": "/opportunities/{opportunityId}", "scope": "opportunities.readonly", "location": "none", "unwrap": "opportunity" },
     { "name": "updateOpportunity", "method": "PUT", "path": "/opportunities/{opportunityId}", "scope": "opportunities.write", "location": "none", "unwrap": "opportunity" }
   ]
 }
 ```
 
-(An illustration: the real values come from the docs and the probe.)
+(The real `hl-resources/opportunities.json`, verified on the sandbox; `contacts.json`, `conversations.json` and
+`calendars.json` show the other strategies and location modes. Each new resource's values come from its docs and
+the probe.)
 
 | Field | Meaning |
 |---|---|
@@ -124,7 +127,7 @@ Seed realistic records in the sandbox, tagged `genesis-demo` (the "AutoCar Inc" 
 
 1. `/verify` (the generated tests cover every endpoint: routes, neighbours refused, the registry, the fixtures).
 2. Add a case to `scripts/eval-builds.mjs` that uses the resource, run `node scripts/eval-builds.mjs <label>` and
-   compare with the last baseline.
+   compare with the last baseline: `node scripts/eval-compare.mjs <label>`.
 3. Build an app with it in the browser on the emulators: real records in the preview, Load more works, a write works
    on a `genesis-test` record.
 4. Docs: ARCHITECTURE §10 lists every route (a test fails otherwise); README "HighLevel setup" scope list and

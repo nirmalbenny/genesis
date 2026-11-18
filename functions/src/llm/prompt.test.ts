@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildSystemPrompt, systemBlocks } from "./prompt";
+import { buildSystemPrompt, systemBlocks, uiOf } from "./prompt";
 import { buildTools } from "./tools";
 
 test("the system prompt is one cached block, byte-identical on every call", () => {
@@ -20,20 +20,35 @@ test("the system prompt carries no sub-account name or id, and points the model 
   assert.match(prompt, /import LOCATION_NAME from the client/);
 });
 
-test("the system prompt includes the UI kit, keeps its look by default, and asks for small files", () => {
+test("the system prompt keeps the UI library's look by default and asks for small files", () => {
   const prompt = buildSystemPrompt();
-  assert.match(prompt, /# UI kit \(`\.\/genesis\/ui\.css`/, "uiKit.md is included (and copied into lib/ by the build)");
+  assert.doesNotMatch(prompt, /# UI kit|# UI: Element Plus/, "UI guides are per app, in the second block");
   assert.match(prompt, /You change the app only by calling tools/, "the output protocol");
   assert.match(prompt, /write_file[\s\S]*edit_file[\s\S]*delete_file/);
   assert.match(prompt, /Never write code or file contents as text/);
   assert.match(prompt, /call decline with one short reason/);
   assert.match(prompt, /is NOT declined: build what you can within the rules/, "a partly impossible request is built, not declined");
   assert.doesNotMatch(prompt, /<(plan|file|refuse|delete)[\s>]/, "no output tags left");
-  assert.match(prompt, /Do not change its look unless the user explicitly asks/);
+  assert.match(prompt, /Do not change the library's look unless the user explicitly asks/);
+  assert.match(prompt, /Use ONLY vue, the npm packages the UI guide lists, and browser APIs/);
   assert.match(prompt, /each under about 150 lines/);
   assert.doesNotMatch(prompt, /Style with plain CSS in <style scoped>/, "the old free-styling rule is gone");
-  assert.match(prompt, /build the UI from the components in "\.\/genesis\/ui"/, "components first");
-  assert.match(prompt, /`Button` \(variant: default \| secondary/, "the component reference is included");
+  assert.match(prompt, /never hand-built markup where a component exists/, "components first");
+});
+
+test("the UI guide follows the app's library: Element Plus for new apps, the older kit (and Element Plus) for kit apps", () => {
+  const kitApp = ['import { createApp } from "vue";\nimport "./genesis/ui.css";', '<script setup>\nimport { Button } from "./genesis/ui";\n</script>'];
+  assert.equal(uiOf(['import { mountApp } from "./genesis/setup.js";']), "element-plus");
+  assert.equal(uiOf([]), "element-plus", "a new app");
+  assert.equal(uiOf(kitApp), "kit");
+  assert.equal(uiOf([...kitApp, 'import { mountApp } from "./genesis/setup.js";']), "element-plus", "an app moved to Element Plus");
+  const plus = systemBlocks([], "element-plus")[1]!.text;
+  assert.match(plus, /^# UI: Element Plus/, "the guide (copied into lib/ by the build) opens the second block");
+  assert.match(plus, /NEVER el-pagination/, "HighLevel lists page with cursors");
+  assert.doesNotMatch(plus, /# UI kit/);
+  const kit = systemBlocks([], "kit")[1]!.text;
+  assert.match(kit, /^# UI: the older Genesis kit[\s\S]*`Button` \(variant: default \| secondary[\s\S]*# UI: Element Plus/, "the kit first, Element Plus for a move");
+  assert.equal(systemBlocks([], "kit")[0]!.text, systemBlocks([], "element-plus")[0]!.text, "the shared block never varies");
 });
 
 test("the system prompt covers write errors and bounded, sequential batches", () => {

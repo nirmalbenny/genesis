@@ -6,54 +6,45 @@ const props = defineProps({
   card: { type: Object, required: true },
 });
 
-const tags = computed(() => (Array.isArray(props.card.tags) ? props.card.tags : []));
 const preview = computed(() => {
-  const body = props.card.lastMessageBody;
-  if (!body) return "No message text";
-  const s = String(body).replace(/\s+/g, " ").trim();
-  return s.length > 110 ? s.slice(0, 110) + "…" : s || "No message text";
+  const s = String(props.card.lastMessageBody || "").replace(/\s+/g, " ").trim();
+  if (!s) return "No message text";
+  return s.length > 110 ? s.slice(0, 110) + "…" : s;
 });
 </script>
 
 <template>
-  <article class="card">
-    <header class="top">
-      <h3 class="name">{{ card.name }}</h3>
-      <span v-if="card.unread > 0" class="badge" :title="`${card.unread} unread`">
-        {{ card.unread }} unread
-      </span>
-    </header>
+  <el-card shadow="hover" class="lead">
+    <div class="top">
+      <strong class="name">{{ card.name }}</strong>
+      <el-tag v-if="card.unread > 0" type="danger" size="small" effect="dark">{{ card.unread }} unread</el-tag>
+    </div>
+    <div class="muted">Source: {{ card.source }}</div>
 
-    <p class="meta">Source: {{ card.source }}</p>
-
-    <div v-if="tags.length" class="tags">
-      <span v-for="t in tags" :key="t" class="tag">{{ t }}</span>
+    <div v-if="card.tags.length" class="tags">
+      <el-tag v-for="t in card.tags" :key="t" size="small" type="info">{{ t }}</el-tag>
     </div>
 
     <div v-if="card.column === 'conversation'" class="block">
-      <p class="preview">“{{ preview }}”</p>
-      <p v-if="card.lastMessageDate" class="meta">{{ relativeTime(card.lastMessageDate) }}</p>
+      <div>“{{ preview }}”</div>
+      <div v-if="card.lastMessageDate" class="muted">{{ relativeTime(card.lastMessageDate) }}</div>
     </div>
 
-    <div v-if="card.column === 'booked' && card.appointment" class="block booked">
-      <span class="label">Appointment</span>
-      <span class="when">{{ formatDateTime(card.appointment.startTime) }}</span>
-      <span v-if="card.appointment.title" class="meta">{{ card.appointment.title }}</span>
+    <div v-if="card.column === 'booked' && card.appointment" class="block">
+      <div class="muted">Appointment</div>
+      <el-text type="primary" tag="b">{{ formatDateTime(card.appointment.startTime) }}</el-text>
+      <div v-if="card.appointment.title" class="muted">{{ card.appointment.title }}</div>
     </div>
 
-    <footer class="meta added">Added {{ formatDate(card.dateAdded) }}</footer>
-  </article>
+    <div class="muted">Added {{ formatDate(card.dateAdded) }}</div>
+  </el-card>
 </template>
 
 <style scoped>
-.card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 16px;
+.lead :deep(.el-card__body) {
   display: grid;
-  gap: 10px;
-  min-width: 0;
+  gap: 8px;
+  padding: 14px;
 }
 .top {
   display: flex;
@@ -62,63 +53,23 @@ const preview = computed(() => {
   gap: 8px;
 }
 .name {
-  margin: 0;
-  font-size: 16px;
-  color: var(--text);
   overflow-wrap: anywhere;
 }
-.badge {
-  background: var(--primary);
-  color: var(--on-primary);
-  font-size: 12px;
-  font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 999px;
-  white-space: nowrap;
-}
-.meta {
-  margin: 0;
+.muted {
+  color: var(--el-text-color-secondary);
   font-size: 13px;
-  color: var(--muted);
 }
 .tags {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
 }
-.tag {
-  background: var(--surface-muted);
-  color: var(--muted);
-  font-size: 12px;
-  padding: 2px 8px;
-  border-radius: 6px;
-  overflow-wrap: anywhere;
-}
 .block {
-  background: var(--bg);
-  border-radius: 8px;
-  padding: 10px 12px;
+  background: var(--el-fill-color-light);
+  border-radius: 6px;
+  padding: 8px 10px;
   display: grid;
-  gap: 4px;
-}
-.preview {
-  margin: 0;
-  font-size: 14px;
-  color: var(--text);
+  gap: 2px;
   overflow-wrap: anywhere;
-}
-.booked .label {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--muted);
-}
-.booked .when {
-  color: var(--primary);
-  font-weight: 600;
-  font-size: 14px;
-}
-.added {
-  padding-top: 2px;
 }
 </style>

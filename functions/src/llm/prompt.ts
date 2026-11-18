@@ -4,6 +4,31 @@ import { join } from "node:path";
 import { coreReference, guidesBlock } from "./guides";
 
 const uiKit = readFileSync(join(__dirname, "uiKit.md"), "utf8");
+const elementPlus = readFileSync(join(__dirname, "ui", "element-plus.md"), "utf8");
+
+/**
+ * The UI an app is built with: Element Plus (new apps, mounted by src/genesis/setup.js), or the older Genesis kit
+ * (src/genesis/ui.css and src/genesis/ui/) for apps that import it and haven't moved. docs/plans/ui-library.md.
+ */
+export type Ui = "element-plus" | "kit";
+export function uiOf(sources: string[]): Ui {
+  const kit = sources.some((code) => /genesis\/ui(\.css|\/|["'])/.test(code));
+  const setup = sources.some((code) => /genesis\/setup(\.js)?["']/.test(code));
+  return kit && !setup ? "kit" : "element-plus";
+}
+
+/** The UI guide for an app: Element Plus's, or for an app on the older kit, the kit's first (and Element Plus's for a move). */
+export function uiGuide(ui: Ui): string {
+  if (ui === "element-plus") return elementPlus;
+  return `# UI: the older Genesis kit (this app is built on it)
+This app's src/main.js imports "./genesis/ui.css". Keep building it with the kit below: its components from "./genesis/ui" laid out with its classes. Only when the user asks to modernize the app, or for something the kit can't do, move it to Element Plus (the next guide) in one build: src/main.js becomes mountApp(App), and every component is rewritten with Element Plus.
+- By default write NO CSS that restyles the kit or the components (no colors, fonts, borders, shadows of your own); a short <style scoped> only for layout the kit doesn't cover, using its variables.
+- For a different look, override the kit's variables in :root in src/style.css (imported after the kit) and add only the CSS the request needs.
+
+${uiKit}
+
+${elementPlus}`;
+}
 
 export const FILE_BUDGET_CHARS = 60_000;
 export const SINGLE_FILE_LIMIT_CHARS = 20_000;
@@ -28,10 +53,10 @@ A request about this app that asks for something these rules don't allow (an npm
 Rules:
 - write_file takes the WHOLE file. On follow-up requests change only the files that need it; prefer edit_file for changes of a few lines.
 - Allowed paths: src/** with extensions .vue .ts .js .css .json. Never write package.json, src/hl.config.js or anything under src/genesis/ (system-owned, provided at run time).
-- src/main.js and src/App.vue must always exist. Keep src/main.js mounting App on "#app".
+- src/main.js and src/App.vue must always exist. Keep src/main.js as the UI guide shows.
 - Keep files small so later changes rewrite little: put each part of the UI (a list, a detail panel, a form, a stats row) in its own component under src/components/, each under about 150 lines. App.vue holds shared state and lays the components out. Shared helpers (formatting, date math) go in src/utils.js. On follow-up requests change only the files the request touches.
 - Large apps: when the files section ends with "Other files in this app, not shown above", those files exist but you weren't given them. If the read_files tool is available, call it BEFORE any other tool and before writing the plan, once, with every listed file you will change or need to understand; a second call is allowed if you missed one. Changing a file you haven't been shown is refused. You may still create new files and delete listed ones.
-- Vue 3 single-file components using <script setup>. Use ONLY vue and browser APIs. No other npm packages, no CDN scripts.
+- Vue 3 single-file components using <script setup>. Use ONLY vue, the npm packages the UI guide lists, and browser APIs. No other npm packages, no CDN scripts.
 - Get ALL HighLevel data through the system client described under "Client" below: import what you need from "./genesis/hl.js" (adjust the relative path, e.g. "../genesis/hl.js" from src/components). Never write your own fetch, retry or pagination code for HighLevel. If the project already has its own fetch helper, code you don't change may keep using it; new and rewritten code uses the client. Never invent data, never hard-code sample records.
 - The same app runs on whichever HighLevel sub-account is connected. Never write a sub-account's name or id into the code: to show the name, import LOCATION_NAME from the client (it may be empty: then show nothing); the client already sends the id.
 - Show loading, empty, and error states. Display the error.message of failed calls (the client throws errors with the proxy's message).
@@ -55,25 +80,22 @@ Rules:
     - Continue past item errors (hl_duplicate_contact, hl_request_failed). Stop the batch on rate_limited, hl_rate_limited, hl_scope_missing, network_error or hl_unavailable, and say how many were done.
     - End with a summary ("20 created, 3 already existed, 2 failed") and keep the failed items listed with their messages.
   - For messages, show the recipient and the content next to the Send button so the user sees exactly what will be sent.
-- Styling: src/main.js imports "./genesis/ui.css" before App; build the UI from the components in "./genesis/ui" (below) and lay them out with the kit's classes. Do not change its look unless the user explicitly asks for a different look (colors, fonts, theme, spacing):
-  - By default write NO CSS that restyles the kit or the components (no colors, fonts, borders, shadows of your own); a short <style scoped> only for layout the kit doesn't cover, using its variables. Use a component (Dialog, DropdownMenu, Select, Tabs) instead of hand-built markup.
-  - For a different look, override the kit's variables in :root in src/style.css (imported after the kit) and add only the CSS the request needs.
-  - An existing app without the kit import keeps its own CSS unless the user asks for a restyle. An app using the kit's classes without the components keeps them; use the components for new parts.
+- UI: build it with the components of the "UI" guide (in the guides block), never hand-built markup where a component exists (tables, selects, date pickers, dialogs, tags, messages). Make it usable by the people who rely on it: clear headings, readable on a phone, every state handled, feedback after every action. Do not change the library's look unless the user explicitly asks for a different look (colors, fonts, theme, spacing). An app with its own CSS and no UI library keeps its CSS unless the user asks for a restyle.
 
-${uiKit}
 ${coreReference()}`;
 }
 
 /**
  * The system prompt as two cached blocks:
- * 1. the rules, UI kit and HighLevel core with the catalog: the same for every user and build (it changes only on
- *    deploy), so a build started within 5 minutes of any other reads it from the prompt cache at 0.1x the price;
- * 2. the HighLevel guides this build needs (llm/guides.ts), in a fixed order: builds needing the same set share it.
+ * 1. the rules and HighLevel core with the catalog: the same for every user and build (it changes only on deploy),
+ *    so a build started within 5 minutes of any other reads it from the prompt cache at 0.1x the price;
+ * 2. the UI guide for the app's library and the HighLevel guides this build needs (llm/guides.ts), in a fixed
+ *    order: builds needing the same set share it.
  * Nothing per-user may ever be added to either: that would split the cache and could leak between users.
  */
-export function systemBlocks(guides: string[]): Anthropic.TextBlockParam[] {
+export function systemBlocks(guides: string[], ui: Ui = "element-plus"): Anthropic.TextBlockParam[] {
   return [
     { type: "text", text: buildSystemPrompt(), cache_control: { type: "ephemeral" } },
-    { type: "text", text: guidesBlock(guides), cache_control: { type: "ephemeral" } },
+    { type: "text", text: `${uiGuide(ui)}\n\n${guidesBlock(guides)}`, cache_control: { type: "ephemeral" } },
   ];
 }
