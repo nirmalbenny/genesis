@@ -12,6 +12,8 @@ import { RESOURCES } from "../hl/registry";
  */
 
 const CORE = readFileSync(join(__dirname, "hlReference.md"), "utf8");
+/** Shared client functions (the core's "Client" section): a guide mentioning one doesn't make it that resource's. */
+const SHARED = new Set([...(CORE.split("\n## Client")[1]?.split("\n## ")[0] ?? "").matchAll(/`(\w+)\(/g)].map((m) => m[1]!));
 const RESOURCE_DIR = join(__dirname, "..", "hl-resources");
 
 type Guide = { id: string; label: string; summary: string; aliases: string[]; text: string; functions: string[]; kinds: string[]; calls: string[] };
@@ -20,16 +22,13 @@ type Guide = { id: string; label: string; summary: string; aliases: string[]; te
 export const GUIDES: Guide[] = RESOURCES.filter((r) => !r.internal).map((r) => {
   const text = readFileSync(join(RESOURCE_DIR, `${r.id}.md`), "utf8").trim();
   const kinds = [...new Set([...text.matchAll(/usePager\('(\w+)'/g)].map((m) => m[1]!))];
-  const functions = [...new Set([...text.matchAll(/`(\w+)\(/g)].map((m) => m[1]!))].filter((f) => f !== "usePager" && f !== "call");
+  const functions = [...new Set([...text.matchAll(/`(\w+)\(/g)].map((m) => m[1]!))].filter((f) => !SHARED.has(f));
   const calls = [...new Set([...text.matchAll(/call\('(\w+)'/g)].map((m) => m[1]!))];
   return { id: r.id, label: r.label ?? r.id, summary: r.summary, aliases: r.aliases ?? [], text, functions, kinds, calls };
 });
 
 /** Every client function the reference documents (core and guides): what generated code may import. */
-export const CLIENT_FUNCTIONS = new Set([
-  ...[...(CORE.split("\n## Client")[1]?.split("\n## ")[0] ?? "").matchAll(/`(\w+)\(/g)].map((m) => m[1]!),
-  ...GUIDES.flatMap((g) => g.functions),
-]);
+export const CLIENT_FUNCTIONS = new Set([...SHARED, ...GUIDES.flatMap((g) => g.functions)]);
 
 /** One line per resource: what it holds and what to call. */
 export function catalog(): string {

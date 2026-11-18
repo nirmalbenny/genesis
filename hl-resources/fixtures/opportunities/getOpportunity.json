@@ -1,0 +1,40 @@
+{
+  "opportunity": {
+    "id": "id-1",
+    "name": "redacted",
+    "monetaryValue": 500000,
+    "pipelineId": "id-2",
+    "pipelineStageId": "id-3",
+    "status": "open",
+    "source": "redacted",
+    "lastStatusChangeAt": "2026-11-18T15:22:37.019Z",
+    "lastStageChangeAt": "2026-11-18T15:22:37.019Z",
+    "createdAt": "2026-11-18T15:22:37.018Z",
+    "updatedAt": "2026-11-18T15:22:37.018Z",
+    "contactId": "id-4",
+    "isAttribute": false,
+    "internalSource": {
+      "type": "CREATED",
+      "id": "id-5",
+      "apiVersion": "redacted",
+      "channel": "OAUTH",
+      "source": "redacted"
+    },
+    "locationId": "id-6",
+    "lastActionDate": "2026-11-18T15:22:37.019Z",
+    "followers": [],
+    "contact": {
+      "id": "id-4",
+      "name": "redacted",
+      "email": "redacted",
+      "phone": "redacted",
+      "tags": [
+        "redacted",
+        "redacted",
+        "redacted"
+      ],
+      "followers": []
+    }
+  },
+  "traceId": "id-7"
+}

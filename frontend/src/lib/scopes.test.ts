@@ -17,11 +17,14 @@ describe('missingAccess', () => {
 
   it('names a resource the connection cannot read, and one it can only read', () => {
     const readOnly = ALL.filter((s) => !s.endsWith('.write') && !s.startsWith('calendars'))
-    expect(missingAccess(readOnly)).toEqual([
+    const missing = missingAccess(readOnly)
+    expect(missing).toEqual(expect.arrayContaining([
       { label: 'Calendars', changesOnly: false },
       { label: 'Contacts', changesOnly: true },
       { label: 'Conversations', changesOnly: true },
-    ])
+    ]))
+    // Any other resource (added later) has its read scopes here, so only its changes are missing.
+    expect(missing.filter((m) => m.label !== 'Calendars').every((m) => m.changesOnly)).toBe(true)
   })
 
   it('skips internal resources, and a new resource shows up for connections made before it', () => {

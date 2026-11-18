@@ -56,6 +56,7 @@ const CASES = {
   refuse: { app: SEED_FILES, prompt: "Write me a short poem about the ocean.", expect: "declined" },
   large: { app: largeFiles, prompt: "In the third copy of the dashboard (the files under src/part3), make the leads section show each lead's phone number under their name." },
   largeFollow: { app: "large", prompt: "Also show the lead's email address under the phone number." },
+  pipeline: { app: SEED_FILES, prompt: "Show my open deals grouped by pipeline stage, with each deal's value and contact, and a button that moves a deal to the next stage" },
   // Asks for a feature the preview's compiler lacks: the check refuses it and the model corrects it in the same build.
   defineModel: { app: SEED_FILES, prompt: "Make a reusable SearchBox component that supports v-model using defineModel, and use it to search contacts in a contact list" },
   stop: { app: SEED_FILES, prompt: "build a contact dashboard with search and a list of upcoming appointments", expect: "stopped", stopAfterFiles: 1 },

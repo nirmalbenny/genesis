@@ -123,7 +123,9 @@ async function main() {
     const resolve = (name: string): string | undefined => {
       const base = name.replace(/Ids?$/, "").toLowerCase();
       for (const { records } of seen) for (const r of records) if (typeof r[name] === "string") return r[name] as string;
-      const lists = seen.filter((s) => s.path.split("/")[1]?.toLowerCase().startsWith(base) && !s.path.includes("{")).sort((a, b) => a.path.length - b.path.length);
+      // The list a placeholder's id comes from: {contactId} ← /contacts/…, {opportunityId} ← /opportunities/… ("-ies").
+      const singular = (segment: string) => segment.toLowerCase().replace(/ies$/, "y").replace(/s$/, "");
+      const lists = seen.filter((s) => singular(s.path.split("/")[1] ?? "") === base && !s.path.includes("{")).sort((a, b) => a.path.length - b.path.length);
       for (const { records } of lists) {
         const r = records.find((x) => x.isActive !== false && typeof x.id === "string") ?? records.find((x) => typeof x.id === "string");
         if (r) return r.id as string;
@@ -147,7 +149,9 @@ async function main() {
       if (first.status !== 200) {
         const err = (first.data.error ?? {}) as { code?: string; message?: string };
         failures.push(`${e.name}: ${first.status} ${err.code ?? ""} ${err.message ?? ""}`.trim());
-        console.log(`FAIL ${e.name.padEnd(22)} ${first.status} ${err.code ?? ""}: ${err.message ?? ""}`);
+        // The path tried, ids masked: shows whether a placeholder was filled from the right list.
+        const tried = path.split("/").map((seg, i) => (e.path.split("/")[i]?.startsWith("{") ? `<${seg.startsWith("missing-") ? seg : `${seg.length} chars`}>` : seg)).join("/");
+        console.log(`FAIL ${e.name.padEnd(22)} ${first.status} ${err.code ?? ""}: ${err.message ?? ""}  (tried ${tried})`);
         continue;
       }
       const records = e.pager ? asRecords(get(first.data, e.pager.items)) : asRecords(e.unwrap ? first.data[e.unwrap] : Object.values(first.data).find(Array.isArray));

@@ -220,7 +220,14 @@ About 5–6 days in total. Each phase ships alone; 1 to 3 give most of the value
   `hl-resources/fixtures/`; `frontend/src/lib/fixtures.test.ts` checks every list's pager paths against them.
   Endpoints may carry `probe` hints (`now+7d`, `{calendarId}`).
 - **Phase 6 (2026-11-18):** the `/hl-resource` skill (`.claude/skills/hl-resource/SKILL.md`) replaced
-  `/hl-endpoint`. The Opportunities trial is next: it needs the scopes enabled on the Marketplace app first.
+  `/hl-endpoint`. **Opportunities trial (2026-11-18, local):** two files (`hl-resources/opportunities.json`,
+  `.md`; `Version: v3`), nothing else hand-written for the resource. Probe clean: 13 deals in 3 pages (total 13),
+  pipelines, a single deal; a write moved a deal to the next stage and back through the proxy, an unknown stage gave
+  a readable 400, DELETE 405. Eval case `pipeline` 2 of 2 (guides contacts + opportunities); a browser build showed
+  the live deals board. Generic fixes it surfaced: the dev server now watches `hl-resources/`; tests no longer list
+  the resources by hand; the probe's id lookup handles "-ies" plurals; a guide no longer claims the core's client
+  functions (`contactName`); the chat shows two data chips and "+N" beyond three; the guide says not to assume a currency.
+  Not done: production (scopes on the Marketplace app, `READ_SCOPES=enforce`, deploy).
 
 ## 10. The skill: `/hl-resource`
 

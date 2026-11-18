@@ -60,7 +60,7 @@ Genesis is an AI app builder for [HighLevel](https://www.gohighlevel.com). Conne
 
 ### Run
 
-- **Real data:** generated apps read and write contacts, conversations and calendars: create and update contacts (tags and notes too), book, reschedule and cancel appointments, mark conversations read or starred, send SMS or email. Deletes are never allowed.
+- **Real data:** generated apps read and write contacts, conversations, calendars and opportunities: create and update contacts (tags and notes too), book, reschedule and cancel appointments, mark conversations read or starred, send SMS or email, move deals through pipeline stages. Deletes are never allowed.
 - **Paginated by design:** lists load 20 at a time behind Load more, with server-side search and counts that cover all the data.
 - **One look:** apps are built from 66 injected components with shadcn-vue's API on Genesis's own UI kit, so they look consistent and Claude writes almost no CSS. Ask for another look and it restyles.
 - **Ready-made apps:** six for every user (Customer 360, Daily Briefing, Appointment Prep Sheet, No-Contact Radar, Lead Follow-up Board, Activity Timeline): launch, copy to edit, or pin to the sidebar.
@@ -244,6 +244,7 @@ CI runs lint, unit and integration tests and the production build on every push 
    contacts.readonly contacts.write conversations.readonly conversations.write
    conversations/message.readonly conversations/message.write
    calendars.readonly calendars/events.readonly calendars/events.write locations.readonly
+   opportunities.readonly opportunities.write
    ```
 
    `locations.readonly` is only used to show the connected sub-account's name.

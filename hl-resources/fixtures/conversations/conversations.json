@@ -70,19 +70,27 @@
       "companyName": null,
       "lastOutboundMessageAction": "redacted",
       "inbox": true,
-      "opportunities": [],
+      "opportunities": [
+        {
+          "pipelineId": "id-6",
+          "id": "id-7",
+          "monetaryValue": 1950000,
+          "pipelineStageId": "id-8",
+          "status": "open"
+        }
+      ],
       "sort": [
         1794374124371
       ]
     },
     {
-      "id": "id-6",
+      "id": "id-9",
       "lastMessageDate": 1793907162967,
       "contactName": "redacted",
       "scoring": [],
       "dateUpdated": 1793907221634,
       "lastMessageDirection": "redacted",
-      "contactId": "id-7",
+      "contactId": "id-10",
       "type": "TYPE_PHONE",
       "lastMessageType": "redacted",
       "lastMessageBody": "redacted",
@@ -107,12 +115,20 @@
       "email": "redacted",
       "profilePhoto": null,
       "attributed": null,
-      "opportunities": [],
+      "opportunities": [
+        {
+          "pipelineId": "id-6",
+          "id": "id-11",
+          "monetaryValue": 1720000,
+          "pipelineStageId": "id-8",
+          "status": "open"
+        }
+      ],
       "sort": [
         1793907162967
       ]
     }
   ],
   "total": 49,
-  "traceId": "id-8"
+  "traceId": "id-12"
 }

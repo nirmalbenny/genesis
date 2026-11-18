@@ -37,12 +37,14 @@ test("the registry reproduces the hand-written allowlist exactly", () => {
   }
 });
 
-test("connecting asks for exactly the scopes it did before", () => {
-  assert.deepEqual(HL_SCOPES.split(" ").sort(), [
+test("connecting asks for every scope it asked for before the registry, plus each resource's scopes", () => {
+  const requested = HL_SCOPES.split(" ");
+  for (const s of [
     "calendars.readonly", "calendars/events.readonly", "calendars/events.write", "contacts.readonly", "contacts.write",
     "conversations.readonly", "conversations.write", "conversations/message.readonly", "conversations/message.write",
     "locations.readonly",
-  ]);
+  ]) assert.ok(requested.includes(s), s);
+  assert.deepEqual([...new Set(RESOURCES.flatMap((r) => r.scopes))].sort(), [...requested].sort(), "nothing else");
 });
 
 test("every endpoint is reachable through the proxy with its own route; neighbours and deletes are refused", () => {
@@ -118,7 +120,8 @@ test("the registry is checked strictly: deletes, loose paths, unknown scopes and
 });
 
 test("lists and calls the client offers come from the registry", () => {
-  assert.deepEqual(listNames(RESOURCES), ["contacts", "conversations", "messages"]);
+  for (const list of ["contacts", "conversations", "messages"]) assert.ok(listNames(RESOURCES).includes(list), list);
+  assert.deepEqual(listNames(RESOURCES), RESOURCES.flatMap((r) => r.endpoints.filter((e) => e.pager).map((e) => e.name)));
   assert.ok(endpointNames(RESOURCES).includes("getContact"));
   assert.deepEqual(validateRegistry([resource({}, { pager: { strategy: "page", items: "deals", total: "meta.total", search: { param: "q", min: 2 } } })]), []);
 });

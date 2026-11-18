@@ -1,0 +1,194 @@
+{
+  "opportunities": [
+    {
+      "id": "id-1",
+      "name": "redacted",
+      "monetaryValue": 500000,
+      "pipelineId": "id-2",
+      "pipelineStageId": "id-3",
+      "pipelineStageUId": "id-3",
+      "assignedTo": null,
+      "status": "open",
+      "source": "redacted",
+      "lastStatusChangeAt": "2026-11-18T15:22:37.019Z",
+      "lastStageChangeAt": "2026-11-18T15:22:37.019Z",
+      "createdAt": "2026-11-18T15:22:37.018Z",
+      "updatedAt": "2026-11-18T15:22:37.018Z",
+      "forecastProbability": null,
+      "effectiveProbability": 14.29,
+      "contactId": "id-4",
+      "locationId": "id-5",
+      "customFields": [],
+      "lostReasonId": null,
+      "followers": [],
+      "relations": [
+        {
+          "associationId": "id-6",
+          "relationId": "id-1",
+          "primary": true,
+          "objectKey": "contact",
+          "recordId": "id-4",
+          "fullName": "redacted",
+          "contactName": "redacted",
+          "companyName": null,
+          "email": "redacted",
+          "phone": "redacted",
+          "tags": [
+            "redacted",
+            "redacted",
+            "redacted"
+          ],
+          "attributed": true
+        }
+      ],
+      "contact": {
+        "id": "id-4",
+        "name": "redacted",
+        "companyName": null,
+        "email": "redacted",
+        "phone": "redacted",
+        "tags": [
+          "redacted",
+          "redacted",
+          "redacted"
+        ],
+        "score": []
+      },
+      "sort": [
+        1795015357018,
+        "redacted"
+      ],
+      "attributions": []
+    },
+    {
+      "id": "id-7",
+      "name": "redacted",
+      "monetaryValue": 4400000,
+      "pipelineId": "id-2",
+      "pipelineStageId": "id-8",
+      "pipelineStageUId": "id-8",
+      "assignedTo": null,
+      "status": "won",
+      "source": "redacted",
+      "lastStatusChangeAt": "2026-11-18T15:22:35.954Z",
+      "lastStageChangeAt": "2026-11-18T15:22:35.954Z",
+      "createdAt": "2026-11-18T15:22:35.954Z",
+      "updatedAt": "2026-11-18T15:22:35.954Z",
+      "forecastProbability": null,
+      "effectiveProbability": 42.86,
+      "contactId": "id-9",
+      "locationId": "id-5",
+      "customFields": [],
+      "lostReasonId": null,
+      "followers": [],
+      "relations": [
+        {
+          "associationId": "id-6",
+          "relationId": "id-7",
+          "primary": true,
+          "objectKey": "contact",
+          "recordId": "id-9",
+          "fullName": "redacted",
+          "contactName": "redacted",
+          "companyName": null,
+          "email": "redacted",
+          "phone": "redacted",
+          "tags": [
+            "redacted",
+            "redacted",
+            "redacted"
+          ],
+          "attributed": true
+        }
+      ],
+      "contact": {
+        "id": "id-9",
+        "name": "redacted",
+        "companyName": null,
+        "email": "redacted",
+        "phone": "redacted",
+        "tags": [
+          "redacted",
+          "redacted",
+          "redacted"
+        ],
+        "score": []
+      },
+      "sort": [
+        1795015355954,
+        "redacted"
+      ],
+      "attributions": []
+    },
+    {
+      "id": "id-10",
+      "name": "redacted",
+      "monetaryValue": 2180000,
+      "pipelineId": "id-2",
+      "pipelineStageId": "id-8",
+      "pipelineStageUId": "id-8",
+      "assignedTo": null,
+      "status": "won",
+      "source": "redacted",
+      "lastStatusChangeAt": "2026-11-18T15:22:34.927Z",
+      "lastStageChangeAt": "2026-11-18T15:22:34.927Z",
+      "createdAt": "2026-11-18T15:22:34.927Z",
+      "updatedAt": "2026-11-18T15:22:34.927Z",
+      "forecastProbability": null,
+      "effectiveProbability": 42.86,
+      "contactId": "id-11",
+      "locationId": "id-5",
+      "customFields": [],
+      "lostReasonId": null,
+      "followers": [],
+      "relations": [
+        {
+          "associationId": "id-6",
+          "relationId": "id-10",
+          "primary": true,
+          "objectKey": "contact",
+          "recordId": "id-11",
+          "fullName": "redacted",
+          "contactName": "redacted",
+          "companyName": null,
+          "email": "redacted",
+          "phone": "redacted",
+          "tags": [
+            "redacted",
+            "redacted",
+            "redacted"
+          ],
+          "attributed": true
+        }
+      ],
+      "contact": {
+        "id": "id-11",
+        "name": "redacted",
+        "companyName": null,
+        "email": "redacted",
+        "phone": "redacted",
+        "tags": [
+          "redacted",
+          "redacted",
+          "redacted"
+        ],
+        "score": []
+      },
+      "sort": [
+        1795015354927,
+        "AHBPfBeiTlCuUXhkPeXf"
+      ],
+      "attributions": []
+    }
+  ],
+  "meta": {
+    "total": 13,
+    "nextPageUrl": "redacted",
+    "startAfterId": "id-12",
+    "startAfter": 1795015352633,
+    "currentPage": 1,
+    "nextPage": 2,
+    "prevPage": null
+  },
+  "traceId": "id-13"
+}

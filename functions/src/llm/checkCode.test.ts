@@ -78,9 +78,9 @@ test("usePager lists and call names must exist in the registry (checked when imp
   const app = (script: string) => vue(`import { usePager, call } from "./genesis/hl.js";\n${script}`);
   const none = () => false;
   assert.deepEqual(checkImports("src/App.vue", app("const a = usePager('contacts');\nconst b = usePager(\"messages\", () => ({}));\ncall('getContact', { contactId: 'x' });"), none), []);
-  assert.deepEqual(checkImports("src/App.vue", app("const a = usePager('opportunities');\ncall('deleteContact', { contactId: 'x' });"), none), [
-    "usePager('opportunities') isn't a HighLevel list; available: contacts, conversations, messages",
-    "call('deleteContact') isn't a HighLevel call; available: " + "listCalendars, listEvents, freeSlots, bookAppointment, updateAppointment, contacts, getContact, contactAppointments, createContact, updateContact, addTags, addNote, conversations, getConversation, messages, updateConversation, sendMessage",
-  ]);
+  const [list, callProblem, ...rest] = checkImports("src/App.vue", app("const a = usePager('invoices');\ncall('deleteContact', { contactId: 'x' });"), none);
+  assert.match(list!, /^usePager\('invoices'\) isn't a HighLevel list; available: .*\bcontacts\b.*\bmessages\b/);
+  assert.match(callProblem!, /^call\('deleteContact'\) isn't a HighLevel call; available: .*\bgetContact\b/);
+  assert.deepEqual(rest, []);
   assert.deepEqual(checkImports("src/utils.js", "export const call = (x) => x;\ncall('anything');", none), [], "a function of the app's own named call is not checked");
 });

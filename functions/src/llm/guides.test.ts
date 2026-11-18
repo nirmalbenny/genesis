@@ -4,7 +4,7 @@ import { RESOURCES } from "../hl/registry";
 import { catalog, CLIENT_FUNCTIONS, coreReference, GUIDES, guidesBlock, selectGuides } from "./guides";
 import { buildSystemPrompt, systemBlocks } from "./prompt";
 
-const ALL = ["calendars", "contacts", "conversations"];
+const ALL = GUIDES.map((g) => g.id).sort(); // every guide, whichever resources exist
 // Compared as sets; the order (always the registry's) is checked in the cache test.
 const pick = (prompt: string, helpers: string[] = [], sources: string[] = []) => selectGuides({ prompt, helpers, sources }).sort();
 
@@ -30,7 +30,7 @@ test("a request about one resource gets its guide plus contacts", () => {
   assert.deepEqual(pick("Build an inbox of unread conversations"), ["contacts", "conversations"]);
   assert.deepEqual(pick("Show this week's appointments for each calendar"), ["calendars", "contacts"]);
   assert.deepEqual(pick("A list of my leads with a search box"), ["contacts"]);
-  assert.deepEqual(pick("Text a contact when their booking is tomorrow"), ALL, "text → conversations, booking → calendars");
+  assert.deepEqual(pick("Text a contact when their booking is tomorrow"), ["calendars", "contacts", "conversations"], "text → conversations, booking → calendars");
 });
 
 test("a follow-up keeps the guides the app already uses, even when the request names nothing", () => {

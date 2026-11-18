@@ -130,6 +130,11 @@ Seed realistic records in the sandbox, tagged `genesis-demo` (the "AutoCar Inc" 
 4. Docs: ARCHITECTURE §10 lists every route (a test fails otherwise); README "HighLevel setup" scope list and
    "Real data" feature line; CLAUDE.md's allowlist and writes lines.
 
+Lessons from the Opportunities trial: the dev server picks up `hl-resources/` changes by itself (restart it if the
+Reconnect notice doesn't appear); tests must never list the resources by hand (use `includes` / `arrayContaining`);
+fixtures keep only 3 items per array; say in the guide what the API doesn't return (the sandbox's currency is INR,
+not `$`).
+
 ## 8. Roll out (new scopes)
 
 1. Production must enforce read scopes: check the logs for `hl.read_scope_missing`, then set the GitHub variable

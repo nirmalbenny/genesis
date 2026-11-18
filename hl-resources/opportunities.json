@@ -1,0 +1,14 @@
+{
+  "id": "opportunities",
+  "label": "Opportunities",
+  "summary": "deals in sales pipelines (stage, value, status, contact) and the pipelines with their stages",
+  "aliases": ["opportunity", "opportunities", "deal", "deals", "pipeline", "pipelines", "stage", "stages", "funnel", "forecast"],
+  "scopes": ["opportunities.readonly", "opportunities.write"],
+  "version": "v3",
+  "endpoints": [
+    {"name": "opportunities", "method": "GET", "path": "/opportunities/search", "scope": "opportunities.readonly", "location": "query", "pager": {"strategy": "cursorFields", "items": "opportunities", "total": "meta.total", "cursor": {"startAfterId": "meta.startAfterId", "startAfter": "meta.startAfter"}, "search": {"param": "query", "min": 2}, "options": ["pipelineId", "pipelineStageId", "status", "contactId", "assignedTo", "order"]}},
+    {"name": "getPipelines", "method": "GET", "path": "/opportunities/pipelines", "scope": "opportunities.readonly", "location": "query", "unwrap": "pipelines"},
+    {"name": "getOpportunity", "method": "GET", "path": "/opportunities/{opportunityId}", "scope": "opportunities.readonly", "location": "none", "unwrap": "opportunity"},
+    {"name": "updateOpportunity", "method": "PUT", "path": "/opportunities/{opportunityId}", "scope": "opportunities.write", "location": "none", "unwrap": "opportunity"}
+  ]
+}

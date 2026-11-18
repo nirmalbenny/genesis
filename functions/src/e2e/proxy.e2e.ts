@@ -31,9 +31,10 @@ test("the proxy rejects missing and forged preview tokens", async () => {
   assert.equal(r.body.error?.code, "invalid_preview_token");
 });
 
-test("the proxy only allows its GET allowlist", async () => {
+test("the proxy only allows the registry's reads", async () => {
   const { token } = await previewSetup();
-  for (const path of ["/users/", "/locations/abc", "/contacts/abc/notes", "/opportunities/search"]) {
+  // Paths no resource in the registry declares (never a real resource, so adding one doesn't break this test).
+  for (const path of ["/users/", "/locations/abc", "/contacts/abc/notes", "/not-a-resource/search"]) {
     const r = await proxy(token, path);
     assert.equal(r.status, 403, path);
     assert.equal(r.body.error?.code, "path_not_allowed", path);
