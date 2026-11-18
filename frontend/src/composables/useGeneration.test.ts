@@ -39,6 +39,30 @@ beforeEach(() => {
 })
 
 describe('useGeneration', () => {
+  it('stays "finishing" from the end of the stream until the UI has re-synced, with no gap in between', async () => {
+    let release!: () => void
+    const seen: { streaming: boolean; finishing: boolean }[] = []
+    const gen = useGeneration({
+      onFileStart: () => {},
+      onToken: () => {},
+      onFinished: () => new Promise<void>((resolve) => {
+        seen.push({ streaming: gen.streaming.value, finishing: gen.finishing.value })
+        release = resolve
+      }),
+    })
+    const s = controllable()
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(s.res)
+    const run = gen.start('p1', 'Build a list')
+    s.push([['start', { generationId: 'g1' }], ['done', { generationId: 'g1', files: [], credits }]])
+    s.close()
+    await vi.waitFor(() => expect(seen).toHaveLength(1))
+    expect(seen[0]).toEqual({ streaming: false, finishing: true })
+    expect(gen.finishing.value).toBe(true)
+    release()
+    await run
+    expect(gen.finishing.value).toBe(false)
+  })
+
   it('streams tokens into files and reports the credits used', async () => {
     const { gen, files, onFinished } = setup()
     const s = controllable()

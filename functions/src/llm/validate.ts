@@ -21,41 +21,9 @@ export function checkPath(path: string): string | null {
   return null;
 }
 
-export const NOT_READ = "file was not read; ask to include it";
-
-/**
- * Validates ops against the current file set. Invalid ops are rejected individually so valid ones survive.
- * A delete that would remove an entry file is rejected unless the same batch rewrites it.
- * With `seen` (the files the model was given in full), rewriting an existing file it never saw is rejected,
- * so a file left out of the context can't be overwritten blindly. New files and deletes are allowed.
- */
-export function validateOps(
-  ops: FileOp[],
-  existing: Set<string>,
-  seen?: Set<string>,
-): { valid: FileOp[]; rejected: Rejection[] } {
-  const valid: FileOp[] = [];
-  const rejected: Rejection[] = [];
-  const written = new Set(ops.filter((o) => o.type === "write").map((o) => o.path));
-
-  for (const op of ops) {
-    const pathError = checkPath(op.path);
-    if (pathError) { rejected.push({ path: op.path, reason: pathError }); continue; }
-    if (op.type === "write") {
-      if (Buffer.byteLength(op.content) > MAX_FILE_BYTES) {
-        rejected.push({ path: op.path, reason: `file exceeds ${MAX_FILE_BYTES} bytes` });
-        continue;
-      }
-      if (!op.content.trim()) { rejected.push({ path: op.path, reason: "file is empty" }); continue; }
-      if (seen && existing.has(op.path) && !seen.has(op.path)) { rejected.push({ path: op.path, reason: NOT_READ }); continue; }
-    } else if (ENTRY_FILES.includes(op.path) && !written.has(op.path)) {
-      rejected.push({ path: op.path, reason: "entry file cannot be deleted" });
-      continue;
-    } else if (!existing.has(op.path)) {
-      rejected.push({ path: op.path, reason: "file to delete does not exist" });
-      continue;
-    }
-    valid.push(op);
-  }
-  return { valid, rejected };
+/** Returns an error message for file content that can't be saved, or null. */
+export function checkContent(content: string): string | null {
+  if (Buffer.byteLength(content) > MAX_FILE_BYTES) return `file exceeds ${MAX_FILE_BYTES} bytes`;
+  if (!content.trim()) return "file is empty";
+  return null;
 }

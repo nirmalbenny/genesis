@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildSystemPrompt, systemBlocks } from "./prompt";
-import { READ_FILES_TOOL } from "./tools";
+import { buildTools } from "./tools";
 
 test("the system prompt is one cached block, byte-identical on every call", () => {
   const blocks = systemBlocks();
@@ -23,8 +23,11 @@ test("the system prompt carries no sub-account name or id, and points the model 
 test("the system prompt includes the UI kit, keeps its look by default, and asks for small files", () => {
   const prompt = buildSystemPrompt();
   assert.match(prompt, /# UI kit \(`\.\/genesis\/ui\.css`/, "uiKit.md is included (and copied into lib/ by the build)");
-  assert.match(prompt, /<plan>[\s\S]*<file path="src\/App.vue">[\s\S]*<\/file>[\s\S]*<delete path=/, "the output format");
-  assert.match(prompt, /<refuse>/);
+  assert.match(prompt, /You change the app only by calling tools/, "the output protocol");
+  assert.match(prompt, /write_file[\s\S]*edit_file[\s\S]*delete_file/);
+  assert.match(prompt, /Never write code or file contents as text/);
+  assert.match(prompt, /call decline with one short reason/);
+  assert.doesNotMatch(prompt, /<(plan|file|refuse|delete)[\s>]/, "no output tags left");
   assert.match(prompt, /Do not change its look unless the user explicitly asks/);
   assert.match(prompt, /each under about 150 lines/);
   assert.doesNotMatch(prompt, /Style with plain CSS in <style scoped>/, "the old free-styling rule is gone");
@@ -48,16 +51,23 @@ test("the system prompt forbids presenting work on loaded items as the full resu
   assert.match(prompt, /Not available to apps \(no endpoint\)/, "the reference lists what has no endpoint");
 });
 
-test("the read_files tool definition is frozen and identical on every build (it is part of the cached prefix)", () => {
-  assert.ok(Object.isFrozen(READ_FILES_TOOL) && Object.isFrozen(READ_FILES_TOOL.input_schema));
-  assert.throws(() => { (READ_FILES_TOOL as { name: string }).name = "x"; }, TypeError);
-  assert.equal(JSON.stringify(READ_FILES_TOOL), JSON.stringify(READ_FILES_TOOL));
-  // A snapshot of the bytes: changing the definition is deliberate (it starts a new prompt cache).
-  assert.equal(crypto.createHash("sha256").update(JSON.stringify(READ_FILES_TOOL)).digest("hex").slice(0, 12), "f502bd4dda09");
+test("the tool definitions are frozen and identical on every build (they are part of the cached prefix)", () => {
+  for (const contextTools of [true, false]) {
+    for (const t of buildTools(contextTools)) {
+      assert.ok(Object.isFrozen(t) && Object.isFrozen(t.input_schema), t.name);
+      assert.equal(t.strict, true, `${t.name}: the API enforces its schema`);
+    }
+  }
+  assert.throws(() => { (buildTools(true)[0] as { name: string }).name = "x"; }, TypeError);
+  assert.deepEqual(buildTools(true).map((t) => t.name), ["write_file", "edit_file", "delete_file", "read_files", "decline"]);
+  assert.deepEqual(buildTools(false).map((t) => t.name), ["write_file", "edit_file", "delete_file", "decline"]);
+  assert.equal(buildTools(true).find((t) => t.name === "write_file")!.eager_input_streaming, true, "file content streams to the editor");
+  // A snapshot of the bytes: changing a definition is deliberate (it starts a new prompt cache).
+  assert.equal(crypto.createHash("sha256").update(JSON.stringify(buildTools(true))).digest("hex").slice(0, 12), "4c90509173f0");
 });
 
-test("the system prompt tells the model to read listed files before writing anything", () => {
+test("the system prompt tells the model to read listed files before changing anything", () => {
   const prompt = buildSystemPrompt();
-  assert.match(prompt, /call it BEFORE writing any output/);
-  assert.match(prompt, /Never rewrite a file you haven't been shown/);
+  assert.match(prompt, /call it BEFORE any other tool and before writing the plan/);
+  assert.match(prompt, /Changing a file you haven't been shown is refused/);
 });

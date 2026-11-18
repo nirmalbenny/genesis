@@ -18,7 +18,7 @@ Firebase Cloud Functions (2nd gen, **Node 24**, TypeScript). See the [root READM
 |---|---|
 | `npm run build` | Compiles to `lib/` (also copies the HighLevel API reference). Runs automatically before deploy. |
 | `npm run typecheck` | `tsc --noEmit` |
-| `npm test` | Builds, then runs the unit tests (stream parser, output validator, credits, rate limits, ready-made templates) |
+| `npm test` | Builds, then runs the unit tests (tool-input reader, stream assembler, tool loop, workspace rules, credits, rate limits, ready-made templates) |
 | `npm run test:e2e` | Integration tests against the running emulators (API, limits, proxy, security rules); never calls Claude or HighLevel |
 | `npm run lint` | ESLint (TypeScript recommended rules) |
 
@@ -33,8 +33,9 @@ src/
   hl/oauth.ts         OAuth start + callback      hl/token.ts   token refresh (single-flight, rotation-safe)
   hl/tokenVault.ts    HighLevel tokens encrypted at rest (Cloud KMS envelope encryption, decryption cache)
   llm/                prompt.ts · hlReference.md (API + pagination reference given to the model)
-                      parser.ts (incremental output parser) · validate.ts · summary.ts (Haiku summaries)
-                      context.ts (ranking + index) · tools.ts (read_files) · turns.ts (multi-turn build loop)
+                      tools.ts (the build tools) · turns.ts (tool loop) · assemble.ts (strict stream assembly)
+                      toolInput.ts (live file streaming) · workspace.ts + validate.ts (the build's working copy)
+                      context.ts (ranking + index) · summary.ts (Haiku summaries)
   credits.ts          rate card, hold and settle, ledger, build slots
   rateLimits.ts       every limit (LIMITS), token bucket, build-start rules
   files/              FileStore: blobs + manifest (manifestStore, blobStore, describe), Firestore fallback,

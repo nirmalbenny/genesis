@@ -206,11 +206,14 @@ onMounted(async () => {
           :files="project.files"
           :connected="!!hlState.hl.value"
           :location-name="hlState.hl.value?.locationName ?? null"
-          :building="gen.streaming.value"
+          :building="gen.streaming.value || gen.finishing.value"
+          :starting="gen.finishing.value"
           :building-file="currentFile"
           :files-done="gen.building.value.filter((b) => b.done).length"
           :building-reading="gen.reading.value"
+          :can-fix="!locked && !gen.streaming.value && !gen.finishing.value"
           @connect="hlState.connect()"
+          @fix="(error) => send(`The preview shows this error: ${error}. Fix it.`)"
           @show-code="center = 'code'; mobileChat = false"
         />
         <EditorPanel

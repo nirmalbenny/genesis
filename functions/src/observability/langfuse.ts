@@ -28,9 +28,9 @@ export function useTraceProcessor(next: SpanProcessor | null): void {
   setLangfuseTracerProvider(next ? new NodeTracerProvider({ spanProcessors: [next] }) : null);
 }
 
-/** File blocks never belong in a trace: replaces any `<file path="…">…</file>` content that slipped into a field. */
+/** File contents never belong in a trace: replaces any `<document_content>…</document_content>` that slipped into a field. */
 export const stripFileContent = (data: string): string =>
-  data.replace(/(<file path=\\?"[^"\\]*\\?">)[\s\S]*?(<\/file>)/g, "$1[content not traced]$2");
+  data.replace(/(<document_content>)[\s\S]*?(<\/document_content>)/g, "$1[content not traced]$2");
 
 /**
  * The Langfuse span processor as Genesis configures it. It also applies the propagated user, session and tags to
@@ -79,10 +79,17 @@ function costDetails(model: string, u: TokenUsage, thinkingTokens = 0) {
 type Round = BuildTraceInput["rounds"][number];
 const NOT_TRACED = "(not traced)";
 
-/** A round's tool calls in the OpenAI message shape Langfuse renders as cards; ids pair them with their results. */
+/**
+ * A round's tool calls in the OpenAI message shape Langfuse renders as cards; ids pair them with their results.
+ * Only the paths a call names are shown, never the content it writes.
+ */
 const toolCallMessages = (r: Round) => r.toolCalls.map((c, i) => ({
-  id: `call_${r.n}_${i}`, type: "function", function: { name: c.name, arguments: JSON.stringify({ paths: c.paths }) },
+  id: `call_${r.n}_${i}`, type: "function",
+  function: { name: c.name, arguments: JSON.stringify(c.name === "read_files" ? { paths: c.paths } : { path: c.paths[0] ?? null }) },
 }));
+/** What a tool call returned, as traced: read results by name only (they carry file contents). */
+const toolResultText = (c: Round["toolCalls"][number]) =>
+  c.name === "read_files" ? `Returned ${c.read.join(", ") || "nothing"} ${NOT_TRACED}${c.isError ? " (error)" : ""}` : c.result;
 
 /**
  * The messages round `n` was sent: the system prompt and file contents as placeholders, the earlier chat turns
@@ -103,8 +110,9 @@ export function conversationUpTo(t: BuildTraceInput, n: number) {
     messages.push({ role: "assistant", content: "", tool_calls: toolCallMessages(r) });
     r.toolCalls.forEach((c, i) => messages.push({
       role: "tool", tool_call_id: `call_${r.n}_${i}`,
-      content: `Returned ${c.read.join(", ") || "nothing"} ${NOT_TRACED}${c.isError ? " (error)" : ""}`,
+      content: toolResultText(c),
     }));
+    if (r.problems) messages.push({ role: "user", content: r.problems }); // paths and messages, never code
   }
   return messages;
 }
@@ -129,7 +137,7 @@ export async function sendBuildTrace(t: BuildTraceInput): Promise<string | null>
         t.status,
         t.followUp.previousGenerationId ? "follow-up" : "first-build",
         ...(t.context.indexed.length ? ["large-app"] : []),
-        ...(t.rounds.some((r) => r.toolCalls.length) ? ["read-files"] : []),
+        ...(t.rounds.some((r) => r.toolCalls.some((c) => c.name === "read_files")) ? ["read-files"] : []),
       ],
       metadata: { generationId: t.generationId, projectName: t.projectName },
     }, async () => {
@@ -175,9 +183,10 @@ export async function sendBuildTrace(t: BuildTraceInput): Promise<string | null>
 
         const toolStart = r.startedAt + r.responseMs;
         for (const c of r.toolCalls) {
-          under(root, () => startObservation("read-files", {
-            input: { paths: c.paths },
-            output: { read: c.read, notRead: c.paths.filter((p) => !c.read.includes(p)) },
+          const read = c.name === "read_files";
+          under(root, () => startObservation(c.name.replace(/_/g, "-"), {
+            input: read ? { paths: c.paths } : { path: c.paths[0] ?? null },
+            output: read ? { read: c.read, notRead: c.paths.filter((p) => !c.read.includes(p)) } : { result: c.result },
             level: c.isError ? "WARNING" : "DEFAULT",
             metadata: { round: r.n },
           }, { asType: "tool", startTime: at(toolStart) })).end(at(toolStart + r.toolMs));
@@ -186,8 +195,8 @@ export async function sendBuildTrace(t: BuildTraceInput): Promise<string | null>
 
       const save = under(root, () => startObservation("save-changes", {
         input: { proposed: [...files, ...t.actions.deleted, ...t.actions.rejected.map((x) => x.path)] },
-        output: { written: t.actions.written, deleted: t.actions.deleted, rejected: t.actions.rejected, fixups: t.fixups, snapshotId: t.actions.snapshotId },
-        level: t.actions.rejected.length || t.fixups.length ? "WARNING" : "DEFAULT",
+        output: { written: t.actions.written, deleted: t.actions.deleted, rejected: t.actions.rejected, toolErrors: t.toolErrors, problems: t.problems, snapshotId: t.actions.snapshotId },
+        level: t.actions.rejected.length || t.toolErrors.length || t.problems.length || t.codeInText ? "WARNING" : "DEFAULT",
       }, { startTime: at(saveStart) }));
       const summaryUsage = t.summaryUsage;
       if (summaryUsage) {

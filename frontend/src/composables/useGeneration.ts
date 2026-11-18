@@ -29,6 +29,8 @@ export function useGeneration(h: Handlers) {
   const reading = ref<string[]>([])
   /** True between pressing Stop and the server confirming the build stopped. */
   const stopping = ref(false)
+  /** True after the stream ended, until the UI has re-synced (files reloaded, preview running the new version). */
+  const finishing = ref(false)
   let abort: AbortController | null = null
   let running: { projectId: string; generationId: string | null } | null = null
 
@@ -103,6 +105,7 @@ export function useGeneration(h: Handlers) {
             : (e as Error).message
       }
     } finally {
+      finishing.value = true // set with streaming's end, so the preview's overlay never drops in between
       streaming.value = false
       stopping.value = false
       reading.value = []
@@ -110,7 +113,11 @@ export function useGeneration(h: Handlers) {
       running = null
       // After a dropped connection the server may still be saving partial results.
       if (!finished) await new Promise((r) => setTimeout(r, 2000))
-      await h.onFinished()
+      try {
+        await h.onFinished()
+      } finally {
+        finishing.value = false
+      }
     }
   }
 
@@ -130,5 +137,5 @@ export function useGeneration(h: Handlers) {
     }
   }
 
-  return { streaming, stopping, error, plan, declined, building, reading, lastCredits, start, stop }
+  return { streaming, finishing, stopping, error, plan, declined, building, reading, lastCredits, start, stop }
 }

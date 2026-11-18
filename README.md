@@ -79,7 +79,7 @@ This is the short version. The **[detailed architecture diagram](docs/ARCHITECTU
 ├── functions/                 Cloud Functions (TypeScript), see functions/README.md
 │   ├── src/                   api · generate (SSE) · hlProxy · hl/ (OAuth, token refresh) · files/ (Storage + manifests)
 │   │                          observability/ (Langfuse build traces, structured logs)
-│   │                          llm/ (prompt, context, read_files turns, parser, validator) · scripts/ (backfill, measurements)
+│   │                          llm/ (prompt, context, build tools, tool loop, workspace, validator) · scripts/ (backfill, measurements)
 │   │   ├── *.test.ts          unit tests (npm test)
 │   │   └── e2e/               integration tests against the emulators (npm run test:e2e)
 │   └── templates/             six ready-made apps (templates.json + <slug>/src/**)
@@ -159,7 +159,7 @@ Ctrl+C stops both. `npm run dev:local` runs plain Vite without a tunnel. Deploye
 | `PREVIEW_TOKEN_SECRET` | secret | HMAC key for the 15-minute preview tokens that generated apps use |
 | `LOCAL_TOKEN_KEK` | `functions/.env.local` | Emulator-only key that encrypts stored HighLevel tokens (`openssl rand -base64 32`). Production uses Cloud KMS instead. |
 | `FILE_STORE` | `functions/.env.local` · GitHub variable | `firestore` (default: one document per file) or `blobs` (Cloud Storage + manifest). See [ARCHITECTURE §3.1](docs/ARCHITECTURE.md#31-project-files-blobs-and-a-manifest). |
-| `CONTEXT_TOOLS` | `functions/.env.local` · GitHub variable | `on` (default): a large app's build gets a file index and the `read_files` tool. `off` is a kill switch. |
+| `CONTEXT_TOOLS` | `functions/.env.local` · GitHub variable | `on` (default): a large app's build gets a file index, and builds have the `read_files` tool. `off` is a kill switch. |
 | `BLOB_CLEANUP` | GitHub variable | `dry-run` (default: the daily cleanup only logs) or `delete` |
 
 | `TRACING` | `functions/.env.local` · GitHub variable | `off` (default) or `langfuse`: one trace per build to Langfuse ([ARCHITECTURE §14](docs/ARCHITECTURE.md#14-observability)) |
@@ -182,11 +182,12 @@ Secrets go in `functions/.secret.local` for the emulator and in **Secret Manager
 | `frontend/` | `npm test` | Unit tests (Vitest): the SSE reader and the build state machine (streaming, refusals, declines, broken streams, Stop); the injected client, UI kit and components (doc sync, add-only, rendering, preview-compiler limits); every ready-made app compiles |
 | `frontend/` | `npm run lint` | ESLint (Vue + TypeScript recommended rules) |
 | `functions/` | `npm run build` | Compile to `lib/` (runs automatically before deploy) |
-| `functions/` | `npm test` | Unit tests: stream parser, output validator, file metadata and manifests, build context and `read_files` turns, credits, rate-limit algorithms, token encryption, ready-made templates |
+| `functions/` | `npm test` | Unit tests: tool-input reader, stream assembler, tool loop, workspace rules, file metadata and manifests, build context and `read_files` turns, credits, rate-limit algorithms, token encryption, ready-made templates |
 | `functions/` | `npm run test:e2e` | Integration tests against the running emulators: auth gate, projects, isolation between users, snapshots, the file store (Storage, migration, cleanup), build limits, cancel, the proxy's checks and limits, and the security rules. Never calls Claude or HighLevel. |
 | `functions/` | `npm run migrate:files -- --bucket <bucket> [--dry-run]` | Backfills every project into Storage + manifests (resumable, verified). Refuses to run outside the emulators unless given `--allow-production`. |
 | `functions/` | `npm run measure:files` | Times both file stores on the emulators (numbers in [the plan](docs/plans/filestore-and-context.md#8-measurements)) |
 | `functions/` | `npm run lint` | ESLint (TypeScript recommended rules) |
+| repo root | `node scripts/eval-builds.mjs <label> [case…]` | Build eval: 11 real builds (real Claude, about $1) against the running emulators; each saved file is compiled; results in `eval-results.jsonl` (numbers in [the plan](docs/plans/tool-protocol.md#14-results)) |
 | repo root | `node scripts/check-docs.mjs` | Docs check: markdownlint, every local link and anchor, and that every Mermaid diagram renders |
 
 **Claude Code skills** in [`.claude/skills/`](.claude/skills) automate the routine work: `/verify` (definition of done), `/hl-endpoint`, `/new-template`, `/docs-check` and `/prod-check`.
@@ -209,14 +210,14 @@ Secrets go in `functions/.secret.local` for the emulator and in **Secret Manager
 1. **Generated apps never see the HighLevel token.** They call `hlProxy` with a 15-minute HMAC preview token tied to the user, project and location. The proxy allows only listed reads and writes (never deletes), rejects tokens whose app was deleted or isn't the user's, forces the `locationId`, checks the connection granted the write's scope, and attaches the real token server-side.
 2. **Firestore is read directly by the client, but written only by Cloud Functions.** Security rules allow owner-only reads and reject every client write, so all validation stays on the server.
 3. **File content is content-addressed in Cloud Storage, behind a manifest on the project document.** Content goes up first and one transaction switches the manifest, so a change is never half-applied; snapshots are manifest copies, so they cost one small document however big the app is; identical content is stored once per user. Clients can't touch Storage. Behind a flag (`FILE_STORE`), with lazy migration and a verified backfill.
-4. **A strict `<plan>/<file>/<delete>/<refuse>` output format, parsed incrementally.** Tokens and file boundaries stream to the editor live, while each file is validated whole before it's saved.
+4. **Every change is a tool call** (`write_file`, `edit_file`, `delete_file`, `read_files`, `decline`), with strict schemas. File content streams into the editor as Claude writes it; each call is checked when it runs, and a refused one goes back to Claude to fix within the same build. Follow-ups edit passages instead of rewriting files.
 5. **Partial results are always kept.** Invalid operations are rejected one at a time, an interrupted stream keeps every completed file, and each generation creates a snapshot with a one-line Haiku summary. Restoring is non-destructive.
 6. **SSE over `fetch` with a `ReadableStream`** rather than `EventSource`, because the request needs POST and an Authorization header. A defined event protocol, a 15-second heartbeat, and a hand-written parser, with no extra library.
 7. **HighLevel tokens are encrypted at rest and refreshed safely.** Each user's tokens are sealed with envelope encryption: a fresh AES-256-GCM key per record, wrapped by a Cloud KMS key that never leaves KMS, so reading them needs database access _and_ KMS permission. Refresh tokens are single-use, so concurrent refreshes are funnelled into one request per instance, and losing requests read back the winner's token.
 8. **The model's context is bounded and ranked, and the API reference is hand-written.** Files within a character budget (in a large app: entry files, open tabs, recent changes and files the prompt names first, the rest as an index the model can read with `read_files`), the last 6 messages, and a compact reference verified against a live sandbox. The model can't overwrite a file it hasn't seen. The prompt makes **pagination** mandatory and forbids hard-coding a location ID.
 9. **Ready-made apps are content-hashed templates seeded on first visit.** Seeding is safe to repeat, the apps are locked on the server and edited through copies, and template changes upgrade users' locked copies automatically.
 10. **Generated apps share an injected client, UI kit and component set.** The HighLevel client, `ui.css` and about 60 shadcn-style Vue components are injected into every preview and never saved, so the model writes less code and every app (ready-made ones included) gets the same look and accessible overlays. They're live for every app at once, so they only ever grow (add-only, enforced by tests).
-11. **Off-topic or harmful prompts are declined, and never stored.** They're detected through a `<refuse>` reply or the API's refusal stop reason, so a declined prompt can't influence later prompts.
+11. **Off-topic or harmful prompts are declined, and never stored.** They're detected through the `decline` tool or the API's refusal stop reason, so a declined prompt can't influence later prompts.
 
 ## AI at a glance
 
@@ -225,10 +226,10 @@ Secrets go in `functions/.secret.local` for the emulator and in **Secret Manager
 | Models | **Claude Sonnet 5.5** writes the apps; **Claude Haiku 5.5** writes the one-line summary of each snapshot. Both are set in config (`ANTHROPIC_MODEL`, `ANTHROPIC_SUMMARY_MODEL`); users never pick a model. |
 | Streaming | Every build streams (`messages.stream`). Tokens reach the editor over SSE as they're generated, with a 15-second heartbeat. **Stop** or Esc ends the stream at once. |
 | Context | Bounded on purpose: the system prompt, a hand-written HighLevel API reference verified against a live sandbox, the app's files (up to 60,000 characters, the most relevant first; in larger apps the rest are indexed and can be read with a `read_files` tool, at most two calls) and the last 6 chat messages. Prompts are capped at 4,000 characters and output at 16,000 tokens per build. |
-| Output | A strict `<plan>` / `<file>` / `<delete>` / `<refuse>` format, parsed incrementally so files appear live. Every file is validated before it's saved (paths, extensions, size, protected files); valid files are kept even when others are rejected. |
+| Output | A short plan as text, then tool calls: `write_file`, `edit_file`, `delete_file` (and `read_files`, `decline`). Tool input is parsed strictly, never guessed; file content streams live. Every change is validated when it runs (paths, extensions, size, protected files, files the model hasn't seen, and the code must compile; imports are checked across the app); a refused change goes back to the model, and valid changes are kept even when others are refused. |
 | Grounding | The prompt makes pagination mandatory, forbids hard-coded location IDs and sample data, and tells generated apps to call HighLevel only through the proxy, so previews show **real data**. |
 | Writes | Generated apps write only from an explicit user action (never on load, on a timer or in a loop), show the result, and never retry a failed write except once on a 429. Message forms show the recipient and content next to Send. |
-| Safety | Off-topic, harmful or rule-breaking prompts get a `<refuse>` reply (or the API's refusal) and are **never stored**, so they can't steer later prompts. User text is treated as a request to evaluate, never as instructions. |
+| Safety | Off-topic, harmful or rule-breaking prompts get a `decline` call (or the API's refusal) and are **never stored**, so they can't steer later prompts. User text is treated as a request to evaluate, never as instructions. |
 | Cost control | **AI credits** (1 credit = $0.001 of Claude list price): each build reserves its worst case using an exact token count, then pays for what it used. Exact **build limits** stop runaway spending before Claude is called. |
 | Resilience | Interrupted or truncated streams keep every finished file, and each build ends in a snapshot that can be restored. |
 | Observability | One [Langfuse](https://langfuse.com) trace per build for the team: each request to Claude with tokens and cost, each file read, the files saved or rejected, grouped by app so follow-ups read as a conversation. Prompts and plans only, never code. Plus structured logs in Cloud Logging. Off with `TRACING=off`. |

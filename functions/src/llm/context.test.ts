@@ -17,7 +17,8 @@ test("when everything fits, every file is sent in full, alphabetically, with no 
   assert.deepEqual(full, ["src/App.vue", "src/components/B.vue", "src/main.js"]);
   assert.deepEqual(index, []);
   const rendered = renderContext(full.map((p) => ({ path: p, content: files[p as keyof typeof files] })), manifest, index, true);
-  assert.equal(rendered, '<file path="src/App.vue">\na\n</file>\n<file path="src/components/B.vue">\nb\n</file>\n<file path="src/main.js">\nm\n</file>');
+  const doc = (p: string, c: string) => `<document>\n<source>${p}</source>\n<document_content>\n${c}\n</document_content>\n</document>`;
+  assert.equal(rendered, `<documents>\n${doc("src/App.vue", "a")}\n${doc("src/components/B.vue", "b")}\n${doc("src/main.js", "m")}\n</documents>`);
 });
 
 test("ranking: entry files, active tab, open tabs, recent changes, files the prompt names, their neighbours, the rest", () => {
