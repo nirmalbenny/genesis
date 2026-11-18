@@ -11,10 +11,10 @@ import path from "node:path";
 
 const root = path.resolve(import.meta.dirname, "..");
 process.chdir(root);
-// Model input, not documentation: kept compact on purpose because builds send them (hlReference.md and uiKit.md in
-// every build, the hl-resources/*.md guides when a build needs that resource).
+// Model input, not documentation: kept compact on purpose because builds send them (hlReference.md in every build;
+// the UI guides, uiKit.md and llm/ui/*.md, per app; the hl-resources/*.md guides when a build needs that resource).
 const MODEL_INPUT = ["functions/src/llm/hlReference.md", "functions/src/llm/uiKit.md"];
-const isModelInput = (f) => MODEL_INPUT.includes(f) || /^hl-resources\/[^/]+\.md$/.test(f);
+const isModelInput = (f) => MODEL_INPUT.includes(f) || /^(hl-resources|functions\/src\/llm\/ui)\/[^/]+\.md$/.test(f);
 // Third-party agent skills, kept exactly as published (see each folder's SOURCE.md): not ours to restyle.
 const VENDORED = [".claude/skills/langfuse/"];
 const files = execFileSync("git", ["ls-files", "*.md"], { encoding: "utf8" })

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ArrowUp } from '@lucide/vue'
+import GenesisMark from '@/components/GenesisMark.vue'
 
 // Illustrative figures for the product demo; not real data.
 const bars = [38, 52, 46, 64, 58, 76, 88]
@@ -19,9 +20,7 @@ const bars = [38, 52, 46, 64, 58, 76, 88]
 
     <!-- 2. Genesis builds -->
     <div class="flex items-center gap-2.5 px-1">
-      <span class="grid size-5 shrink-0 place-items-center rounded-[5px] bg-white/10 ring-1 ring-white/15">
-        <i class="size-1.5 rotate-45 rounded-[1px] bg-[#4ade80]" />
-      </span>
+      <GenesisMark class="size-6 shrink-0 rounded-md ring-1 ring-white/15" />
       <span class="text-[12px] text-white/60">Genesis is building your app</span>
       <span class="relative h-1 flex-1 overflow-hidden rounded-full bg-white/10">
         <span class="progress absolute inset-y-0 left-0 rounded-full bg-primary" />

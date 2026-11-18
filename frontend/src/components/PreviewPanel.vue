@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { loadSandpackClient, type SandpackClient } from '@codesandbox/sandpack-client'
-import { CircleAlert, LoaderCircle, Plug, RefreshCw, Sparkles } from '@lucide/vue'
+import { CircleAlert, Plug, RefreshCw, Sparkles } from '@lucide/vue'
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import BuildingOverlay from '@/components/BuildingOverlay.vue'
+import GenesisMarkAnimated from '@/components/GenesisMarkAnimated.vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { FUNCTIONS_BASE } from '@/firebase'
@@ -24,9 +25,10 @@ const props = defineProps<{
   locationName: string | null
   /** True while a build is running: shows the signal progress line. */
   building: boolean
-  /** File currently being written and how many are finished, shown in the building overlay. */
+  /** File currently being written, this build's files so far and Claude's plan, shown in the building overlay. */
   buildingFile?: string | null
-  filesDone?: number
+  buildingFiles?: { path: string; done: boolean }[]
+  buildingPlan?: string
   /** Files the model is reading before it writes, shown in the building overlay. */
   buildingReading?: string[]
   /** The build finished and the new version is loading: the overlay stays until it runs. */
@@ -222,7 +224,7 @@ defineExpose({ refresh })
         enter-from-class="opacity-0"
         leave-to-class="opacity-0"
       >
-        <BuildingOverlay v-if="building" :file="buildingFile ?? null" :files-done="filesDone ?? 0" :reading="buildingReading" :starting="starting" @show-code="emit('show-code')" />
+        <BuildingOverlay v-if="building" :file="buildingFile ?? null" :files="buildingFiles ?? []" :plan="buildingPlan" :reading="buildingReading" :starting="starting" @show-code="emit('show-code')" />
       </Transition>
       <Transition
         enter-active-class="transition-opacity duration-150"
@@ -231,9 +233,9 @@ defineExpose({ refresh })
         leave-to-class="opacity-0"
       >
         <div v-if="updating && !building" class="absolute inset-0 z-10 grid place-items-center bg-background/60 backdrop-blur-[1px]" role="status" aria-live="polite">
-          <p class="flex items-center gap-2 rounded-md bg-card px-3 py-2 text-[13px] font-medium shadow-[0_8px_24px_rgba(33,51,67,0.10)]">
-            <LoaderCircle class="size-4 animate-spin text-primary" aria-hidden="true" />Updating preview
-          </p>
+          <!-- The animated mark is the loader; the words are for screen readers. -->
+          <GenesisMarkAnimated class="size-24 rounded-[22px] shadow-[0_12px_32px_rgba(33,51,67,0.18)]" />
+          <span class="sr-only">Updating preview</span>
         </div>
       </Transition>
     </div>

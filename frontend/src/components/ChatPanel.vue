@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { DATA_LABELS } from '@/lib/registry'
+import GenesisMark from '@/components/GenesisMark.vue'
 import { CircleAlert, Copy, History, Sparkles, Square } from '@lucide/vue'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import FileTag from '@/components/FileTag.vue'
@@ -109,7 +110,7 @@ watch(() => [items.value.length, props.plan, props.building.length], async () =>
 
           <div v-else class="grid gap-2">
             <div class="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-              <span class="grid size-4 place-items-center rounded-[4px] bg-ink-100"><i class="size-1.5 rotate-45 rounded-[1px] bg-[#4ade80]" /></span>Genesis
+              <GenesisMark class="size-5 shrink-0 rounded-[5px]" />Genesis
             </div>
             <p class="whitespace-pre-wrap text-sm leading-[22px]">{{ m.content }}</p>
             <div v-if="m.files.length" class="flex flex-wrap gap-1.5">
@@ -122,7 +123,7 @@ watch(() => [items.value.length, props.plan, props.building.length], async () =>
 
         <div v-if="streaming" class="grid gap-2">
           <div class="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-            <span class="grid size-4 place-items-center rounded-[4px] bg-ink-100"><i class="size-1.5 rotate-45 rounded-[1px] bg-[#4ade80]" /></span>Genesis
+            <GenesisMark class="size-5 shrink-0 rounded-[5px]" />Genesis
           </div>
           <p class="text-sm leading-[22px]">
             <span class="whitespace-pre-wrap">{{ plan || (reading?.length ? `Reading ${reading.map((p) => p.split('/').pop()).join(', ')}` : 'Reading your app and planning the change') }}</span>

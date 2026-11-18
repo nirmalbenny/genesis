@@ -28,7 +28,7 @@ This document covers the product goals, the system design, the data model, and e
 | Goal | How Genesis meets it |
 |---|---|
 | Apps built on **real HighLevel data** | Generated apps call the Contacts, Conversations and Calendars APIs through a proxy and show live records. They never use sample data. |
-| **Streaming** generation | Claude's output streams token by token over SSE into a read-only Monaco editor. The preview shows a "Building your app" overlay meanwhile. |
+| **Streaming** generation | Claude's output streams token by token over SSE into a read-only Monaco editor. Meanwhile the preview shows a "Building your app" overlay: a wireframe assembling itself, the build's steps (Planning → Writing files → Starting your app), the first sentence of Claude's plan as it streams, and the last four files written (finished ticked, the current one spinning, "+N more" before them). |
 | **Safe by default** | Generated apps never see the HighLevel token, and reach HighLevel only through an allowlist of reads and writes with no deletes. Every Firestore write goes through Cloud Functions. |
 | **Nothing is lost** | Every generation creates a restorable snapshot. Interrupted or partly invalid output keeps every file that completed. |
 | **Useful on day one** | Every user gets six locked, ready-made apps. Users can launch them, copy them and pin them to the sidebar. |
@@ -301,7 +301,7 @@ sequenceDiagram
 - **Follow-up prompts** in the workspace refine the same app. Only the files that change are sent back.
 - **The overlay stays until the new version runs.** When the stream ends, the overlay switches to "Starting your app" and stays while the files reload and Sandpack compiles and runs them (several seconds for a new app, which also loads the components' package); it lifts when Sandpack reports the run finished or failed, or after 15 seconds. Preview refreshes run one at a time: each sends the files current when its turn comes and waits for its own run, so there is only one Sandpack client. Before, a build that finished while the preview was still loading for the first time (on a slow connection) created a second client, and the overlay could lift over the old version. Without this, the previous version (for a new app, the "New project" page) showed in between.
 - **Fix with AI:** when the preview reports an error (compile or runtime), its banner offers **Fix with AI**, which starts a follow-up build with the error, file and line ("The preview shows this error: TypeError: … (in src/utils.js, line 2). Fix it."). Not offered on ready-made apps or while a build runs.
-- **Manual edits** in Monaco: after an 800 ms pause the preview is refreshed from the editor's content and the file is saved in parallel, so the preview doesn't wait for the save (1.6–3.2 s in production; a failed save still shows its error). Any change to the app's files (an edit, a restore, the Refresh button) shows a light "Updating preview" overlay until Sandpack reports the new version ran.
+- **Manual edits** in Monaco: after an 800 ms pause the preview is refreshed from the editor's content and the file is saved in parallel, so the preview doesn't wait for the save (1.6–3.2 s in production; a failed save still shows its error). Any change to the app's files (an edit, a restore, the Refresh button) shows a light "Updating preview" overlay until Sandpack reports the new version ran. Its loader is Genesis's animated mark (`GenesisMarkAnimated`: the coral G draws itself and the network grows from its bar, on a 3.6 s loop; still with reduced motion); the words are for screen readers.
 - **History** opens a shadcn Sheet listing snapshots with timestamps and Haiku-written summaries. Restoring one is non-destructive, because it records a new snapshot.
 
 ### 5.4 Launch, pin and edit
@@ -753,7 +753,8 @@ src/
                 SignIn / SignUp / AuthForm, VerifyEmail (the only page until the email is verified)
   components/   TopBar, SideNav (drawer + pinned apps), AppCard, AppDetailsDialog, CopyAppDialog,
                 ConnectRequiredDialog, ChatPanel, EditorPanel (Monaco), FileTree, PreviewPanel (Sandpack),
-                BuildingOverlay, SnapshotSheet, AuthIllustration, AppLogo, ui/ (shadcn-vue)
+                BuildingOverlay, SnapshotSheet, AuthIllustration, AppLogo, GenesisMark (the logo, also
+                public/favicon.svg), GenesisMarkAnimated (the preview's loader), ui/ (shadcn-vue)
 ```
 
 Unit tests sit next to the code they test (`lib/sse.test.ts`, `composables/useGeneration.test.ts`).
