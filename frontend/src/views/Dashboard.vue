@@ -6,6 +6,7 @@ import AppCard from '@/components/AppCard.vue'
 import AppDetailsDialog from '@/components/AppDetailsDialog.vue'
 import CopyAppDialog from '@/components/CopyAppDialog.vue'
 import ReconnectNotice from '@/components/ReconnectNotice.vue'
+import { DATA_LABELS } from '@/lib/registry'
 import TopBar from '@/components/TopBar.vue'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -20,7 +21,7 @@ const starters = [
   { icon: CalendarDays, label: 'Appointment manager', text: 'Upcoming events per calendar, grouped by day', prompt: 'Build an appointments view: a dropdown of my calendars and the upcoming events for the selected calendar, grouped by day' },
   { icon: MessageSquare, label: 'Conversation inbox', text: 'Conversations with unread counts and messages', prompt: "Build an inbox: conversations on the left with unread counts, and the selected conversation's messages on the right" },
 ]
-const sources = ['Contacts', 'Conversations', 'Calendars']
+const sources = DATA_LABELS
 
 const steps = ['Connect your HighLevel location', 'Describe what you want to build', 'Preview with live data']
 

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { routeFor } from "../hlProxy";
-import { compileRoutes, HL_SCOPES, pathPattern, RESOURCES, ROUTES, validateRegistry, type Resource } from "./registry";
+import { compileRoutes, endpointNames, HL_SCOPES, listNames, pathPattern, RESOURCES, ROUTES, validateRegistry, type Resource } from "./registry";
 
 // The proxy's allowlist as it was written by hand before the registry (2026-11-18), frozen: the registry must keep
 // reproducing every one of these exactly (method, pattern, scope for writes, location, version, send).
@@ -102,10 +102,24 @@ test("the registry is checked strictly: deletes, loose paths, unknown scopes and
     [[resource(), resource({ id: "deals" })], /duplicate id/],
     [[resource(), resource({ id: "more" }, { name: "listDeals", path: "/more/" })], /name is already used/],
     [[resource({ endpoints: [...resource().endpoints, { ...resource().endpoints[0]!, name: "again", path: "/deals" }] })], /same method and path/],
+    [[resource({}, { pager: { strategy: "magic", items: "deals" } })], /strategy must be/],
+    [[resource({}, { pager: { strategy: "page", items: "deals[0]" } })], /items must be a dot path/],
+    [[resource({}, { pager: { strategy: "cursorFields", items: "deals" } })], /cursorFields needs cursor/],
+    [[resource({}, { pager: { strategy: "lastItem", items: "deals", param: "after" } })], /lastItem needs param and from/],
+    [[resource({}, { pager: { strategy: "token", items: "deals", param: "after" } })], /token needs param, token and hasNext/],
+    [[resource({}, { pager: { strategy: "page", items: "deals", search: { param: "q", min: -1 } } })], /search needs/],
+    [[resource({}, { method: "POST", scope: "deals.write", location: "body", pager: { strategy: "page", items: "deals" } })], /pager is only for GET/],
+    [[resource({}, { unwrap: "deal.name" })], /unwrap must be a field name/],
   ];
   for (const [resources, error] of cases) {
     assert.match(validateRegistry(resources).join("\n"), error);
   }
+});
+
+test("lists and calls the client offers come from the registry", () => {
+  assert.deepEqual(listNames(RESOURCES), ["contacts", "conversations", "messages"]);
+  assert.ok(endpointNames(RESOURCES).includes("getContact"));
+  assert.deepEqual(validateRegistry([resource({}, { pager: { strategy: "page", items: "deals", total: "meta.total", search: { param: "q", min: 2 } } })]), []);
 });
 
 test("a resource's own version and location name are used; an endpoint can override the version", () => {

@@ -73,3 +73,14 @@ test("imports: project files must exist; client names and components must be rea
   assert.deepEqual(checkImports("src/main.js", 'import App from "./App.vue";\nexport * from "./nope.js";', () => false).length, 2, "JS files and re-exports too");
   assert.deepEqual(checkImports("src/App.vue", "<template><div></template>", exists), [], "syntax errors are checkFile's job");
 });
+
+test("usePager lists and call names must exist in the registry (checked when imported from the client)", () => {
+  const app = (script: string) => vue(`import { usePager, call } from "./genesis/hl.js";\n${script}`);
+  const none = () => false;
+  assert.deepEqual(checkImports("src/App.vue", app("const a = usePager('contacts');\nconst b = usePager(\"messages\", () => ({}));\ncall('getContact', { contactId: 'x' });"), none), []);
+  assert.deepEqual(checkImports("src/App.vue", app("const a = usePager('opportunities');\ncall('deleteContact', { contactId: 'x' });"), none), [
+    "usePager('opportunities') isn't a HighLevel list; available: contacts, conversations, messages",
+    "call('deleteContact') isn't a HighLevel call; available: " + "listCalendars, listEvents, freeSlots, bookAppointment, updateAppointment, contacts, getContact, contactAppointments, createContact, updateContact, addTags, addNote, conversations, getConversation, messages, updateConversation, sendMessage",
+  ]);
+  assert.deepEqual(checkImports("src/utils.js", "export const call = (x) => x;\ncall('anything');", none), [], "a function of the app's own named call is not checked");
+});

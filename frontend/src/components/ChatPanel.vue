@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { DATA_LABELS } from '@/lib/registry'
 import { CircleAlert, Copy, History, Sparkles, Square } from '@lucide/vue'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import FileTag from '@/components/FileTag.vue'
@@ -172,7 +173,7 @@ watch(() => [items.value.length, props.plan, props.building.length], async () =>
         />
         <div class="mt-1 flex items-center justify-between gap-2">
           <div class="flex min-w-0 gap-1 overflow-hidden">
-            <Badge v-for="a in ['Contacts', 'Conversations', 'Calendars']" :key="a" variant="secondary" class="h-5 border-transparent bg-data-100 px-1.5 text-[11px] text-data-500">{{ a }}</Badge>
+            <Badge v-for="a in DATA_LABELS" :key="a" variant="secondary" class="h-5 border-transparent bg-data-100 px-1.5 text-[11px] text-data-500">{{ a }}</Badge>
           </div>
           <Button v-if="streaming" type="button" size="sm" variant="outline" class="shrink-0" :disabled="stopping" @click="emit('stop')">
             <Square class="size-3 fill-current" />{{ stopping ? 'Stopping…' : 'Stop' }}

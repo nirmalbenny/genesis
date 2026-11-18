@@ -2,10 +2,9 @@
 // compared with the scopes the user granted (users/{uid}.hl.scopes). When a release adds a resource, users who
 // connected before are asked to reconnect for it.
 
-type Resource = { id: string; label?: string; internal?: boolean; scopes: string[] }
+import { RESOURCES, type Resource } from './registry'
 
-const files = import.meta.glob<Resource>('@hl-resources/*.json', { eager: true, import: 'default' })
-export const RESOURCES: Resource[] = Object.values(files).sort((a, b) => a.id.localeCompare(b.id))
+export { RESOURCES }
 
 export type Missing = { label: string; changesOnly: boolean }
 
@@ -13,7 +12,7 @@ export type Missing = { label: string; changesOnly: boolean }
  * Resources the connection lacks scopes for: `changesOnly` when it can read them but not change them.
  * Unknown grants (a connection the server hasn't synced yet) report nothing rather than a false alarm.
  */
-export function missingAccess(granted: string[] | null | undefined, resources: Resource[] = RESOURCES): Missing[] {
+export function missingAccess(granted: string[] | null | undefined, resources: Pick<Resource, 'id' | 'label' | 'internal' | 'scopes'>[] = RESOURCES): Missing[] {
   if (!granted) return []
   const out: Missing[] = []
   for (const r of resources) {

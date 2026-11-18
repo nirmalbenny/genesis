@@ -27,6 +27,35 @@ export type Endpoint = {
   send?: boolean;
   /** Overrides the resource's `version`. */
   version?: string;
+  /** A paginated list: `usePager(<name>)` in generated apps (see Pager). Reads only. */
+  pager?: Pager;
+  /** For `call(<name>)`: return this field of the response (`{ contact: … }` → the contact). */
+  unwrap?: string;
+};
+
+/**
+ * How the injected client pages a list, as data. Paths are dot paths into HighLevel's response (`meta.total`,
+ * `sort.0`). Strategies, implemented once in the client (frontend/src/sandbox/genesis/hl.js):
+ * - cursorFields: send `cursor`'s fields from the response as parameters; stop on a short page or a missing cursor;
+ * - lastItem: send `param` = the first of `from` found on the last item; stop on a short page or when `total` is reached;
+ * - token: send `param` = the response's `token`; continue while `hasNext` is true;
+ * - page: send `param` (default `page`) = 2, 3, …; stop on a short page.
+ */
+export type Pager = {
+  strategy: "cursorFields" | "lastItem" | "token" | "page";
+  items: string;
+  total?: string;
+  cursor?: Record<string, string>;
+  param?: string;
+  from?: string[];
+  token?: string;
+  hasNext?: string;
+  /** Server-side search: the option `query` is sent as `param` from `min` characters. */
+  search?: { param: string; min: number };
+  /** Options passed through as query parameters under the same name. */
+  options?: string[];
+  /** Parameters always sent. */
+  fixed?: Record<string, string>;
 };
 
 export type Resource = {
@@ -97,6 +126,8 @@ export function validateRegistry(resources: Resource[]): string[] {
       else if (!write && loc === "body") errors.push(`${where}: a read takes the location as a query parameter or not at all`);
       if (typeof e.location === "object" && e.location && !NAME.test(e.location.name)) errors.push(`${where}: location name must be an identifier`);
       if (e.send && e.method !== "POST") errors.push(`${where}: only a POST can send a message`);
+      if (e.unwrap !== undefined && (typeof e.unwrap !== "string" || !NAME.test(e.unwrap))) errors.push(`${where}: unwrap must be a field name`);
+      if (e.pager) errors.push(...pagerProblems(e.pager, e.method).map((p) => `${where}: pager ${p}`));
       const key = `${e.method} ${e.path?.replace(/\{\w+\}/g, "{}").replace(/\/$/, "")}`;
       if (routes.has(key)) errors.push(`${where}: another endpoint has the same method and path`);
       routes.add(key);
@@ -104,6 +135,32 @@ export function validateRegistry(resources: Resource[]): string[] {
   }
   return errors;
 }
+
+const PATH = /^[A-Za-z_]\w*(\.\w+)*$/;
+
+/** Problems with a list's pager spec, one per line. */
+function pagerProblems(p: Pager, method: string): string[] {
+  const out: string[] = [];
+  const isPath = (v: unknown) => typeof v === "string" && PATH.test(v);
+  if (method !== "GET") out.push("is only for GET endpoints");
+  if (!["cursorFields", "lastItem", "token", "page"].includes(p.strategy)) out.push("strategy must be cursorFields, lastItem, token or page");
+  if (!isPath(p.items)) out.push("items must be a dot path into the response");
+  if (p.total !== undefined && !isPath(p.total)) out.push("total must be a dot path");
+  if (p.param !== undefined && !NAME.test(p.param)) out.push("param must be a parameter name");
+  if (p.strategy === "cursorFields" && (!p.cursor || !Object.keys(p.cursor).length || Object.entries(p.cursor).some(([k, v]) => !NAME.test(k) || !isPath(v)))) {
+    out.push("cursorFields needs cursor: { parameter: response path }");
+  }
+  if (p.strategy === "lastItem" && (!p.param || !Array.isArray(p.from) || !p.from.length || !p.from.every(isPath))) out.push("lastItem needs param and from: [item paths]");
+  if (p.strategy === "token" && (!p.param || !isPath(p.token) || !isPath(p.hasNext))) out.push("token needs param, token and hasNext");
+  if (p.search && (!NAME.test(p.search.param) || !Number.isInteger(p.search.min) || p.search.min < 0)) out.push("search needs param and a whole-number min");
+  if (p.options && !(Array.isArray(p.options) && p.options.every((o) => NAME.test(o)))) out.push("options must be parameter names");
+  if (p.fixed && Object.entries(p.fixed).some(([k, v]) => !NAME.test(k) || typeof v !== "string")) out.push("fixed must map parameter names to strings");
+  return out;
+}
+
+/** Names generated apps can use: list kinds for usePager and endpoint names for call(). */
+export const listNames = (resources: Resource[]): string[] => resources.flatMap((r) => r.endpoints.filter((e) => e.pager).map((e) => e.name));
+export const endpointNames = (resources: Resource[]): string[] => resources.filter((r) => !r.internal).flatMap((r) => r.endpoints.map((e) => e.name));
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
 

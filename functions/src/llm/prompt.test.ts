@@ -27,6 +27,7 @@ test("the system prompt includes the UI kit, keeps its look by default, and asks
   assert.match(prompt, /write_file[\s\S]*edit_file[\s\S]*delete_file/);
   assert.match(prompt, /Never write code or file contents as text/);
   assert.match(prompt, /call decline with one short reason/);
+  assert.match(prompt, /is NOT declined: build what you can within the rules/, "a partly impossible request is built, not declined");
   assert.doesNotMatch(prompt, /<(plan|file|refuse|delete)[\s>]/, "no output tags left");
   assert.match(prompt, /Do not change its look unless the user explicitly asks/);
   assert.match(prompt, /each under about 150 lines/);
