@@ -37,6 +37,7 @@ test("a follow-up keeps the guides the app already uses, even when the request n
   assert.deepEqual(pick("Make the header blue", ["usePager", "listEvents"]), ["calendars", "contacts"]);
   assert.deepEqual(pick("Add a refresh button", ["usePager"], ['const t = usePager("messages", () => ({ conversationId: id.value }))']), ["contacts", "conversations"]);
   assert.deepEqual(pick("Tidy up the layout", ["contactName", "toDate"]), ALL, "only shared helpers: nothing to go on, so every guide");
+  assert.deepEqual(pick("Tidy up the layout", ["call"], ["const c = await call('getConversation', { conversationId })"]), ["contacts", "conversations"], "call() names map to their resource");
 });
 
 test("a vague request for a new app gets every guide, as before the split", () => {

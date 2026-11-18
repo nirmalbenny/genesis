@@ -14,14 +14,15 @@ import { RESOURCES } from "../hl/registry";
 const CORE = readFileSync(join(__dirname, "hlReference.md"), "utf8");
 const RESOURCE_DIR = join(__dirname, "..", "hl-resources");
 
-type Guide = { id: string; label: string; summary: string; aliases: string[]; text: string; functions: string[]; kinds: string[] };
+type Guide = { id: string; label: string; summary: string; aliases: string[]; text: string; functions: string[]; kinds: string[]; calls: string[] };
 
 /** The resources with a guide (every resource that isn't internal), in registry order. */
 export const GUIDES: Guide[] = RESOURCES.filter((r) => !r.internal).map((r) => {
   const text = readFileSync(join(RESOURCE_DIR, `${r.id}.md`), "utf8").trim();
   const kinds = [...new Set([...text.matchAll(/usePager\('(\w+)'/g)].map((m) => m[1]!))];
-  const functions = [...new Set([...text.matchAll(/`(\w+)\(/g)].map((m) => m[1]!))].filter((f) => f !== "usePager");
-  return { id: r.id, label: r.label ?? r.id, summary: r.summary, aliases: r.aliases ?? [], text, functions, kinds };
+  const functions = [...new Set([...text.matchAll(/`(\w+)\(/g)].map((m) => m[1]!))].filter((f) => f !== "usePager" && f !== "call");
+  const calls = [...new Set([...text.matchAll(/call\('(\w+)'/g)].map((m) => m[1]!))];
+  return { id: r.id, label: r.label ?? r.id, summary: r.summary, aliases: r.aliases ?? [], text, functions, kinds, calls };
 });
 
 /** Every client function the reference documents (core and guides): what generated code may import. */
@@ -33,7 +34,7 @@ export const CLIENT_FUNCTIONS = new Set([
 /** One line per resource: what it holds and what to call. */
 export function catalog(): string {
   return GUIDES.map((g) => {
-    const calls = [...g.kinds.map((k) => `usePager('${k}')`), ...g.functions].join(", ");
+    const calls = [...g.kinds.map((k) => `usePager('${k}')`), ...g.calls.map((c) => `call('${c}')`), ...g.functions].join(", ");
     return `- ${g.label}: ${g.summary}. ${calls}.`;
   }).join("\n");
 }
@@ -44,7 +45,12 @@ export function coreReference(): string {
 }
 
 /** Which resource a client function or usePager kind belongs to. */
-const OWNER = new Map<string, string>(GUIDES.flatMap((g) => [...g.functions, ...g.kinds.map((k) => `pager:${k}`)].map((n) => [n, g.id] as [string, string])));
+const OWNER = new Map<string, string>([
+  // Every registry list and endpoint, by the resource that declares it.
+  ...RESOURCES.filter((r) => !r.internal).flatMap((r) => r.endpoints.flatMap((e) => [[`call:${e.name}`, r.id], ...(e.pager ? [[`pager:${e.name}`, r.id]] : [])] as [string, string][])),
+  // The named client functions each guide documents.
+  ...GUIDES.flatMap((g) => g.functions.map((f) => [f, g.id] as [string, string])),
+]);
 
 const words = (text: string) => new Set(text.toLowerCase().match(/[a-z]+/g) ?? []);
 
@@ -61,6 +67,7 @@ export function selectGuides(input: { prompt: string; helpers: string[]; sources
   for (const h of input.helpers) { const id = OWNER.get(h); if (id) chosen.add(id); }
   for (const src of input.sources) {
     for (const m of src.matchAll(/usePager\(\s*['"](\w+)['"]/g)) { const id = OWNER.get(`pager:${m[1]}`); if (id) chosen.add(id); }
+    for (const m of src.matchAll(/\bcall\(\s*['"](\w+)['"]/g)) { const id = OWNER.get(`call:${m[1]}`); if (id) chosen.add(id); }
   }
   const said = words(input.prompt);
   for (const g of GUIDES) if (g.aliases.some((a) => said.has(a))) chosen.add(g.id);

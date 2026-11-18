@@ -200,6 +200,19 @@ About 5–6 days in total. Each phase ships alone; 1 to 3 give most of the value
   clean. Verified: the scopes HighLevel grants match the registry's 10 exactly (local connection), the notice renders
   for a read-only connection. Unit 118/118, e2e 44/44, frontend 157/157.
 
+- **Phase 4 (2026-11-18):** the client is registry-driven. The three hand-written pagers became data
+  (`pager` on the endpoint: `cursorFields`, `lastItem`, `token`) run by four strategies implemented once in `hl.js`
+  (plus `page`); `call(name, params, body)` reaches any endpoint; the preview injects the registry as
+  `src/genesis/hl.registry.js`. The original pager tests pass unchanged on the generic code; a fake-registry test
+  shows a resource with no client code paging and calling. The code check refuses unknown `usePager`/`call`
+  names; the data chips come from labels. Live check in the preview on the sandbox (a hand-written app, no Claude):
+  contacts 5 of 58 then 10 after Load more, conversations 5 of 49, messages 3 then 6 after Load older,
+  `call('getContact')` returns the first contact. Eval: the `package.json` case started declining (3 of 3) after the
+  `call()` line was added to the reference; the prompt now says a request about the app that asks for something the
+  rules don't allow is built within them, not declined (it builds again, 3 of 3, and the poem is still declined),
+  and the eval now requires that case to build. Final eval `registry-phase4-final`: 13 of 13. Unit 120/120, e2e
+  44/44, frontend 162/162.
+
 ## 10. The skill: `/hl-resource` (after phase 6)
 
 Replaces `/hl-endpoint`:

@@ -2,8 +2,11 @@
 // the model), so generated apps import it instead of writing their own fetch and pagination code.
 // It is live for every app at once: only ever ADD to this API, never change or remove what exists.
 // The exports are documented for the model in functions/src/llm/hlReference.md (shared helpers) and hl-resources/<id>.md (each resource); a test keeps them in sync.
+// Lists and endpoints come from the registry (src/genesis/hl.registry.js, injected): usePager(<list>) and call(<name>)
+// work for every resource without code here; named functions below add helpers where HighLevel needs them.
 import { getCurrentScope, onScopeDispose, ref, unref, watch } from 'vue'
 import { HL_PROXY, LOCATION_ID, LOCATION_NAME, PREVIEW_TOKEN } from '../hl.config.js'
+import REGISTRY from './hl.registry.js'
 
 export { LOCATION_ID, LOCATION_NAME }
 
@@ -62,55 +65,83 @@ export const hlSend = (method, path, body) => request(method, path, undefined, b
 
 const pageSize = (limit) => Math.min(100, Math.max(1, Number(limit) || 20))
 
-// One entry per paginated list: how to fetch a page and how to tell whether another exists (verified on the sandbox).
-const PAGERS = {
-  contacts: {
+// ---- The registry: every endpoint generated apps can reach (hl-resources/*.json, injected as plain data) ----
+
+const ENDPOINTS = new Map(REGISTRY.map((e) => [e.name, e]))
+const get = (obj, path) => String(path).split('.').reduce((v, k) => (v == null ? undefined : v[k]), obj)
+const placeholders = (path) => [...path.matchAll(/\{(\w+)\}/g)].map((m) => m[1])
+
+/** The path with its {placeholders} filled from `values`; throws when one is missing. */
+function fillPath(endpoint, values) {
+  return endpoint.path.replace(/\{(\w+)\}/g, (_, key) => {
+    const v = values && values[key]
+    if (v === undefined || v === null || v === '') throw hlError('invalid_call', `${endpoint.name} needs ${key}.`)
+    return enc(v)
+  })
+}
+
+// How each strategy finds the next page and the end of the list (the registry names one per list).
+const STRATEGIES = {
+  // The response carries the cursor (contacts: meta.startAfterId + meta.startAfter); a short page ends the list.
+  cursorFields(spec, data, items, limit) {
+    const cursor = Object.fromEntries(Object.entries(spec.cursor).map(([param, path]) => [param, get(data, path)]))
+    return { cursor, more: () => items.length === limit && !!Object.values(cursor)[0] }
+  },
+  // The last item carries the cursor (conversations: sort[0]); a short page or the total ends the list.
+  lastItem(spec, data, items, limit, previous, total) {
+    const last = items[items.length - 1]
+    const value = last ? spec.from.map((path) => get(last, path)).find((v) => v !== undefined && v !== null) : undefined
+    return { cursor: last ? { [spec.param]: value } : previous, more: (shown) => items.length === limit && (total == null || shown < total) }
+  },
+  // The response carries a token and says whether there is more (messages: lastMessageId, nextPage).
+  token(spec, data, items) {
+    return { cursor: { [spec.param]: get(data, spec.token) }, more: () => get(data, spec.hasNext) === true && items.length > 0 }
+  },
+  // Numbered pages from 1; a short page ends the list.
+  page(spec, data, items, limit, previous) {
+    const param = spec.param || 'page'
+    return { cursor: { [param]: ((previous && previous[param]) || 1) + 1 }, more: () => items.length === limit }
+  },
+}
+
+/** A usePager kind for a registry list. */
+function registryPager(endpoint) {
+  const spec = endpoint.pager
+  return {
+    ready: (o) => placeholders(endpoint.path).every((key) => !!o[key]),
     async fetch(o, cursor) {
       const limit = pageSize(o.limit)
-      const params = { locationId: LOCATION_ID, limit, sortBy: o.sortBy, order: o.order }
-      const query = String(o.query || '').trim()
-      if (query.length >= 3) params.query = query // shorter search text matches nothing: list everything instead
+      const params = { ...(spec.fixed || {}), limit }
+      for (const name of spec.options || []) params[name] = o[name]
+      if (spec.search) {
+        const query = String(o.query || '').trim()
+        if (query.length >= spec.search.min) params[spec.search.param] = query // shorter text: list everything
+      }
       if (cursor) Object.assign(params, cursor)
-      const { contacts = [], meta = {} } = await hlGet('/contacts/', params)
-      return {
-        items: contacts,
-        total: meta.total,
-        cursor: { startAfterId: meta.startAfterId, startAfter: meta.startAfter },
-        // meta.nextPageUrl stays set on the last page: a short page is the only reliable end.
-        more: () => contacts.length === limit && !!meta.startAfterId,
-      }
+      const data = await hlGet(fillPath(endpoint, o), params)
+      const items = get(data, spec.items) || []
+      const total = spec.total ? get(data, spec.total) : undefined
+      const next = STRATEGIES[spec.strategy](spec, data, items, limit, cursor, total)
+      return { items, total, cursor: next.cursor, more: next.more }
     },
-  },
-  conversations: {
-    async fetch(o, cursor) {
-      const limit = pageSize(o.limit)
-      const params = {
-        locationId: LOCATION_ID, limit, sortBy: 'last_message_date', sort: 'desc',
-        status: o.status, contactId: o.contactId, startAfterDate: cursor,
-      }
-      // Matches the start of any word of the contact's name, any case (verified); one letter matches loosely, so 2+.
-      const query = String(o.query || '').trim()
-      if (query.length >= 2) params.query = query
-      const { conversations = [], total } = await hlGet('/conversations/search', params)
-      const last = conversations[conversations.length - 1]
-      return {
-        items: conversations,
-        total,
-        cursor: last ? (Array.isArray(last.sort) ? last.sort[0] : last.lastMessageDate) : cursor,
-        more: (shown) => conversations.length === limit && (total == null || shown < total),
-      }
-    },
-  },
-  messages: {
-    ready: (o) => !!o.conversationId,
-    async fetch(o, cursor) {
-      const { messages: page = {} } = await hlGet(`/conversations/${enc(o.conversationId)}/messages`, {
-        limit: pageSize(o.limit), lastMessageId: cursor,
-      })
-      const items = page.messages || []
-      return { items, cursor: page.lastMessageId, more: () => page.nextPage === true && items.length > 0 }
-    },
-  },
+  }
+}
+
+// One entry per paginated list in the registry (contacts, conversations, messages, …).
+const PAGERS = Object.fromEntries(REGISTRY.filter((e) => e.pager).map((e) => [e.name, registryPager(e)]))
+
+/**
+ * Calls any registry endpoint by name: `{placeholders}` come from `params`, other params become the query of a read;
+ * a write sends `body`. Resolves to the JSON body, or its `unwrap` field. Throws like hlGet / hlSend.
+ * e.g. call('getContact', { contactId }), call('updateContact', { contactId }, { firstName }).
+ */
+export async function call(name, params = {}, body) {
+  const endpoint = ENDPOINTS.get(name)
+  if (!endpoint) throw hlError('unknown_call', `There is no HighLevel call "${name}".`)
+  const path = fillPath(endpoint, params)
+  const rest = Object.fromEntries(Object.entries(params || {}).filter(([k]) => !placeholders(endpoint.path).includes(k)))
+  const data = endpoint.method === 'GET' ? await request('GET', path, rest) : await request(endpoint.method, path, undefined, body || {})
+  return endpoint.unwrap ? data[endpoint.unwrap] : data
 }
 
 /**

@@ -1,6 +1,7 @@
 import { babelParse, compileScript, compileTemplate, parse, type BindingMetadata } from "@vue/compiler-sfc";
 import { readFileSync } from "node:fs";
 import { join, posix } from "node:path";
+import { endpointNames, listNames, RESOURCES } from "../hl/registry";
 import { CLIENT_FUNCTIONS } from "./guides";
 
 /**
@@ -19,6 +20,9 @@ const uiKit = readFileSync(join(__dirname, "uiKit.md"), "utf8");
 const COMPONENTS = new Set([...uiKit.matchAll(/`([A-Z]\w+)`/g)].map((m) => m[1]!));
 // The client's functions as the reference documents them (the core and every resource guide).
 const CLIENT = new Set([...CLIENT_FUNCTIONS, "usePager", "LOCATION_ID", "LOCATION_NAME"]);
+// What usePager('…') and call('…') accept: the registry's lists and endpoints.
+const LISTS = listNames(RESOURCES);
+const CALLS = endpointNames(RESOURCES);
 const CONFIG = new Set(["HL_PROXY", "PREVIEW_TOKEN", "LOCATION_ID", "LOCATION_NAME"]);
 const BUILT_IN = new Set(["Transition", "TransitionGroup", "KeepAlive", "Teleport", "Suspense", "Component", "RouterView", "RouterLink"]);
 const PACKAGES = new Set(["vue"]);
@@ -143,6 +147,15 @@ export function checkImports(path: string, content: string, exists: (path: strin
       if (missing.length) problems.push(`imports ${missing.join(", ")} from "${source}", which ${missing.length > 1 ? "aren't Genesis components" : "isn't a Genesis component"}`);
     } else if (kind === null && !EXTENSIONS.some((ext) => exists(target + ext))) {
       problems.push(`imports "${source}", but ${target} doesn't exist`);
+    }
+  }
+  // The names passed to usePager and call must be lists and endpoints that exist (checked when they're imported).
+  const fromClient = imports.filter(({ source }) => system(posix.normalize(posix.join(posix.dirname(path), source))) === "hl").flatMap((i) => i.names);
+  const checks: [string, string[], string][] = [["usePager", LISTS, "list"], ["call", CALLS, "call"]];
+  for (const [fn, known, what] of checks) {
+    if (!fromClient.includes(fn)) continue;
+    for (const m of content.matchAll(new RegExp(`\\b${fn}\\(\\s*['"\`]([\\w-]+)['"\`]`, "g"))) {
+      if (!known.includes(m[1]!)) problems.push(`${fn}('${m[1]}') isn't a HighLevel ${what}; available: ${known.join(", ")}`);
     }
   }
   return problems;

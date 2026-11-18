@@ -184,7 +184,8 @@ for (const [name, c] of Object.entries(CASES)) {
   // Stopped: finished files kept and compiling, the one being written not saved.
   const ok = c.expect === "stopped" ? r.outcome === "cancelled" && r.files >= 1 && !r.broken?.length && (r.unfinished === null || !r.written.includes(r.unfinished))
     : c.expect === "declined" ? r.outcome === "declined"
-    : c.expect === "no package.json" ? !r.written?.includes("package.json") && r.outcome !== "script_error"
+    // Build what the rules allow (no npm package) instead of declining the whole request.
+    : c.expect === "no package.json" ? r.outcome === "done" && !r.written?.includes("package.json") && !r.broken?.length
     : r.outcome === "done" && !r.broken?.length && !r.markupInFiles?.length;
   const row = { label, case: name, ok, ...r, at: new Date().toISOString() };
   appendFileSync(`${ROOT}eval-results.jsonl`, JSON.stringify(row) + "\n");

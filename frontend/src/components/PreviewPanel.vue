@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { FUNCTIONS_BASE } from '@/firebase'
 import { api } from '@/lib/api'
+import { clientRegistry } from '@/lib/registry'
 import HL_CLIENT from '@/sandbox/genesis/hl.js?raw'
 import UI_KIT from '@/sandbox/genesis/ui.css?raw'
 
@@ -114,6 +115,8 @@ async function send(force: boolean) {
   }
   // The shared HighLevel client and UI kit (src/genesis/ is reserved: the model can't write there).
   files['/src/genesis/hl.js'] = { code: HL_CLIENT }
+  // The endpoints the client can call (lists and call()), from the resource registry.
+  files['/src/genesis/hl.registry.js'] = { code: `export default ${JSON.stringify(clientRegistry())}\n` }
   files['/src/genesis/ui.css'] = { code: UI_KIT }
   for (const [path, code] of Object.entries(UI_COMPONENTS)) files[`/src/genesis/ui/${path.split('/').pop()}`] = { code }
   const setup = {
