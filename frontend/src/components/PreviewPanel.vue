@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { loadSandpackClient, type SandpackClient } from '@codesandbox/sandpack-client'
-import { CircleAlert, Plug, RefreshCw, Sparkles } from '@lucide/vue'
+import { CircleAlert, LoaderCircle, Plug, RefreshCw, Sparkles } from '@lucide/vue'
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import BuildingOverlay from '@/components/BuildingOverlay.vue'
 import { Badge } from '@/components/ui/badge'
@@ -66,6 +66,10 @@ const ran = () => {
 }
 const RUN_TIMEOUT_MS = 15_000
 let lastSent = ''
+let lastFiles = ''
+/** A change is on its way to the preview (sent, not yet run): shows the "Updating preview" overlay. */
+const updating = ref(false)
+let runs = 0
 
 /**
  * Rebuilds the sandbox from current files + injected (never persisted) system files, and resolves once it has run
@@ -109,6 +113,11 @@ async function refresh({ force = false } = {}) {
   const key = JSON.stringify(setup)
   if (client && key === lastSent && !force) return
   lastSent = key
+  // The overlay shows for changes to the app's own files (and the Refresh button), not for a renewed preview token.
+  const filesKey = JSON.stringify(props.files)
+  const run = ++runs
+  if (force || filesKey !== lastFiles) updating.value = true
+  lastFiles = filesKey
   const done = new Promise<void>((resolve) => {
     waiting.push(resolve)
     setTimeout(resolve, RUN_TIMEOUT_MS)
@@ -139,6 +148,7 @@ async function refresh({ force = false } = {}) {
     ran()
   }
   await done
+  if (run === runs) updating.value = false // a later refresh keeps the overlay until it has run too
 }
 
 // Connecting, or switching to another sub-account, after the panel opened: drop the stale token and reload.
@@ -189,6 +199,18 @@ defineExpose({ refresh })
         leave-to-class="opacity-0"
       >
         <BuildingOverlay v-if="building" :file="buildingFile ?? null" :files-done="filesDone ?? 0" :reading="buildingReading" :starting="starting" @show-code="emit('show-code')" />
+      </Transition>
+      <Transition
+        enter-active-class="transition-opacity duration-150"
+        leave-active-class="transition-opacity duration-300"
+        enter-from-class="opacity-0"
+        leave-to-class="opacity-0"
+      >
+        <div v-if="updating && !building" class="absolute inset-0 z-10 grid place-items-center bg-background/60 backdrop-blur-[1px]" role="status" aria-live="polite">
+          <p class="flex items-center gap-2 rounded-md bg-card px-3 py-2 text-[13px] font-medium shadow-[0_8px_24px_rgba(33,51,67,0.10)]">
+            <LoaderCircle class="size-4 animate-spin text-primary" aria-hidden="true" />Updating preview
+          </p>
+        </div>
       </Transition>
     </div>
 
