@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { routeFor, upstreamError, writeBody } from "./hlProxy";
+import { routeFor, scopeDecision, scopeMissing, upstreamError, writeBody } from "./hlProxy";
 
 // Bodies as HighLevel returned them on the sandbox (2026-11-14); the contact name is shortened.
 test("HighLevel errors become readable messages, never raw JSON", () => {
@@ -67,4 +67,22 @@ test("messages can only be sent as SMS or email", () => {
   for (const type of ["InternalComment", "WhatsApp", "Custom", undefined]) {
     refused(() => writeBody(send, { type, contactId: "c1" }), 400, "invalid_message_type");
   }
+});
+
+test("scopes: writes need theirs; reads are logged until READ_SCOPES=enforce", () => {
+  const read = routeFor("GET", "/contacts/");
+  const write = routeFor("POST", "/contacts/");
+  assert.equal(scopeDecision(read, ["contacts.readonly"], "log"), "ok");
+  assert.equal(scopeDecision(read, [], "log"), "log", "a read without its scope is served and logged");
+  assert.equal(scopeDecision(read, [], "enforce"), "refuse");
+  assert.equal(scopeDecision(write, ["contacts.readonly"], "log"), "refuse", "writes are always enforced");
+  assert.equal(scopeDecision(write, ["contacts.write"], "enforce"), "ok");
+});
+
+test("hl_scope_missing names what the app needs, so the user knows why to reconnect", () => {
+  const e = scopeMissing(routeFor("POST", "/contacts/"));
+  assert.equal(e.status, 403);
+  assert.equal(e.code, "hl_scope_missing");
+  assert.equal(e.message, "This app needs permission to change Contacts in HighLevel. Reconnect HighLevel to grant it.");
+  assert.match(scopeMissing(routeFor("GET", "/calendars/events")).message, /permission to read Calendars/);
 });

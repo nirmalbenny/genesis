@@ -192,6 +192,14 @@ About 5–6 days in total. Each phase ships alone; 1 to 3 give most of the value
   benefit grows with every resource added, since the shared prompt no longer grows. Unit 116/116, e2e 43/43,
   frontend 152/152 (the client's sync test reads the core and every guide).
 
+- **Phase 3 (2026-11-18):** granted scopes on `users/{uid}.hl.scopes` (callback; `POST /bootstrap` syncs older
+  connections); a Reconnect notice on the home page and in the workspace naming what's missing ("changes to Contacts"
+  for a connection that predates writes); `hl_scope_missing` names the resource. Read scopes are checked behind
+  `READ_SCOPES=log|enforce` (default `log`: served and logged as `hl.read_scope_missing`), because production
+  connections couldn't be inspected to prove they all hold their read scopes; switch to `enforce` once the logs are
+  clean. Verified: the scopes HighLevel grants match the registry's 10 exactly (local connection), the notice renders
+  for a read-only connection. Unit 118/118, e2e 44/44, frontend 157/157.
+
 ## 10. The skill: `/hl-resource` (after phase 6)
 
 Replaces `/hl-endpoint`:

@@ -24,6 +24,12 @@ export const LANGFUSE_PUBLIC_KEY = defineSecret("LANGFUSE_PUBLIC_KEY");
 export const LANGFUSE_SECRET_KEY = defineSecret("LANGFUSE_SECRET_KEY");
 /** The daily cleanup of unreferenced file content: `dry-run` (default) only logs, `delete` deletes. */
 export const BLOB_CLEANUP = defineString("BLOB_CLEANUP", { default: "dry-run" });
+/**
+ * Read scopes in the proxy: `log` (default) logs a read whose scope the connection lacks and still serves it;
+ * `enforce` refuses it with hl_scope_missing. Writes always need their scope. Switch to `enforce` once the
+ * `hl.read_scope_missing` logs stay clean.
+ */
+export const READ_SCOPES = defineString("READ_SCOPES", { default: "log" });
 
 /**
  * Browser origins allowed to call api, generate and hlAuthStart: the app's Firebase Hosting domains and the

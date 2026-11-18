@@ -10,6 +10,7 @@ import { checkPath, MAX_FILE_BYTES } from "./llm/validate";
 import { signPreviewToken } from "./previewToken";
 import { assertEditable, getOwnedProject, getUserHl, toCategory, useConnectedLocation } from "./projects";
 import { seedTemplates } from "./templates";
+import { syncGrantedScopes } from "./hl/scopes";
 
 type Handler = (uid: string, req: Request, m: string[]) => Promise<unknown>;
 
@@ -186,7 +187,7 @@ const disconnectHl: Handler = async (uid) => {
 
 /** First-visit setup (after email verification): ready-made apps and the signup credits. */
 const bootstrap: Handler = async (uid) => {
-  const seeded = await seedTemplates(uid);
+  const [seeded] = await Promise.all([seedTemplates(uid), syncGrantedScopes(uid)]);
   return { ...seeded, creditsGranted: await grantSignupCredits(uid) };
 };
 

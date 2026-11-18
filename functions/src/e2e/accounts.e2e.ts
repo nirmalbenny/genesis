@@ -104,3 +104,18 @@ test("copying an app creates a snapshot that can be restored", async () => {
   const after = (await call(u, "GET", `api/projects/${id}/snapshots`)).body.snapshots as { reason: string }[];
   assert.equal(after[0]?.reason, "restore", "restoring records a new snapshot (non-destructive)");
 });
+
+test("bootstrap copies the connection's granted scopes onto the user (names only), and keeps them in sync", async () => {
+  const u = await newUser();
+  await connectHl(u, "loc-e2e", "loc-e2e", "contacts.write contacts.readonly  calendars.readonly");
+  assert.equal((await db.doc(`users/${u.uid}`).get()).get("hl.scopes"), undefined, "a connection from before scopes were stored");
+  assert.equal((await call(u, "POST", "api/bootstrap")).status, 200);
+  assert.deepEqual((await db.doc(`users/${u.uid}`).get()).get("hl.scopes"), ["calendars.readonly", "contacts.readonly", "contacts.write"]);
+  await db.doc(`hlTokens/${u.uid}`).update({ scope: "contacts.readonly" });
+  await call(u, "POST", "api/bootstrap");
+  assert.deepEqual((await db.doc(`users/${u.uid}`).get()).get("hl.scopes"), ["contacts.readonly"], "a reconnect with fewer scopes shows");
+
+  const unconnected = await newUser();
+  assert.equal((await call(unconnected, "POST", "api/bootstrap")).status, 200);
+  assert.equal((await db.doc(`users/${unconnected.uid}`).get()).get("hl"), undefined, "no connection, nothing written");
+});
