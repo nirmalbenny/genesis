@@ -70,7 +70,7 @@ test("imports: project files must exist; client names and components must be rea
     'imports DataGrid from "./genesis/ui", which isn\'t a Genesis component',
     'imports "lodash", but apps can only import vue (no other npm packages)',
   ]);
-  assert.deepEqual(checkImports("src/main.js", 'import App from "./App.vue";\nexport * from "./nope.js";', () => false).length, 2, "JS files and re-exports too");
+  assert.deepEqual(checkImports("src/main.js", 'import "./genesis/ui.css";\nimport App from "./App.vue";\nexport * from "./nope.js";', () => false).length, 2, "JS files and re-exports too");
   assert.deepEqual(checkImports("src/App.vue", "<template><div></template>", exists), [], "syntax errors are checkFile's job");
 });
 
@@ -83,4 +83,13 @@ test("usePager lists and call names must exist in the registry (checked when imp
   assert.match(callProblem!, /^call\('deleteContact'\) isn't a HighLevel call; available: .*\bgetContact\b/);
   assert.deepEqual(rest, []);
   assert.deepEqual(checkImports("src/utils.js", "export const call = (x) => x;\ncall('anything');", none), [], "a function of the app's own named call is not checked");
+});
+
+test("checkImports: src/main.js must load the UI kit's styles", () => {
+  const exists = (p: string) => p === "src/App.vue";
+  assert.deepEqual(checkImports("src/main.js", 'import { createApp } from "vue";\nimport "./genesis/ui.css";\nimport App from "./App.vue";', exists), []);
+  assert.deepEqual(checkImports("src/main.js", 'import { createApp } from "vue";\nimport App from "./App.vue";', exists), [
+    'doesn\'t import the UI kit\'s styles: add import "./genesis/ui.css"; before App',
+  ]);
+  assert.deepEqual(checkImports("src/utils.js", "export const a = 1;", exists), [], "only src/main.js");
 });

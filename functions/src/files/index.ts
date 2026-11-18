@@ -46,7 +46,7 @@ export interface FileStore {
 export const SEED_FILES: ProjectFile[] = [
   {
     path: "src/main.js",
-    content: `import { createApp } from "vue";\nimport App from "./App.vue";\n\ncreateApp(App).mount("#app");\n`,
+    content: `import { createApp } from "vue";\nimport "./genesis/ui.css";\nimport App from "./App.vue";\n\ncreateApp(App).mount("#app");\n`,
   },
   {
     path: "src/App.vue",

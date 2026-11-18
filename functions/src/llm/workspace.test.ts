@@ -113,7 +113,7 @@ test("a file that doesn't compile is refused, and so is an edit that would break
 
 test("problems: imports the build's changes leave unresolved, in its files and in files importing a deleted one", () => {
   const files = {
-    "src/main.js": 'import App from "./App.vue";',
+    "src/main.js": 'import "./genesis/ui.css";\nimport App from "./App.vue";',
     "src/App.vue": '<script setup>\nimport List from "./components/List.vue";\n</script>\n<template><List /></template>',
     "src/components/List.vue": "<template>list</template>",
   };
@@ -131,4 +131,17 @@ test("problems: imports the build's changes leave unresolved, in its files and i
   w.write("src/utils.js", "export const fmt = (x) => x;");
   w.write("src/components/List.vue", "<template>back</template>");
   assert.deepEqual(w.problems(), ["src/components/Stats.vue: imports Chart from \"../genesis/ui\", which isn't a Genesis component"], "files written later in the build count");
+});
+
+test("problems: src/main.js must load the UI kit's styles, whether or not the build changed it", () => {
+  const files = { "src/main.js": 'import App from "./App.vue";', "src/App.vue": "<template>app</template>" };
+  const m: Manifest = Object.fromEntries(Object.entries(files).map(([p, c]) => [p, entryFor(p, c)]));
+  const w = createWorkspace(m);
+  for (const [p, c] of Object.entries(files)) w.show(p, c);
+  const missing = "src/main.js: doesn't import the UI kit's styles: add import \"./genesis/ui.css\"; before App";
+  assert.deepEqual(w.problems(), [missing], "an unchanged main.js without it");
+  w.write("src/App.vue", "<template>new</template>");
+  assert.deepEqual(w.problems(), [missing], "still reported when the build changes other files");
+  w.write("src/main.js", 'import "./genesis/ui.css";\nimport App from "./App.vue";');
+  assert.deepEqual(w.problems(), []);
 });

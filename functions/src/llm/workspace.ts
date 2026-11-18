@@ -89,14 +89,17 @@ export function createWorkspace(manifest: Manifest) {
       return c?.type === "write" ? c.content : undefined;
     },
     /**
-     * Import problems the build's changes leave in the app: in files it wrote, and in other files that import a file
-     * it deleted. One line per problem, "path: problem".
+     * Import problems the build's changes leave in the app: in files it wrote, in src/main.js, and in other files that
+     * import a file it deleted. One line per problem, "path: problem".
      */
     problems(): string[] {
       const out: string[] = [];
       for (const op of changes.values()) {
         if (op.type === "write") out.push(...checkImports(op.path, op.content, exists).map((p) => `${op.path}: ${p}`));
       }
+      // src/main.js is always in the context: an unchanged one is checked too (it must load the UI kit's styles).
+      const main = "src/main.js";
+      if (!changes.has(main) && known.has(main)) out.push(...checkImports(main, known.get(main)!, exists).map((p) => `${main}: ${p}`));
       const deleted = [...changes.values()].filter((o) => o.type === "delete").map((o) => o.path);
       if (deleted.length) {
         for (const [path, entry] of Object.entries(manifest)) {

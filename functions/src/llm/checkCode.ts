@@ -10,7 +10,7 @@ import { CLIENT_FUNCTIONS } from "./guides";
  *   template uses is imported). A file that fails is refused, and the model is told why.
  * - checkImports: a file against the app (relative imports resolve; names imported from the injected client and
  *   components exist; no npm package but vue). Run after all of a response's calls, because files written later in
- *   the same response can satisfy an import.
+ *   the same response can satisfy an import. src/main.js must also load the UI kit's styles.
  * Errors are written for the model: what is wrong, where, and what to do instead.
  */
 
@@ -148,6 +148,10 @@ export function checkImports(path: string, content: string, exists: (path: strin
     } else if (kind === null && !EXTENSIONS.some((ext) => exists(target + ext))) {
       problems.push(`imports "${source}", but ${target} doesn't exist`);
     }
+  }
+  // Without the kit's stylesheet every Genesis component renders unstyled.
+  if (path === "src/main.js" && !imports.some(({ source }) => system(posix.normalize(posix.join("src", source))) === "css")) {
+    problems.push(`doesn't import the UI kit's styles: add import "./genesis/ui.css"; before App`);
   }
   // The names passed to usePager and call must be lists and endpoints that exist (checked when they're imported).
   const fromClient = imports.filter(({ source }) => system(posix.normalize(posix.join(posix.dirname(path), source))) === "hl").flatMap((i) => i.names);
