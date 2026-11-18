@@ -1,0 +1,8 @@
+{
+  "id": "locations",
+  "internal": true,
+  "summary": "the connected sub-account's own details, read once when connecting (never by generated apps)",
+  "scopes": ["locations.readonly"],
+  "version": "2021-07-28",
+  "endpoints": []
+}

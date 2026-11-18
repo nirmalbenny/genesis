@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { ROUTES } from "../hl/registry";
 import { call, connectHl, createApp, newUser, type TestUser } from "./helpers";
 
 /**
@@ -86,19 +87,15 @@ test("the proxy limits each user to bursts of 40 requests", async () => {
 const write = (token: string, method: string, path: string, body: unknown) =>
   call({ uid: "", email: "", token }, method, `hlProxy${path}`, body);
 
-test("the listed writes pass every check (and stop at the connection check, so HighLevel is never called)", async () => {
-  const { token } = await previewSetup();
-  for (const [method, path, body] of [
-    ["POST", "/contacts/", { firstName: "Ada", email: "ada@example.com" }],
-    ["PUT", "/contacts/c1", { firstName: "Ada" }],
-    ["POST", "/contacts/c1/tags", { tags: ["vip"] }],
-    ["POST", "/contacts/c1/notes", { body: "Called back" }],
-    ["POST", "/calendars/events/appointments", { calendarId: "cal1", contactId: "c1", startTime: "2026-12-01T10:00:00Z" }],
-    ["PUT", "/calendars/events/appointments/ev1", { appointmentStatus: "cancelled" }],
-    ["PUT", "/conversations/conv1", { unreadCount: 0 }],
-  ] as const) {
-    const r = await write(token, method, path, body);
-    assert.equal(r.body.error?.code, "connection_changed", `${method} ${path}`);
+test("every write in the registry passes every check (and stops at the connection check, so HighLevel is never called)", async () => {
+  const writes = ROUTES.filter((r) => r.write);
+  assert.ok(writes.length >= 8);
+  for (const r of writes) {
+    // Each write in its own app: the write limit (bursts of 10) must not be what stops it.
+    const { token } = await previewSetup();
+    const path = r.template.replace(/\{\w+\}/g, "x1");
+    const res = await write(token, r.method, path, r.send ? { type: "Email", contactId: "c1", subject: "Hi", html: "Hi" } : { any: "field" });
+    assert.equal(res.body.error?.code, "connection_changed", `${r.method} ${path}`);
   }
 });
 

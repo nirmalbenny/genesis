@@ -1,0 +1,17 @@
+{
+  "id": "contacts",
+  "label": "Contacts",
+  "summary": "people in the sub-account: details, tags, notes and their appointments",
+  "aliases": ["contact", "contacts", "people", "person", "lead", "leads", "customer", "customers", "client", "clients"],
+  "scopes": ["contacts.readonly", "contacts.write"],
+  "version": "2021-07-28",
+  "endpoints": [
+    { "name": "contacts", "method": "GET", "path": "/contacts/", "scope": "contacts.readonly", "location": "query" },
+    { "name": "getContact", "method": "GET", "path": "/contacts/{contactId}", "scope": "contacts.readonly", "location": "query" },
+    { "name": "contactAppointments", "method": "GET", "path": "/contacts/{contactId}/appointments", "scope": "contacts.readonly", "location": "query" },
+    { "name": "createContact", "method": "POST", "path": "/contacts/", "scope": "contacts.write", "location": "body" },
+    { "name": "updateContact", "method": "PUT", "path": "/contacts/{contactId}", "scope": "contacts.write", "location": "none" },
+    { "name": "addTags", "method": "POST", "path": "/contacts/{contactId}/tags", "scope": "contacts.write", "location": "none" },
+    { "name": "addNote", "method": "POST", "path": "/contacts/{contactId}/notes", "scope": "contacts.write", "location": "none" }
+  ]
+}

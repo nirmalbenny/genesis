@@ -654,7 +654,7 @@ sequenceDiagram
   HL-->>SB: JSON (errors mapped to {error:{code,message}})
 ```
 
-- **Proxy allowlist,** by method and path; anything else is refused, and `DELETE` is refused everywhere (`405`):
+- **Proxy allowlist,** by method and path, declared in the resource registry ([`hl-resources/`](../hl-resources), one JSON file per resource, validated and compiled by [`hl/registry.ts`](../functions/src/hl/registry.ts); the OAuth scopes come from the same files). Anything else is refused, and `DELETE` is refused everywhere (`405`):
 
   | Area | Reads (GET) | Writes (verified on the sandbox) | Scope for writes |
   |---|---|---|---|
@@ -664,7 +664,7 @@ sequenceDiagram
 
 - **Writes:** JSON bodies up to 50 KB. Where HighLevel takes the location in the body (creating contacts and appointments, updating conversations) the proxy forces the connected one. A connection whose granted scopes lack the write's scope gets `403 hl_scope_missing` ("Reconnect HighLevel"), without calling HighLevel. Every write is logged (user, sub-account, method, path, status; never the body). A successful write clears the sub-account's cached reads. Write and send limits are in §8.
 - **Project check:** the token works only while its `projectId` exists, isn't deleted and belongs to the token's user. Otherwise the proxy returns `403 project_not_allowed`. Successful checks are cached for 60 seconds per server instance, so a deleted app's previews stop working within a minute.
-- **API version header:** calendar requests use `Version: 2021-04-15`, and everything else uses `2021-07-28`.
+- **API version header:** set per resource in the registry (an endpoint may override it): calendars use `Version: 2021-04-15`, contacts and conversations `2021-07-28`.
 - **Token refresh:**
   - Access tokens are refreshed 60 seconds before they expire.
   - HighLevel's refresh tokens are single-use, so concurrent refreshes are funnelled into one request per server instance. The refresh call happens outside the Firestore transaction, and a request that loses the race polls Firestore for the winner's new token.
