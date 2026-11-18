@@ -31,6 +31,8 @@ node scripts/shoot.mjs /apps --email <owner> --size phone                  # any
 ```
 
 Desktop and phone screenshots go to `.shots/` (git-ignored); read them. The page's console errors are printed.
+To interact first (also inside the preview's frame), add steps:
+`--do "click:Ready-made; clickat:290,249; type:Neha; key:Enter; wait:2000; waitfor:Fix with AI; shot:name"`.
 
 ## 3. Find the cause, then fix it at its source
 

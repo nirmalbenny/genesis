@@ -4,13 +4,17 @@
 //
 //   node scripts/shoot.mjs [route] [--email <local account>] [--app <id | name | latest>] [--run]
 //                          [--size desktop|phone|both] [--wait-for <css selector>] [--wait-gone <text>] [--wait <ms>] [--full]
-//                          [--out <dir>] [--base <url>]
+//                          [--out <dir>] [--base <url>] [--do "<step>; <step>…"]
 //
 // route: a path such as /apps (default /). --email signs in as that local account (signed out without it).
 // --app opens the app's workspace (/p/<id>), or with --run its launch page (/run/<id>), and waits until the
 // preview's "Updating preview" / "Starting your app" overlay is gone. --wait-for waits until a selector exists,
 // --wait-gone until a text is no longer on the page (up to 60 s each; "|" separates texts); --wait then waits a
 // further time (default 1500 ms after either, else 5000 ms). --full captures the whole page. Screenshots go to --out (default .shots/, git-ignored).
+// --do runs steps once the page is ready, before the final screenshot (input events, so clicks and typing reach
+// the preview's frame too): click:<text> (the first visible button, link or tab with that text), clickat:<x>,<y>
+// (CSS pixels), type:<text>, key:<Enter | Escape | Meta+Enter>, wait:<ms>, waitfor:<text>, waitgone:<text> (up to
+// 90 s each), shot:<name> (a screenshot now, as <out>/<name>.png).
 // Also prints the page's console errors.
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -24,7 +28,7 @@ const { values: opts, positionals } = parseArgs({
   options: {
     email: { type: "string" }, app: { type: "string" }, run: { type: "boolean" },
     size: { type: "string", default: "both" }, "wait-for": { type: "string" }, "wait-gone": { type: "string" }, wait: { type: "string" },
-    full: { type: "boolean" }, out: { type: "string", default: join(ROOT, ".shots") }, base: { type: "string", default: "http://localhost:5173" },
+    full: { type: "boolean" }, do: { type: "string" }, out: { type: "string", default: join(ROOT, ".shots") }, base: { type: "string", default: "http://localhost:5173" },
   },
 });
 const SIZES = { desktop: { width: 1440, height: 900, mobile: false }, phone: { width: 390, height: 844, mobile: true } };
@@ -93,6 +97,50 @@ const open = async (url) => {
   await Promise.race([loaded, sleep(30_000)]);
 };
 
+/** Mouse click at CSS pixel coordinates (reaches into frames, unlike element.click()). */
+const clickAt = async (x, y) => {
+  for (const type of ["mouseMoved", "mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type, x, y, button: "left", clickCount: 1 });
+};
+const KEYS = { Enter: { key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 }, Escape: { key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 } };
+const waitText = async (text, gone) => {
+  for (let i = 0; i < 180; i++) {
+    if ((await evaluate(`document.body.innerText.includes(${JSON.stringify(text)})`)) !== gone) return;
+    await sleep(500);
+  }
+  console.log(`"${text}" ${gone ? "still on the page" : "didn't appear"} after 90 s`);
+};
+async function runStep(step) {
+  const [verb, ...rest] = step.split(":");
+  const arg = rest.join(":");
+  if (verb === "click") {
+    const at = await evaluate(`(() => {
+      const el = [...document.querySelectorAll('button, a, [role=tab], [role=menuitem], [role=option]')]
+        .find((e) => e.offsetParent !== null && e.innerText.trim().includes(${JSON.stringify(arg)}));
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return [r.x + r.width / 2, r.y + r.height / 2];
+    })()`);
+    if (!at) throw new Error(`no button, link or tab with "${arg}"`);
+    await clickAt(at[0], at[1]);
+  } else if (verb === "clickat") {
+    const [x, y] = arg.split(",").map(Number);
+    await clickAt(x, y);
+  } else if (verb === "type") await send("Input.insertText", { text: arg });
+  else if (verb === "key") {
+    const meta = arg.startsWith("Meta+");
+    const k = KEYS[arg.replace("Meta+", "")];
+    if (!k) throw new Error(`unknown key ${arg}`);
+    for (const type of ["keyDown", "keyUp"]) await send("Input.dispatchKeyEvent", { type, modifiers: meta ? 4 : 0, ...k });
+  } else if (verb === "wait") await sleep(Number(arg));
+  else if (verb === "waitfor") await waitText(arg, false);
+  else if (verb === "waitgone") await waitText(arg, true);
+  else if (verb === "shot") {
+    const { data } = await send("Page.captureScreenshot", { format: "png" });
+    writeFileSync(join(opts.out, `${arg}.png`), Buffer.from(data, "base64"));
+    console.log(`shot: ${join(opts.out, `${arg}.png`)}`);
+  } else throw new Error(`unknown step ${step}`);
+}
+
 const errors = [];
 on("Runtime.exceptionThrown", (p) => errors.push(p.exceptionDetails.exception?.description?.split("\n")[0] ?? p.exceptionDetails.text));
 on("Runtime.consoleAPICalled", (p) => { if (p.type === "error") errors.push(p.args.map((a) => a.value ?? a.description ?? "").join(" ").split("\n")[0]); });
@@ -134,6 +182,7 @@ try {
     }
     if (opts["wait-for"] || opts["wait-gone"]) console.log(`${size}: ready in ${((Date.now() - started) / 1000).toFixed(1)} s`);
     await sleep(Number(opts.wait ?? (opts["wait-for"] || opts["wait-gone"] ? 1500 : 5000)));
+    for (const step of (opts.do ?? "").split(";").map((x) => x.trim()).filter(Boolean)) await runStep(step);
     let clip;
     if (opts.full) {
       const { cssContentSize: c } = await send("Page.getLayoutMetrics");

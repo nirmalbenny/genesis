@@ -25,7 +25,7 @@
   <a href="#measured-quality"><b>Measured quality</b></a>
 </p>
 
-![Genesis workspace: chat, a generated contact dashboard running on live HighLevel data, and the file tree](docs/screenshots/workspace.png)
+![Genesis workspace: chat, a generated sales pipeline board running on live HighLevel deals, and the file tree](docs/screenshots/workspace.png)
 
 Genesis is an AI app builder for [HighLevel](https://www.gohighlevel.com). Connect a sub-account, describe what your team needs, and Genesis streams the code from Claude into a live editor, checks it, and runs the result in a sandboxed preview on your real contacts, conversations and calendars. Your HighLevel token never reaches the browser.
 
@@ -75,7 +75,7 @@ Genesis is an AI app builder for [HighLevel](https://www.gohighlevel.com). Conne
 
 | Code streams in, file by file | The build overlay keeps you posted |
 |---|---|
-| ![Claude's code streaming into the read-only editor while the plan appears in the chat](docs/screenshots/code-streaming.png) | ![Building your app overlay over the preview, with the file being written](docs/screenshots/building.png) |
+| ![Claude's code streaming into the read-only editor while the plan appears in the chat](docs/screenshots/code-streaming.png) | ![Building your app overlay over the preview: the build's steps, the start of Claude's plan and the files written so far](docs/screenshots/building.png) |
 | **Fix with AI from any preview error** | **Ready-made apps, catalog and launch** |
 | ![A runtime error in the preview with the Fix with AI button](docs/screenshots/fix-with-ai.png) | ![The apps catalog filtered to the six ready-made apps](docs/screenshots/apps.png) |
 | **A prompt-first home** | **Ready-made app on live data** |
