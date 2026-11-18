@@ -23,7 +23,7 @@ const refused = (fn: () => unknown, status: number, code: string) =>
   assert.throws(fn, (e: { status?: number; code?: string }) => e.status === status && e.code === code);
 
 test("reads and the listed writes are allowed, with the scope each write needs", () => {
-  assert.equal(routeFor("GET", "/contacts/").scope, undefined);
+  assert.equal(routeFor("GET", "/contacts/").write, false);
   assert.equal(routeFor("POST", "/contacts/").scope, "contacts.write");
   assert.equal(routeFor("PUT", "/contacts/abc123").scope, "contacts.write");
   assert.equal(routeFor("POST", "/contacts/abc123/tags").scope, "contacts.write");
@@ -35,10 +35,11 @@ test("reads and the listed writes are allowed, with the scope each write needs",
 });
 
 test("the location is forced into the body where HighLevel takes it there", () => {
-  assert.equal(routeFor("POST", "/contacts/").bodyLocation, true);
-  assert.equal(routeFor("POST", "/calendars/events/appointments").bodyLocation, true);
-  assert.equal(routeFor("PUT", "/conversations/conv1").bodyLocation, true);
-  assert.equal(routeFor("PUT", "/contacts/abc123").bodyLocation, undefined, "HighLevel doesn't accept it on contact updates");
+  const body = { in: "body", name: "locationId" };
+  assert.deepEqual(routeFor("POST", "/contacts/").location, body);
+  assert.deepEqual(routeFor("POST", "/calendars/events/appointments").location, body);
+  assert.deepEqual(routeFor("PUT", "/conversations/conv1").location, body);
+  assert.equal(routeFor("PUT", "/contacts/abc123").location, null, "HighLevel doesn't accept it on contact updates");
 });
 
 test("deletes are never allowed, and unlisted writes are refused", () => {

@@ -1,0 +1,15 @@
+{
+  "id": "conversations",
+  "label": "Conversations",
+  "summary": "SMS and email threads with contacts, their messages, read and starred state, and sending",
+  "aliases": ["conversation", "conversations", "inbox", "message", "messages", "sms", "text", "email", "emails", "chat", "thread", "unread"],
+  "scopes": ["conversations.readonly", "conversations.write", "conversations/message.readonly", "conversations/message.write"],
+  "version": "2021-07-28",
+  "endpoints": [
+    { "name": "conversations", "method": "GET", "path": "/conversations/search", "scope": "conversations.readonly", "location": "query" },
+    { "name": "getConversation", "method": "GET", "path": "/conversations/{conversationId}", "scope": "conversations.readonly", "location": "query" },
+    { "name": "messages", "method": "GET", "path": "/conversations/{conversationId}/messages", "scope": "conversations/message.readonly", "location": "query" },
+    { "name": "updateConversation", "method": "PUT", "path": "/conversations/{conversationId}", "scope": "conversations.write", "location": "body" },
+    { "name": "sendMessage", "method": "POST", "path": "/conversations/messages", "scope": "conversations/message.write", "location": "none", "send": true }
+  ]
+}

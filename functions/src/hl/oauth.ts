@@ -1,9 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { onRequest } from "firebase-functions/v2/https";
 import { auth, db } from "../admin";
-import {
-  APP_ORIGINS, APP_URL, HL_API_BASE, HL_CLIENT_ID, HL_CLIENT_SECRET, HL_REDIRECT_URI, HL_SCOPES,
-} from "../config";
+import { APP_ORIGINS, APP_URL, HL_API_BASE, HL_CLIENT_ID, HL_CLIENT_SECRET, HL_REDIRECT_URI } from "../config";
+import { HL_SCOPES } from "./registry";
 import { rateLimited, requireVerifiedUser, sendError } from "../http";
 import { createLimiter, LIMITS } from "../rateLimits";
 import { requestToken, sealedRecord } from "./token";

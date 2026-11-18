@@ -6,42 +6,19 @@ import { getValidHlToken } from "./hl/token";
 import { verifyPreviewToken } from "./previewToken";
 import { getOwnedProject } from "./projects";
 import { createLimiter, LIMITS } from "./rateLimits";
+import { ROUTES, type Route } from "./hl/registry";
 
 /**
- * Everything generated apps may call. Anything else is refused, and so is every DELETE.
- * - `scope`: the HighLevel scope a write needs; a connection made before writes existed is told to reconnect.
- * - `bodyLocation`: HighLevel takes the location in the body here; the proxy forces the connected one.
- * - `send`: sends a message to a real person, so it has its own, tighter limits.
+ * Everything generated apps may call is declared in the resource registry (hl-resources/*.json, see hl/registry.ts):
+ * method, path, scope, where the location goes, the API version, and whether it sends a message. Anything else is
+ * refused, and so is every DELETE.
  */
-type Route = { method: "GET" | "POST" | "PUT"; path: RegExp; scope?: string; bodyLocation?: boolean; send?: boolean };
-const ROUTES: Route[] = [
-  // Reads
-  { method: "GET", path: /^\/contacts\/?$/ },
-  { method: "GET", path: /^\/contacts\/[\w-]+$/ },
-  { method: "GET", path: /^\/contacts\/[\w-]+\/appointments$/ },
-  { method: "GET", path: /^\/conversations\/search$/ },
-  { method: "GET", path: /^\/conversations\/[\w-]+$/ },
-  { method: "GET", path: /^\/conversations\/[\w-]+\/messages$/ },
-  { method: "GET", path: /^\/calendars\/?$/ },
-  { method: "GET", path: /^\/calendars\/events$/ },
-  { method: "GET", path: /^\/calendars\/[\w-]+\/free-slots$/ },
-  // Writes (no deletes)
-  { method: "POST", path: /^\/contacts\/?$/, scope: "contacts.write", bodyLocation: true },
-  { method: "PUT", path: /^\/contacts\/[\w-]+$/, scope: "contacts.write" },
-  { method: "POST", path: /^\/contacts\/[\w-]+\/tags$/, scope: "contacts.write" },
-  { method: "POST", path: /^\/contacts\/[\w-]+\/notes$/, scope: "contacts.write" },
-  { method: "POST", path: /^\/calendars\/events\/appointments$/, scope: "calendars/events.write", bodyLocation: true },
-  { method: "PUT", path: /^\/calendars\/events\/appointments\/[\w-]+$/, scope: "calendars/events.write" },
-  { method: "PUT", path: /^\/conversations\/[\w-]+$/, scope: "conversations.write", bodyLocation: true },
-  { method: "POST", path: /^\/conversations\/messages$/, scope: "conversations/message.write", send: true },
-];
-
 /** The route for a request, or a clear refusal: 405 for methods never allowed, 403 for anything unlisted. */
 export function routeFor(method: string, path: string): Route {
   if (!["GET", "POST", "PUT"].includes(method)) {
     throw httpError(405, "method_not_allowed", "Apps can read, create and update HighLevel data, but not delete it.");
   }
-  const route = ROUTES.find((r) => r.method === method && r.path.test(path));
+  const route = ROUTES.find((r) => r.method === method && r.path.test(path)); // the most specific first
   if (!route) throw httpError(403, "path_not_allowed", `Not allowed: ${method} ${path}`);
   return route;
 }
@@ -63,10 +40,6 @@ export function writeBody(route: Route, body: unknown): Record<string, unknown> 
   }
   return b;
 }
-
-// Reads that reject a locationId parameter (HL returns 422). They are still scoped to the connected
-// sub-account: the access token can only read that location's calendars.
-const NO_LOCATION_PARAM = [/^\/calendars\/[\w-]+\/free-slots$/];
 
 const apiError = (code: string, message: string) => ({ error: { code, message } });
 
@@ -148,7 +121,7 @@ export const hlProxy = onRequest(
 
       const path = req.path;
       const route = routeFor(req.method, path);
-      const isWrite = route.method !== "GET";
+      const isWrite = route.write;
       const body = isWrite ? writeBody(route, req.body) : null;
       await assertPreviewProject(claims.uid, claims.projectId);
 
@@ -168,19 +141,20 @@ export const hlProxy = onRequest(
       if (locationId !== claims.locationId) {
         throw httpError(409, "connection_changed", "The HighLevel connection changed. Refresh the preview to load the current sub-account.");
       }
-      if (route.scope && !scopes.includes(route.scope)) {
+      // Writes only for now: a connection made before writes existed is told to reconnect.
+      if (route.write && !scopes.includes(route.scope)) {
         throw httpError(403, "hl_scope_missing", "This app needs permission to make changes in HighLevel. Reconnect HighLevel to grant it.");
       }
 
       if (isWrite) {
         const paused = (pausedUntil.get(locationId) ?? 0) - Date.now();
         if (paused > 0) throw hlRateLimited(paused / 1000);
-        if (route.bodyLocation) body!.locationId = locationId; // always forced to the token's location
+        if (route.location?.in === "body") body![route.location.name] = locationId; // always forced to the token's location
         const upstream = await fetch(HL_API_BASE + path, {
           method: route.method,
           headers: {
             Authorization: `Bearer ${accessToken}`,
-            Version: path.startsWith("/calendars") ? "2021-04-15" : "2021-07-28",
+            Version: route.version,
             Accept: "application/json",
             "Content-Type": "application/json",
           },
@@ -199,8 +173,10 @@ export const hlProxy = onRequest(
 
       const url = new URL(HL_API_BASE + path);
       for (const [k, v] of Object.entries(req.query)) if (typeof v === "string") url.searchParams.set(k, v);
-      if (NO_LOCATION_PARAM.some((re) => re.test(path))) url.searchParams.delete("locationId");
-      else url.searchParams.set("locationId", locationId); // always forced to the token's location
+      // Always forced to the token's location. Endpoints that reject a location parameter (free slots: 422) get none:
+      // the access token already limits them to the connected sub-account.
+      url.searchParams.delete("locationId");
+      if (route.location) url.searchParams.set(route.location.name, locationId);
 
       // Same sub-account, path and query: the same data, whichever of the user's apps asks for it.
       url.searchParams.sort();
@@ -216,7 +192,7 @@ export const hlProxy = onRequest(
       const upstream = await fetch(url, {
         headers: {
           Authorization: `Bearer ${accessToken}`,
-          Version: path.startsWith("/calendars") ? "2021-04-15" : "2021-07-28",
+          Version: route.version,
           Accept: "application/json",
         },
       });
