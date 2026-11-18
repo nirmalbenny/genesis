@@ -92,7 +92,7 @@ function connectNow() {
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <Button size="sm" variant="outline" class="h-7 gap-1.5 border-white/25 bg-white/10 text-xs text-white hover:bg-white/20 hover:text-white" :disabled="!hl" @click="preview?.refresh()">
+      <Button size="sm" variant="outline" class="h-7 gap-1.5 border-white/25 bg-white/10 text-xs text-white hover:bg-white/20 hover:text-white" :disabled="!hl" @click="preview?.refresh({ force: true })">
         <RefreshCw class="size-3.5" />Refresh
       </Button>
       <Button size="sm" class="h-7 gap-1.5 text-xs" as-child>

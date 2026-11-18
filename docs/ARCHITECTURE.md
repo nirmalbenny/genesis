@@ -62,7 +62,7 @@ flowchart TB
 
   subgraph MODULES["Shared modules used by the functions"]
     direction LR
-    LLM["<b>llm</b><br/>prompt · HL reference · context<br/>read_files · turns · parser · validator"]
+    LLM["<b>llm</b><br/>prompt · HL reference · context<br/>tools · turns · workspace · validator"]
     FILES["<b>files</b><br/>FileStore: blobs + manifest<br/>migration · cleanup"]
     CREDITS["<b>credits</b><br/>hold · settle · ledger"]
     LIMITS["<b>rateLimits</b><br/>build slots · token buckets"]
@@ -279,24 +279,27 @@ sequenceDiagram
   SPA->>SPA: Details dialog (name, description, category — prefilled from the prompt)
   SPA->>API: POST /projects
   SPA->>G: POST {projectId, prompt, editor tabs} (SSE)
-  G->>CL: messages.stream (system prompt + HL reference + read_files tool when files are indexed + ranked files + index + last 6 messages)
+  G->>CL: messages.create stream (tools + system prompt + ranked files + index + last 6 messages)
   opt large app: the model reads indexed files (at most 2 calls)
     CL-->>G: read_files {paths}
     G-->>SPA: status reading
     G->>CL: tool result (file contents), next turn
   end
   loop streaming
-    CL-->>G: text
+    CL-->>G: plan text, then write_file / edit_file / delete_file calls
     G-->>SPA: token / file_start / file_end
     SPA->>SPA: tokens into Monaco (read-only), preview shows "Building your app"
   end
-  G->>G: validate ops → write files → Haiku summary → snapshot → messages
+  G->>G: run each call on the working copy (refused ones go back to Claude, next turn)
+  G->>G: write files → Haiku summary → snapshot → messages
   G-->>SPA: done · cancelled (Stop) · error (partial=true when files were kept)
-  SPA->>SPA: reload files, refresh Sandpack preview
+  SPA->>SPA: reload files, refresh Sandpack preview ("Starting your app" until the new version has run)
 ```
 
 - **Example prompts:** the "Try" cards on the homepage fill the composer with a prompt. The user reviews it and presses Build.
 - **Follow-up prompts** in the workspace refine the same app. Only the files that change are sent back.
+- **The overlay stays until the new version runs.** When the stream ends, the overlay switches to "Starting your app" and stays while the files reload and Sandpack compiles and runs them (several seconds for a new app, which also loads the components' package); it lifts when Sandpack reports the run finished or failed, or after 15 seconds. Without this, the previous version (for a new app, the "New project" page) showed in between.
+- **Fix with AI:** when the preview reports an error (compile or runtime), its banner offers **Fix with AI**, which starts a follow-up build with the error, file and line ("The preview shows this error: TypeError: … (in src/utils.js, line 2). Fix it."). Not offered on ready-made apps or while a build runs.
 - **Manual edits** in Monaco save after an 800 ms pause and refresh the preview.
 - **History** opens a shadcn Sheet listing snapshots with timestamps and Haiku-written summaries. Restoring one is non-destructive, because it records a new snapshot.
 
@@ -316,7 +319,7 @@ sequenceDiagram
 
 ### 5.5 Declined requests
 
-If a prompt isn't about building the app, is harmful, or tries to override the rules, the model replies with `<refuse>…</refuse>`. A refusal from the API itself (`stop_reason: "refusal"`) is treated the same way. Either way the server:
+If a prompt isn't about building the app, is harmful, or tries to override the rules, the model calls the `decline` tool instead of changing anything. A refusal from the API itself (`stop_reason: "refusal"`) is treated the same way. Either way the server:
 
 - sends `error{code:"declined"}`,
 - marks the generation `declined`,
@@ -334,42 +337,48 @@ The chat shows the notice for that session only, so a declined request never aff
    - the build limits allow another build (§8). From here a build slot is held, and released if a later check fails;
    - the input tokens are counted and the worst-case cost is held from the user's credits (§7).
 2. **Bounded context:**
-   - the system prompt (rules plus the strict output format);
+   - the build tools and the system prompt (rules, how to change the app through the tools);
    - [`hlReference.md`](../functions/src/llm/hlReference.md), the API of the injected HighLevel client (§10) and the response shapes;
    - [`uiKit.md`](../functions/src/llm/uiKit.md), the injected components and UI kit (§10). Apps are built from the components and use the kit's look unless the user explicitly asks for another, and are split into components of about 150 lines, so a follow-up rewrites only the component it touches;
    - deliberately **not** the connected location's name or ID: apps read them at run time (`LOCATION_NAME`, `LOCATION_ID`, injected by the preview), so the model has nothing to hard-code;
-   - the current files, within a 60,000-character budget ([`llm/context.ts`](../functions/src/llm/context.ts)). When every file fits (most apps), all are sent in full, alphabetically, exactly as before. Otherwise files are ranked: `src/main.js`, `src/App.vue`, `src/utils.js`; the editor's active tab; its open tabs; files changed by the last 2 builds (`generations.files`); files the prompt names (path, file name, or a distinctive component name such as `ContactList`); their imports and importers; then the rest. The budget is filled in that order; files over 20,000 characters and those past the budget are listed in an index, one line each from the manifest (size, lines, props, emits, client helpers). Content is read only for the files sent in full;
-   - the `read_files` tool ([`llm/tools.ts`](../functions/src/llm/tools.ts); on by default, `CONTEXT_TOOLS=off` is a kill switch), so the model can read indexed files (step 3a);
+   - the current files, within a 60,000-character budget ([`llm/context.ts`](../functions/src/llm/context.ts)), in Anthropic's long-document layout (`<documents><document><source>path</source><document_content>…`), deliberately unlike anything the model writes. When every file fits (most apps), all are sent in full, alphabetically. Otherwise files are ranked: `src/main.js`, `src/App.vue`, `src/utils.js`; the editor's active tab; its open tabs; files changed by the last 2 builds (`generations.files`); files the prompt names (path, file name, or a distinctive component name such as `ContactList`); their imports and importers; then the rest. The budget is filled in that order; files over 20,000 characters and those past the budget are listed in an index, one line each from the manifest (size, lines, props, emits, client helpers). Content is read only for the files sent in full;
    - the last 6 chat messages.
-3. **Output format:**
+3. **Output: tool calls** (plan: [`docs/plans/tool-protocol.md`](plans/tool-protocol.md)). The model writes a short plan as text, then makes every change with a tool call ([`llm/tools.ts`](../functions/src/llm/tools.ts)):
 
-   ```text
-   <plan>…</plan>
-   <file path="src/App.vue">FULL content</file>
-   <delete path="src/old.vue"/>
-   <refuse>reason</refuse>          (declines only; no plan or files)
-   ```
+   | Tool | Input | Notes |
+   |---|---|---|
+   | `write_file` | `path`, `content` | A new file, or a whole-file rewrite. Its input streams eagerly, so code reaches the editor as it is written. |
+   | `edit_file` | `path`, `old_text`, `new_text` | Replaces one exact, unique passage. Follow-ups use it for small changes (about a quarter of the output tokens of a rewrite). |
+   | `delete_file` | `path` | |
+   | `read_files` | `paths` (up to 5) | Indexed files of a large app (3a). Not sent with `CONTEXT_TOOLS=off`. |
+   | `decline` | `reason` | Instead of any change (§5.5). |
 
-   **3a. Reading files (large apps).** The model may call `read_files` with up to 5 indexed paths, at most twice, before writing anything ([`llm/turns.ts`](../functions/src/llm/turns.ts)). Each call is a turn: the server returns the files (checked paths, existing, under the size limit, not already shown), sends `status {phase: "reading", paths}` to the client, and continues the conversation. After two read turns the next turn is sent with `tool_choice: none`, so the model must answer. The 16,000-token output cap covers all turns together. Stop and disconnects are checked between turns as well as during them. Only text reaches the parser; a file still open when the model calls the tool is dropped and reported.
+   The definitions are frozen and `strict` (the API enforces the schemas). The server still checks every input, because `write_file` streams unvalidated.
 
-   An incremental parser ([`llm/parser.ts`](../functions/src/llm/parser.ts); tag names in [`llm/format.ts`](../functions/src/llm/format.ts)) streams tokens and file boundaries while the output is still arriving, and holds back the start of a tag until it can see the rest. It repairs the model's known slips, logs each as `build.fixup` (and in the trace), and saves the repaired file:
-   - **missing close:** a `<file path=…>` or `<delete path=…>` at the start of a line inside an open file closes that file; a file still open when the model ended its turn on its own is kept (a stream cut off or stopped still drops it);
-   - **leaked tool-call markup:** whole lines of `</parameter>`, `</invoke>`, `</function_calls>` (or their opening forms, with or without a namespace) are removed wherever they appear in a file;
-   - **fences:** a file wrapped entirely in a markdown code fence is unwrapped;
-   - also accepted: single-quoted paths, spaces around `=`, a delete without the slash or with a close tag.
+   **The loop** ([`llm/turns.ts`](../functions/src/llm/turns.ts)) reads the raw stream events itself ([`llm/assemble.ts`](../functions/src/llm/assemble.ts)) rather than the SDK's message stream, which parses tool input tolerantly: each input is parsed strictly when its block ends, and one that fails is answered with an error result, not guessed. While a `write_file` input streams, an incremental reader ([`llm/toolInput.ts`](../functions/src/llm/toolInput.ts)) decodes its `path` and `content` fields into `file_start` and `token` events; `file_end` follows when the block ends. An `edit_file` sends the edited file whole once it is applied. When the response is complete, its calls run in order on the build's working copy (step 4):
+   - every call accepted and nothing read: the build is done (one request for most builds; a closing turn would only re-send the files just written, about +80% on a new app's cost);
+   - a call refused, or files read: the results go back to the model in the next turn, so it can correct a refused change (an unread file, a system path, an edit that doesn't match) within the same build;
+   - at most 6 requests; the last is sent with `tool_choice: none`, so the model has to finish. The 16,000-token output cap covers all of them together;
+   - `decline` or an API refusal: nothing in that response runs;
+   - the output cap cuts a call off mid-input: that call never runs, the earlier ones do, status `partial` (`truncated`);
+   - stop, disconnect or an API error mid-response: the completed changes are kept, the one being written is dropped and named.
 
-   Tag-like text elsewhere in source stays as is (`<file-upload>`, a `<file path=…>` string mid-line). The one known limit: a literal `</file>` in source ends the file there.
+   **3a. Reading files (large apps).** `read_files` takes up to 5 indexed paths, at most two calls per build (a third is answered with an error). The server returns the files (checked paths, existing, under the size limit, not already shown) in the same document layout and sends `status {phase: "reading", paths}` to the client.
 
-   **Why the tool leaks and why the tags stay generic** (measured 2026-11-18, the production prompt, 4 builds per arm): with the `read_files` tool definition in the request, Claude sometimes ended files with `</parameter>` and `</invoke>` lines, as if writing a tool call (6 of 18 files; 0 of 18 without the tool). The tool is therefore sent only when files are indexed (§7.8). Namespaced tags (`<genesis-file>`) were tried and made it worse (10 of 19 files with the tool, 6 of 19 without), so the generic names stay.
-4. **Validation**, applied to each operation separately:
+   **Why tools** (2026-11-18): the earlier text format (`<file path>…</file>` parsed out of the stream) mixed two output formats once `read_files` was added, and Claude sometimes ended a file the way it ends a tool call, leaving `</parameter>` and `</invoke>` in it (22 of 101 files in local builds with the tool; 5 of 6 in a production build without it, because the prompt still described the tool). With tools the API separates every file from the text. Measured on the build eval (`scripts/eval-builds.mjs`, 32 builds on the old format, 22 on tools): all 22 passed (31 of 32 before), 0 files that don't compile (1 of 100 before), and per build 24% fewer output tokens, 14% fewer credits and 15% less time; follow-ups 45% cheaper and twice as fast with `edit_file`.
+4. **Validation**, when each call runs ([`llm/workspace.ts`](../functions/src/llm/workspace.ts)); a refused call gets the reason as its result:
    - the path must be relative and inside `src/`, with an extension of `.vue`, `.ts`, `.js`, `.css` or `.json`;
-   - files are capped at 100 KB;
+   - files are capped at 100 KB, and can't be empty;
    - `package.json`, `src/hl.config.js` and everything under `src/genesis/` are system-owned, so the model can't write them;
    - `src/main.js` and `src/App.vue` can't be deleted;
-   - empty files are rejected;
-   - an existing file the model wasn't given in full (or didn't read with `read_files`) can't be rewritten ("file was not read; ask to include it"; for a file over 20,000 characters: "too large for the AI to edit"). New files and deletes are allowed.
+   - **the file must compile** ([`llm/checkCode.ts`](../functions/src/llm/checkCode.ts), with `@vue/compiler-sfc`, the compiler the preview's Vue builds on): Vue files parse and compile (script and template), JS/TS parse, JSON is valid; no `defineOptions`, `defineModel` or destructured `defineProps`, which the preview's older compiler lacks (the message says what to use instead); every component a `<script setup>` template uses is imported. A refused write is not saved; a refused edit leaves the file unchanged. The message names the problem and line, e.g. "Not saved: src/utils.js doesn't compile: Unexpected token (line 45)";
+   - an existing file can be rewritten or edited only after the model was given its content (sent in full, read with `read_files`, or written in this build): "read it with read_files first", or for a file over 20,000 characters "too large for the AI to change". New files and deletes are allowed.
 
-   Valid operations are kept. A file left unclosed by a truncated stream is rejected.
+   **After each response**, once all its calls ran, imports are checked across the app (`workspace.problems()`): relative imports must resolve (files written later in the same response count), names imported from `./genesis/hl.js` and `./genesis/ui` must exist (read from `hlReference.md` and `uiKit.md`, which frontend tests keep equal to the injected code), only `vue` may come from npm, and no other file may import a file the build deleted. Problems go back to the model after the results, and the build continues. Problems still left at the end are reported (`invalid_output`, status `partial`; the files are saved).
+
+   Measured (2026-11-18): no check fired on 16 ordinary builds (no false alarms); a request for `defineModel` was refused and rewritten in a 361-token second round, and the build finished with every file compiling.
+
+   The working copy keeps the net change per path (a file created and deleted in the same build leaves nothing). Changes still refused when the build ends are listed in the error (`invalid_output`, status `partial`); the accepted ones are saved.
 5. **Saving:** write the files, ask Haiku for a one-line change summary, create a snapshot, save the user and assistant messages, and set the generation status:
    - `done`: everything was applied;
    - `partial`: some files were applied, and the error explains the rest;
@@ -425,12 +434,12 @@ sequenceDiagram
   alt not enough credits
     G-->>SPA: 402 insufficient_credits (no Claude call)
   else reserved
-    G->>CL: messages.stream
+    G->>CL: messages.create (stream)
     CL-->>G: tokens, final usage
-    opt read_files turn (at most 2)
+    opt extra turn (files read, or a change refused)
       G->>CL: messages.countTokens (the next turn's input)
       G->>FS: transaction: hold that input at the cache-write rate, write {gid}-hold-{n} (402 ends the build, keeping finished files)
-      G->>CL: messages.stream (next turn)
+      G->>CL: messages.create (next turn)
     end
     G->>CL: Haiku summary (if files were saved)
     G->>FS: transaction: release hold, charge actual usage, write {gid}-charge
@@ -448,7 +457,7 @@ held = ceil( exact input tokens × cache-write rate   (the dearest input rate: a
 
 The input is counted with `messages.countTokens`. If counting is unavailable, the request's length ÷ 2.5 is used: deliberately high, because code tokenizes densely.
 
-**Extra turns** (a large app's `read_files` calls): before each, its whole input (the conversation so far plus the files read) is counted and held at the cache-write rate as `{generationId}-hold-{n}`. The output cap is already in the first hold, because it covers all turns together. If the balance can't cover an extra turn, the build ends with `insufficient_credits` and keeps what it finished. If `balance − reserved` can't cover the hold, the build gets `402 insufficient_credits` ("This build needs up to X AI credits and you have Y available.") and Claude is never called.
+**Extra turns** (after a `read_files` call or a refused change, §6): before each, its whole input (the conversation so far plus the files read) is counted and held at the cache-write rate as `{generationId}-hold-{n}`. The output cap is already in the first hold, because it covers all turns together. If the balance can't cover an extra turn, the build ends with `insufficient_credits` and keeps what it finished. If `balance − reserved` can't cover the hold, the build gets `402 insufficient_credits` ("This build needs up to X AI credits and you have Y available.") and Claude is never called.
 
 **Charge**, after the build, in one transaction:
 
@@ -460,16 +469,16 @@ The transaction releases the hold, deducts `charged` from the balance, adds it t
 
 ### 7.4 Worked example
 
-A build whose input comes to 20,000 tokens: the 7,100-token system prompt (cached, §7.8) plus 12,900 tokens of history, files and prompt:
+A build whose input comes to 20,000 tokens: the 7,800-token tools and system prompt (cached, §7.8) plus 12,200 tokens of history, files and prompt:
 
 | Step | Calculation | Credits |
 |---|---|---|
 | Hold | 20,000 × 2,500/M = 50 (all input as a cache miss) · 16,000 × 10,000/M = 160 · summary 0.13 | **211** reserved |
-| The model writes 3,000 tokens, cache hit | 12,900 × 2,000/M = 25.8 · 7,100 × 100/M = 0.71 · 3,000 × 10,000/M = 30 | 56.51 |
+| The model writes 3,000 tokens, cache hit | 12,200 × 2,000/M = 24.4 · 7,800 × 100/M = 0.78 · 3,000 × 10,000/M = 30 | 55.18 |
 | Summary (600 in, 40 out on Haiku) | 0.06 + 0.02 | 0.08 |
-| Charge | ceil(56.59) | **57** charged, 154 released |
+| Charge | ceil(55.26) | **56** charged, 155 released |
 
-On a cache miss the system prompt costs 7,100 × 2,500/M = 17.75 instead of 0.71, and the same build is charged 74. A new user's 2,500 credits cover roughly 35–40 builds of this size.
+On a cache miss the prefix costs 7,800 × 2,500/M = 19.5 instead of 0.78, and the same build is charged 75. A new user's 2,500 credits cover roughly 35–40 builds of this size.
 
 ### 7.5 How each outcome is charged
 
@@ -497,19 +506,19 @@ On a cache miss the system prompt costs 7,100 × 2,500/M = 17.75 instead of 0.71
 
 ### 7.8 Prompt caching
 
-The system prompt (rules, UI kit and components, HighLevel reference: about 6,700 tokens, up from 5,500 before the components; 7,100 with the `read_files` tool, for large apps) is identical for every user and build; it changes only on deploy. `generate` sends it as one block with `cache_control: { type: "ephemeral" }` ([`systemBlocks()`](../functions/src/llm/prompt.ts)), so Anthropic caches it for 5 minutes, and every read restarts that timer.
+The build tools and the system prompt (rules, UI kit and components, HighLevel reference: about 7,800 tokens together, measured 7,822; 6,700 of them the prompt) are identical for every user and build; it changes only on deploy. `generate` sends it as one block with `cache_control: { type: "ephemeral" }` ([`systemBlocks()`](../functions/src/llm/prompt.ts)), so Anthropic caches it for 5 minutes, and every read restarts that timer.
 
-| | System prompt cost | vs. uncached (14.2 credits) |
+| | Tools and system prompt cost | vs. uncached (15.6 credits) |
 |---|---|---|
-| Cache hit: any build, by anyone, started within 5 minutes of the last one | 7,100 × 100/M ≈ 0.71 | about 13.5 credits saved |
-| Cache miss: the first build after a quiet spell, or after a deploy | 7,100 × 2,500/M ≈ 17.75 | about 3.5 credits extra |
+| Cache hit: any build, by anyone, started within 5 minutes of the last one | 7,800 × 100/M ≈ 0.78 | about 14.8 credits saved |
+| Cache miss: the first build after a quiet spell, or after a deploy | 7,800 × 2,500/M ≈ 19.5 | about 3.9 credits extra |
 
 - It pays off once about 1 build in 5 is a hit. A user's follow-up prompts nearly always are.
-- Measured on the emulator: two follow-ups 2 minutes apart showed `cacheWriteTokens: 5,487` then `cacheReadTokens: 5,487`. The second was charged 28 credits instead of 38. With the components (2026-11-18): a dashboard build wrote 7,121 tokens to the cache (prompt and tool) and the next build read 7,121; with the tool sent only for large apps, small builds read 6,688.
+- Measured on the emulator: two follow-ups 2 minutes apart showed `cacheWriteTokens: 5,487` then `cacheReadTokens: 5,487`. The second was charged 28 credits instead of 38. With the components and the build tools (2026-11-18): the first build after a change wrote the prefix, every later build read 7,822 tokens.
 - The charge always follows Claude's reported usage, so caching can't over-charge. The hold prices all input as a cache miss, so it can't under-charge either.
 - Nothing per-user may be added to the system prompt: that would split the cache, and the cache is shared by every user of the API key. A test checks the block is byte-identical across calls.
-- **The `read_files` tool definition** is part of the cached prefix: tools render before the system prompt. It is frozen and byte-identical on every build (a test pins its hash). With `CONTEXT_TOOLS=on` it is sent only when files are indexed (large apps), because its presence made Claude leak tool-call markup into files (§6). So there are two cache entries, one with the tool and one without; each is shared by every user. Changing the definition, like changing the prompt, starts a new cache.
-- **Moving cache point (read turns):** when files were indexed, the latest user turn also gets a `cache_control` marker, so a read turn re-reads the conversation at 0.05× instead of paying it again. It is added only then: on a build that ends in one turn, it would only add the 1.25× write. The last turn's `tool_choice: none` keeps the tools and system cache but invalidates the messages cache, so that turn pays the conversation again, at the normal input rate: it carries no cache point, since nothing comes after it. This happens only in builds that read twice; a note instead of the switch would keep the cache, at the price of an extra turn when the model ignores it (decided against for now; revisit if logs show many two-read builds).
+- **The tool definitions** are part of the cached prefix: tools render before the system prompt. They are frozen and byte-identical on every build (a test pins their hash), so there is one cache entry, shared by every user (`CONTEXT_TOOLS=off` drops `read_files` and makes a second). Changing a definition, like changing the prompt, starts a new cache.
+- **Moving cache point:** every request also marks the latest user turn with `cache_control`, so an extra turn (a read, or a refused change) re-reads the conversation at 0.1× instead of paying it again. On a build that ends in one request it costs the 1.25× write on that turn's files and prompt (a few credits on a large app). The last turn's `tool_choice: none` keeps the tools and system cache but invalidates the messages cache; that happens only when a build reaches 6 requests.
 - The history, files and prompt aren't cached otherwise: they change on every build. The 1-hour TTL isn't used: it costs 2× to write, and the rate card has no price for it.
 - `generate: persisted` logs `cacheRead` / `cacheWrite`, and each generation stores them under `usage`.
 
@@ -760,11 +769,13 @@ Unit tests sit next to the code they test (`lib/sse.test.ts`, `composables/useGe
 Everything below is in the repo and runs in CI on every push and pull request.
 
 - **Functions unit tests** (`cd functions && npm test`, `node:test`):
-  - The stream parser produces identical results however the text is chunked; unclosed files are detected; a `refuse` reply is handled; stray trailers and cut-off tags are removed; a file open at a tool call is dropped.
-  - `validateOps` behaves as described in §6, including the unread-file guard.
+  - The tool-input reader decodes fields exactly as `JSON.parse` would, whatever the chunking (every chunk size, 500 random cuts, escapes and surrogate pairs split), and never throws on a cut-off input.
+  - The response assembler, on events in the API's shape: thinking blocks kept with their signatures, tool input parsed strictly, invalid JSON reported on that call only, a dropped stream keeping the completed blocks.
+  - The workspace behaves as described in §6 (paths, size, system files, entry files, the unread-file guard, exact and unique edits, net changes, files that don't compile, import problems including deleted files).
+  - The code check: valid Vue (setup and options), JS, TS, JSON pass; syntax errors are reported with their line; `defineOptions`, `defineModel` and destructured props are refused with the alternative; unimported template components; unresolved imports, unknown client names and components, npm packages other than vue.
   - Files: content hashing and metadata extraction (props, emits, imports, client helpers); manifest updates and upload dedupe; the blob cache; the cleanup's delete precondition.
   - Context: everything-fits output identical to before, ranking order, distinctive names only, budget filling and index lines.
-  - `read_files` and the turn loop with a fake Claude: read then write, the read cap with `tool_choice: none`, stop between turns, a refused extra hold, a refusal on turn 2, unread overwrites rejected, a cut-off turn's usage, the moving cache point; the tool definition is frozen and its bytes pinned.
+  - `read_files` and the tool loop with a fake Claude: one request when every change is accepted; refused changes and invalid JSON answered so the model can fix them; reads continue; `decline` and API refusals run nothing; the output cap, a dropped stream and a stop keep completed changes only; a refused extra hold; the turn cap with `tool_choice: none`; the shared output cap; the moving cache point. The tool definitions are frozen, strict, and their bytes pinned.
   - Credits: the rate card, unknown models billed at the highest rate, rounding, usage mapping, and that a multi-turn build's holds cover its cost.
   - Observability (§14): through the real Langfuse span processor with an in-memory exporter: the trace shape, types and nesting; user, session and tags on every observation; tokens, cost and time to first token; the conversation each request saw; warnings for cut-off requests; declined prompts not sent; file contents masked; a failing or hanging Langfuse never throws and is cut off at 3 seconds.
   - Token encryption: round trip, a fresh key and IV per record, tampering and user-swapping rejected, and the decryption cache.
@@ -779,8 +790,9 @@ Everything below is in the repo and runs in CI on every push and pull request.
   - **Token encryption:** stored records contain no plain-text token and still work; legacy plain-text records are sealed on first use; a corrupted record, or one moved to another user, fails closed with `503 hl_tokens_unavailable`.
   - **File store** (`filestore.e2e.ts`, `storage.e2e.ts`, `migrate.e2e.ts`, `cleanup.e2e.ts`): manifest transactions, versions and concurrent changes; snapshots as manifests; restore (also of legacy snapshots); copy within an account only; content in Storage per user; no client Storage access; lazy conversion with concurrent first accesses; the backfill (dry run, verification, re-run); stale manifests dropped by the Firestore store; cleanup keeps referenced and recent content. CI runs the whole suite twice, with `FILE_STORE=blobs` and `firestore`. The Storage emulator ignores generation and metageneration preconditions and `customTime`, so those are unit-tested only.
   - **Security rules** (`rules.e2e.ts`): as signed-in users through the Firestore emulator, each user reads only their own user document, ledger and apps; nobody reads `hlTokens` or `oauthStates`; unfiltered app listings are refused; every client write (including topping up credits) is denied.
-- **Frontend unit tests** (`cd frontend && npm test`, Vitest): the SSE reader (any chunking, heartbeats, CRLF, malformed events) and `useGeneration` (tokens into files, credits, refusals before streaming, declined requests, broken streams, Stop, editor hints in the request, the "reading" state).
+- **Frontend unit tests** (`cd frontend && npm test`, Vitest): the SSE reader (any chunking, heartbeats, CRLF, malformed events) and `useGeneration` ("finishing" from the end of the stream until the UI re-synced, tokens into files, credits, refusals before streaming, declined requests, broken streams, Stop, editor hints in the request, the "reading" state).
 - **Lint:** ESLint with the recommended TypeScript rules (functions) and Vue + TypeScript rules (frontend). The generated shadcn-vue components and the ready-made apps' browser code are excluded.
+- **Build eval** (`node scripts/eval-builds.mjs <label>`, on demand, not in CI): 11 real builds against the emulators (new apps, follow-ups, a large app that needs `read_files`, a forbidden `package.json` change, an off-topic request), each saved file compiled with `vue/compiler-sfc` or Babel; results appended to `eval-results.jsonl` (git-ignored). About $1 of Claude usage per run.
 - **Manual end-to-end checks** were also run during development against a real HighLevel sandbox and real Claude (OAuth connect and refresh, generation, partial results, cancellation, pagination, rate limits), with headless-browser screenshots. These need real credentials and spend credits, so they aren't automated.
 
 ## 14. Observability
@@ -796,7 +808,8 @@ build-app                (agent)       input: the prompt · output: the plan and
 ├── prepare-context      (span)        files sent in full, files only listed, characters
 ├── generate-changes     (generation)  one per request to Claude: the conversation it saw (earlier turns, file names; system
 │                                      prompt and file contents as "(not traced)"), model, tokens incl. cache, cost, time to first token
-├── read-files           (tool)        one per read_files call: paths asked, read, not read
+├── read-files, write-file, edit-file, delete-file (tool)
+│                                      one per call: paths (never content), the result; a refused call is a WARNING
 └── save-changes         (span)        written (path, bytes), deleted, rejected (path, reason), snapshot
     └── summarize-change (generation)  the snapshot summary
 ```
@@ -814,9 +827,12 @@ In Cloud Logging (`jsonPayload`), tagged with `generationId`, `uid` and `project
 
 | Event | Fields |
 |---|---|
-| `build.round` | round number, tokens (input, output, cache read and write, thinking), stop reason, time to first token, duration, tool calls (paths asked and read) |
+| `build.round` | round number, tokens (input, output, cache read and write, thinking), stop reason, time to first token, duration, tool calls (name, paths, read, refused or not; never content) |
 | `build.rejected` | path and reason, one per rejected file |
-| `build.end` | outcome, error code and step, totals, credits held and charged, files sent and listed, files written/deleted/rejected, follow-up or not, timings, `traceId` (the Langfuse trace) |
+| `build.tool_error` | tool, path and the result the model got, one per refused call (fixed later or not) |
+| `build.code_in_text` | the model wrote code as text instead of a tool call (never saved) |
+| `build.problem` | an import problem left in the app when the build ended (the files were saved) |
+| `build.end` | outcome, error code and step, totals, credits held and charged, files sent and listed, files written/deleted/rejected, refused calls, follow-up or not, timings, `traceId` (the Langfuse trace) |
 
 ### 14.3 Settings and the off switch
 

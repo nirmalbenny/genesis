@@ -3,7 +3,7 @@ import { Code } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
 
 /** Covers the preview while a build streams: an app wireframe assembling itself plus live progress. */
-defineProps<{ file: string | null; filesDone: number; reading?: string[] }>()
+defineProps<{ file: string | null; filesDone: number; reading?: string[]; starting?: boolean }>()
 defineEmits<{ 'show-code': [] }>()
 </script>
 
@@ -38,16 +38,17 @@ defineEmits<{ 'show-code': [] }>()
           <span class="absolute inline-flex size-full animate-ping rounded-full bg-primary opacity-60" />
           <span class="relative size-2 rounded-full bg-primary" />
         </span>
-        Building your app
+        {{ starting ? 'Starting your app' : 'Building your app' }}
       </p>
       <p class="mt-1 text-[13px] text-muted-foreground">
-        <template v-if="file">Writing <span class="font-mono text-ink-200">{{ file.split('/').pop() }}</span></template>
+        <template v-if="starting">Loading the new version with live data</template>
+        <template v-else-if="file">Writing <span class="font-mono text-ink-200">{{ file.split('/').pop() }}</span></template>
         <template v-else-if="reading?.length">Reading <span class="font-mono text-ink-200">{{ reading.map((p) => p.split('/').pop()).join(', ') }}</span></template>
         <template v-else>Planning the changes</template>
-        <template v-if="filesDone"> · {{ filesDone }} {{ filesDone === 1 ? 'file' : 'files' }} done</template>
+        <template v-if="filesDone && !starting"> · {{ filesDone }} {{ filesDone === 1 ? 'file' : 'files' }} done</template>
       </p>
-      <p class="mt-3 text-xs text-muted-foreground">The preview updates with live data as soon as the build finishes.</p>
-      <Button variant="outline" size="sm" class="mt-4" @click="$emit('show-code')"><Code class="size-4" />Watch the code</Button>
+      <p v-if="!starting" class="mt-3 text-xs text-muted-foreground">The preview updates with live data as soon as the build finishes.</p>
+      <Button v-if="!starting" variant="outline" size="sm" class="mt-4" @click="$emit('show-code')"><Code class="size-4" />Watch the code</Button>
     </div>
   </div>
 </template>

@@ -1,6 +1,5 @@
 import { posix } from "node:path";
 import type { FileEntry, Manifest } from "../files";
-import { fileBlock } from "./format";
 import { FILE_BUDGET_CHARS, SINGLE_FILE_LIMIT_CHARS, type ContextFile } from "./prompt";
 
 /**
@@ -94,11 +93,20 @@ export function indexLine(path: string, e: FileEntry): string {
 }
 
 /**
- * The files section of the user message. Files sent in full are rendered as file blocks; when some are left
- * out, an index follows, with how to get them (`tools`: the read_files tool is available).
+ * Files as the model reads them (context and read_files results), in Anthropic's documented long-document layout.
+ * Deliberately unlike any output format: the model changes files only through tool calls.
+ */
+export function documents(files: ContextFile[]): string {
+  const docs = files.map((f) => `<document>\n<source>${f.path}</source>\n<document_content>\n${f.content}\n</document_content>\n</document>`);
+  return `<documents>\n${docs.join("\n")}\n</documents>`;
+}
+
+/**
+ * The files section of the user message. Files sent in full are rendered as documents; when some are left out,
+ * an index follows, with how to get them (`tools`: the read_files tool is available).
  */
 export function renderContext(files: ContextFile[], manifest: Manifest, index: string[], tools: boolean): string {
-  const text = files.map((f) => fileBlock(f.path, f.content)).join("\n");
+  const text = documents(files);
   if (!index.length) return text;
   const how = tools
     ? "Read any of them with read_files before changing them."

@@ -30,3 +30,4 @@ Thumbs.db
 .idea/
 .claude/settings.local.json
 
+eval-results.jsonl

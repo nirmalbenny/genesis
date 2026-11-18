@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { loadSandpackClient, type SandpackClient } from '@codesandbox/sandpack-client'
-import { CircleAlert, Plug, RefreshCw } from '@lucide/vue'
+import { CircleAlert, Plug, RefreshCw, Sparkles } from '@lucide/vue'
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import BuildingOverlay from '@/components/BuildingOverlay.vue'
 import { Badge } from '@/components/ui/badge'
@@ -25,12 +25,18 @@ const props = defineProps<{
   filesDone?: number
   /** Files the model is reading before it writes, shown in the building overlay. */
   buildingReading?: string[]
+  /** The build finished and the new version is loading: the overlay stays until it runs. */
+  starting?: boolean
+  /** Offer "Fix with AI" on a preview error (the workspace, not the full-screen app). */
+  canFix?: boolean
   hideHeader?: boolean
 }>()
-const emit = defineEmits<{ connect: []; 'show-code': [] }>()
+const emit = defineEmits<{ connect: []; 'show-code': []; fix: [error: string] }>()
 
 const iframe = ref<HTMLIFrameElement | null>(null)
 const banner = ref('')
+/** The preview's error with where it happened, for "Fix with AI" (empty when the banner isn't a code error). */
+const codeError = ref('')
 let client: SandpackClient | null = null
 let token: { token: string; locationId: string; locationName?: string; expiresAt: number } | null = null
 let refreshTimer: ReturnType<typeof setTimeout> | undefined
@@ -51,8 +57,22 @@ async function ensureToken() {
   refreshTimer = setTimeout(() => refresh(), Math.max(token!.expiresAt - Date.now() - 60_000, 5_000))
 }
 
-/** Rebuilds the sandbox from current files + injected (never persisted) system files. */
-async function refresh() {
+// Callers waiting for the sandbox to finish running the files it was just given (see refresh).
+let waiting: (() => void)[] = []
+const ran = () => {
+  const w = waiting
+  waiting = []
+  w.forEach((resolve) => resolve())
+}
+const RUN_TIMEOUT_MS = 15_000
+let lastSent = ''
+
+/**
+ * Rebuilds the sandbox from current files + injected (never persisted) system files, and resolves once it has run
+ * them (or failed, or after 15 s), so a caller can keep a loading state up until the new version shows. Unchanged
+ * files aren't sent again unless `force` (the Refresh button, which reloads live data).
+ */
+async function refresh({ force = false } = {}) {
   if (!props.connected) return
   try {
     await ensureToken()
@@ -86,19 +106,39 @@ async function refresh() {
     template: 'vue-cli' as const,
     dependencies,
   }
+  const key = JSON.stringify(setup)
+  if (client && key === lastSent && !force) return
+  lastSent = key
+  const done = new Promise<void>((resolve) => {
+    waiting.push(resolve)
+    setTimeout(resolve, RUN_TIMEOUT_MS)
+  })
   try {
     if (client) {
       client.updateSandbox(setup)
     } else if (iframe.value) {
       client = await loadSandpackClient(iframe.value, setup, {})
       client.listen((msg) => {
-        if (msg.type === 'action' && msg.action === 'show-error') banner.value = String(msg.message ?? 'Preview error')
-        else if (msg.type === 'done' && !msg.compilatonError) banner.value = ''
+        if (msg.type === 'action' && msg.action === 'show-error') {
+          const m = msg as unknown as { title?: string; message?: string; path?: string; line?: number }
+          banner.value = String(m.message ?? 'Preview error')
+          const where = m.path ? ` (in ${m.path.replace(/^\//, '')}${m.line ? `, line ${m.line}` : ''})` : ''
+          codeError.value = `${m.title ? `${m.title}: ` : ''}${m.message ?? ''}${where}`.trim()
+          ran()
+        } else if (msg.type === 'done') {
+          if (!msg.compilatonError) { banner.value = ''; codeError.value = '' }
+          ran()
+        }
       })
+    } else {
+      ran()
     }
   } catch (e) {
     banner.value = `Preview failed to load: ${(e as Error).message}`
+    codeError.value = ''
+    ran()
   }
+  await done
 }
 
 // Connecting, or switching to another sub-account, after the panel opened: drop the stale token and reload.
@@ -106,6 +146,7 @@ watch(() => [props.connected, props.locationName] as const, ([c]) => {
   if (c) {
     token = null
     banner.value = ''
+    codeError.value = ''
     refresh()
   } else {
     clearTimeout(refreshTimer)
@@ -127,7 +168,7 @@ defineExpose({ refresh })
         <span class="size-[7px] rounded-full bg-data-500" />Live data<template v-if="locationName"> · {{ locationName }}</template>
       </Badge>
       <span class="flex-1" />
-      <Button variant="ghost" size="icon-sm" aria-label="Refresh preview" :disabled="!connected" @click="refresh()"><RefreshCw class="size-4" /></Button>
+      <Button variant="ghost" size="icon-sm" aria-label="Refresh preview" :disabled="!connected" @click="refresh({ force: true })"><RefreshCw class="size-4" /></Button>
     </div>
     <div class="h-0.5 shrink-0 bg-signal-100"><div v-if="building" class="h-0.5 w-full bg-signal-500" /></div>
 
@@ -147,13 +188,14 @@ defineExpose({ refresh })
         enter-from-class="opacity-0"
         leave-to-class="opacity-0"
       >
-        <BuildingOverlay v-if="building" :file="buildingFile ?? null" :files-done="filesDone ?? 0" :reading="buildingReading" @show-code="emit('show-code')" />
+        <BuildingOverlay v-if="building" :file="buildingFile ?? null" :files-done="filesDone ?? 0" :reading="buildingReading" :starting="starting" @show-code="emit('show-code')" />
       </Transition>
     </div>
 
     <div v-if="connected && banner && !building" class="absolute z-20 inset-x-2 bottom-2 flex gap-2 rounded-md bg-danger-100 px-3 py-2 text-[13px] leading-5 shadow-[0_8px_24px_rgba(24,23,28,0.10)]">
-      <CircleAlert class="mt-0.5 size-4 shrink-0 text-danger-500" /><p class="min-w-0 flex-1">{{ banner }}</p>
-      <Button size="xs" variant="secondary" @click="refresh()">Retry</Button>
+      <CircleAlert class="mt-0.5 size-4 shrink-0 text-danger-500" /><p class="min-w-0 flex-1 break-words">{{ banner }}</p>
+      <Button v-if="canFix && codeError" size="xs" @click="emit('fix', codeError)"><Sparkles class="size-3.5" />Fix with AI</Button>
+      <Button size="xs" variant="secondary" @click="refresh({ force: true })">Retry</Button>
     </div>
   </div>
 </template>

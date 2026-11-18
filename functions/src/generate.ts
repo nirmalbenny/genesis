@@ -12,13 +12,15 @@ import {
 } from "./credits";
 import { fileStore, projectRef } from "./files";
 import { httpError, requireVerifiedUser, sendError } from "./http";
-import { createParser } from "./llm/parser";
 import { summarizeChange } from "./llm/summary";
+import type { ToolCall } from "./llm/assemble";
 import { renderContext, selectContext } from "./llm/context";
-import { RECENT_MESSAGES, SINGLE_FILE_LIMIT_CHARS, systemBlocks } from "./llm/prompt";
-import { READ_FILES_TOOL, runReadFiles } from "./llm/tools";
-import { runTurns, type TurnStream } from "./llm/turns";
-import { checkPath, NOT_READ, validateOps, type FileOp, type Rejection } from "./llm/validate";
+import { RECENT_MESSAGES, systemBlocks } from "./llm/prompt";
+import { buildTools, runBuildTool, runReadFiles } from "./llm/tools";
+import { createFieldReader } from "./llm/toolInput";
+import { runTurns } from "./llm/turns";
+import { checkPath, type FileOp, type Rejection } from "./llm/validate";
+import { createWorkspace } from "./llm/workspace";
 import { logBuild, stepTimer, type BuildTraceInput } from "./observability/buildTrace";
 import { ensureLangfuse, sendBuildTrace } from "./observability/langfuse";
 import { assertEditable, getOwnedProject, getUserHl, useConnectedLocation } from "./projects";
@@ -27,7 +29,8 @@ const MAX_PROMPT_CHARS = 4000;
 const MAX_HINT_PATHS = 10; // active + open editor tabs sent as context hints
 const RECENT_GENERATIONS = 2; // files changed by these rank first in a large app's context
 const MAX_OUTPUT_TOKENS = 16000; // for the whole build, across its turns
-const MAX_READ_TURNS = 2; // read_files calls per build; the turn after the last one must answer
+const MAX_READ_CALLS = 2; // read_files calls per build; later ones are answered with an error
+const MAX_TURNS = 6; // requests per build; the last one can't call tools, so the model has to finish
 const HEARTBEAT_MS = 15_000;
 // Worst case for the one-line Haiku snapshot summary, included in every build's hold.
 const SUMMARY_ALLOWANCE: TokenUsage = { inputTokens: 1000, outputTokens: 60, cacheWriteTokens: 0, cacheReadTokens: 0 };
@@ -113,20 +116,17 @@ export const generate = onRequest(
       // Content is read only for the files sent in full.
       const selection = selectContext(manifest, { activePath, openPaths, recentPaths, prompt });
       const files = await time("readFiles", () => store.read(pid, selection.full));
-      // The read_files tool is sent only when files were left out (it's useless otherwise). A tool definition in the
-      // request made Claude leak tool-call markup into files (measured 2026-11-18: 6/18 files with it, 0/18 without),
-      // so most builds, which send every file, go without it. The two variants are two prompt caches; the
-      // conversation itself is cached only when files were left out (docs/plans/filestore-and-context.md R3).
-      const tools = CONTEXT_TOOLS.value() === "on" && selection.index.length > 0;
-      const cacheConversation = tools;
+      // Every change comes back as a tool call (docs/plans/tool-protocol.md). The tool set is the same for every
+      // build, so tools and system prompt are one shared cache entry; read_files is in it unless CONTEXT_TOOLS=off.
+      const contextTools = CONTEXT_TOOLS.value() === "on";
       const history = recent.docs
         .reverse()
         .map((d) => ({ role: d.get("role") as "user" | "assistant", content: d.get("content") as string }));
-      const filesText = renderContext(files, manifest, selection.index, tools);
+      const filesText = renderContext(files, manifest, selection.index, contextTools);
       const request = {
         model,
         system: systemBlocks(),
-        ...(tools ? { tools: [READ_FILES_TOOL] } : {}),
+        tools: buildTools(contextTools),
         messages: [
           ...history,
           { role: "user" as const, content: `Current project files:\n${filesText}\n\nRequest: ${prompt}` },
@@ -144,19 +144,19 @@ export const generate = onRequest(
       // so declined (off-topic or harmful) requests never enter history or later model context.
       await time("createGeneration", () => genRef.set({ status: "streaming", createdAt: FieldValue.serverTimestamp() }));
       const trace = {
-        projectName, fileStore: FILE_STORE.value(), contextTools: tools,
+        projectName, fileStore: FILE_STORE.value(), contextTools,
         followUp: { previousGenerationId: lastBuilds.docs[0]?.id ?? null, historyMessages: history.length },
         history,
         context: { full: selection.full, indexed: selection.index, chars: filesText.length, activePath, openPaths, recentPaths },
         checksMs: checksDone - startedAt, contextMs: contextDone - checksDone, holdMs: Date.now() - contextDone,
       };
-      ctx = { uid, pid, prompt, proj, store, manifest, seen: new Set(selection.full), request, cacheConversation, genRef, held, trace };
+      ctx = { uid, pid, prompt, proj, store, manifest, files, contextTools, request, genRef, held, trace };
     } catch (err) {
       if (slot) await releaseBuildSlot(slot.uid, slot.generationId).catch((e) => console.error("generate: slot release failed", e));
       sendError(res, err);
       return;
     }
-    const { uid, pid, prompt, proj, store, manifest, seen, request, cacheConversation, genRef, trace } = ctx;
+    const { uid, pid, prompt, proj, store, manifest, files, contextTools, request, genRef, trace } = ctx;
     let held = ctx.held; // grows when a read turn holds more
     const generationId = genRef.id;
 
@@ -176,72 +176,134 @@ export const generate = onRequest(
     send("start", { generationId });
 
     // ---- Stream ----
-    const ops: FileOp[] = [];
+    // The working copy: context files are known to the model; tool calls change it; it's persisted at the end.
+    const workspace = createWorkspace(manifest);
+    for (const f of files) workspace.show(f.path, f.content);
     const planParts: string[] = [];
-    let refused = false;
-    const rejected: Rejection[] = [];
-    const fixups: { path: string; fix: string }[] = [];
-    const parser = createParser((e) => {
-      if (e.type === "token") {
-        send("token", { text: e.text, path: e.path });
-        if (e.path === null) planParts.push(e.text);
-      } else if (e.type === "file_start") send("file_start", { path: e.path });
-      else if (e.type === "file_end") {
-        ops.push({ type: "write", path: e.path, content: e.content });
-        send("file_end", { path: e.path, bytes: Buffer.byteLength(e.content) });
-      } else if (e.type === "refuse") {
-        refused = true;
-        console.info("generate: request declined by model:", e.reason.slice(0, 200)); // the reason, never the prompt
-      } else if (e.type === "fixup") fixups.push({ path: e.path, fix: e.fix });
-      else ops.push({ type: "delete", path: e.path });
-    });
+    /** Refused changes the model hasn't fixed since, by path (or tool name when the input had no path). */
+    const unresolved = new Map<string, Rejection & { tool: string }>();
+    const toolErrors: { tool: string; path: string; error: string }[] = [];
+
+    // write_file inputs stream into the editor as they arrive: file_start once the path is known, then the content.
+    let firstTokenAt: number | null = null;
+    const live = new Map<number, { path: string | null; reader: ReturnType<typeof createFieldReader> }>();
+    const callPaths = new Map<number, string>(); // this turn's write_file paths by block index, as streamed
+    let afterTool = false; // text after tool calls starts a new paragraph of the chat
+    const handlers = {
+      onText: (text: string) => {
+        firstTokenAt ??= Date.now();
+        if (afterTool && planParts.length) { planParts.push("\n\n"); send("token", { text: "\n\n", path: null }); }
+        afterTool = false;
+        planParts.push(text);
+        send("token", { text, path: null });
+      },
+      onToolStart: (index: number, name: string) => {
+        firstTokenAt ??= Date.now();
+        afterTool = true;
+        callPaths.delete(index);
+        if (name !== "write_file") return;
+        let pathText = "";
+        let early = ""; // content that arrived before the path
+        const file = {
+          path: null as string | null,
+          reader: createFieldReader((key, text, done) => {
+            if (key === "path" && file.path === null) {
+              pathText += text;
+              if (!done) return;
+              if (checkPath(pathText) !== null) { live.delete(index); return; } // refused when it runs; never shown
+              file.path = pathText;
+              callPaths.set(index, pathText);
+              send("file_start", { path: file.path });
+              if (early) send("token", { text: early, path: file.path });
+            } else if (key === "content" && text) {
+              if (file.path) send("token", { text, path: file.path });
+              else early += text;
+            }
+          }),
+        };
+        live.set(index, file);
+      },
+      onToolInput: (index: number, json: string) => live.get(index)?.reader.push(json),
+      onToolEnd: (call: ToolCall) => {
+        const file = live.get(call.index);
+        live.delete(call.index);
+        // An input that didn't parse (cut off at the output cap, or malformed) is not a finished file.
+        if (file?.path && !call.error) send("file_end", { path: file.path, bytes: typeof call.input.content === "string" ? Buffer.byteLength(call.input.content) : 0 });
+      },
+    };
+
+    let readCalls = 0;
+    const readFiles = (input: unknown) => runReadFiles(
+      input, manifest, (paths) => store.read(pid, paths), (p) => workspace.shown(p), (f) => workspace.show(f.path, f.content),
+    );
+    const runTool = async (call: ToolCall) => {
+      if (call.name === "read_files") {
+        const allowed = contextTools && readCalls < MAX_READ_CALLS;
+        if (allowed) {
+          readCalls++;
+          const paths = Array.isArray(call.input.paths) ? call.input.paths.filter((p): p is string => typeof p === "string") : [];
+          send("status", { phase: "reading", paths });
+        }
+        return runBuildTool(call, { workspace, readFiles: allowed ? readFiles : null });
+      }
+      const r = await runBuildTool(call, { workspace, readFiles: null });
+      const path = typeof call.input.path === "string" ? call.input.path : callPaths.get(call.index) ?? "";
+      const key = path || `(${call.name})`;
+      if (r.isError) {
+        toolErrors.push({ tool: call.name, path, error: r.content });
+        unresolved.set(key, { tool: call.name, path: key, reason: r.content.replace(/^Not \w+: /, "").replace(/\.$/, "") });
+      } else {
+        unresolved.delete(key);
+        if (call.name === "edit_file") { // the edited file, whole, for the editor
+          send("file_start", { path });
+          send("token", { text: workspace.content(path) ?? "", path });
+          send("file_end", { path, bytes: Buffer.byteLength(workspace.content(path) ?? "") });
+        }
+      }
+      return r;
+    };
 
     // Stop requests (POST .../generations/:gid/cancel) arrive as a flag on the generation doc, so they reach
     // this instance whichever instance served them. Once the model has finished, a late stop is ignored.
-    let current: TurnStream | null = null;
+    const abort = new AbortController();
     let cancelled = false;
     let streamEnded = false;
     res.on("close", () => {
-      if (!res.writableFinished) { clientGone = true; current?.abort(); }
+      if (!res.writableFinished) { clientGone = true; abort.abort(); }
     });
     const stopWatching = genRef.onSnapshot((s) => {
-      if (s.get("cancelRequested") && !streamEnded && !cancelled) { cancelled = true; current?.abort(); }
+      if (s.get("cancelRequested") && !streamEnded && !cancelled) { cancelled = true; abort.abort(); }
     }, () => {});
 
-    let firstTokenAt: number | null = null;
     const streamStarted = Date.now();
     const turns = await runTurns({
-      stream: (params) => client.messages.stream(params),
+      stream: (params, signal) => client.messages.create(params, { signal }),
       request,
       maxOutputTokens: MAX_OUTPUT_TOKENS,
-      maxReadTurns: MAX_READ_TURNS,
-      cacheConversation,
-      onText: (t) => {
-        firstTokenAt ??= Date.now();
-        parser.push(t);
+      maxTurns: MAX_TURNS,
+      signal: abort.signal,
+      handlers,
+      runTool,
+      review: () => {
+        const problems = workspace.problems();
+        return problems.length
+          ? `These changes leave problems in the app:\n${problems.map((p) => `- ${p}`).join("\n")}\nFix them with further calls.`
+          : null;
       },
-      onStream: (s) => { current = s; },
-      runTool: (block) => block.name === READ_FILES_TOOL.name
-        ? runReadFiles(block.input, manifest, (paths) => store.read(pid, paths), seen)
-        : Promise.resolve({ content: `Unknown tool ${block.name}.`, is_error: true, read: [] }),
       // Each extra turn re-sends the conversation: hold its input at the dearest rate (the output cap is already held).
       beforeTurn: async (turn, params) => {
         const extra = chargeable(worstCaseCredits(model, await countInput(client, params), 0));
         await extendHold(uid, generationId, turn, extra);
         held += extra;
       },
-      onRead: (paths, openFile) => {
-        if (openFile) rejected.push({ path: openFile, reason: "the model stopped writing it to read files" });
-        send("status", { phase: "reading", paths });
-      },
-      discardOpenFile: () => parser.discardOpenFile(),
       stopped: () => cancelled || clientGone,
     });
     const streamMs = Date.now() - streamStarted;
     const buildUsage = turns.usage;
     let failure: { code: string; message: string } | null = null;
     let summaryUsage: TokenUsage | null = null;
-    const final = turns.message;
+    const refused = turns.declined !== null;
+    if (refused) console.info("generate: request declined by model:", (turns.declined || "API refusal").slice(0, 200)); // never the prompt
     if (turns.error || turns.stoppedBetweenTurns) {
       const e = turns.error as { status?: number; code?: string; message?: string } | null;
       failure = cancelled
@@ -249,15 +311,19 @@ export const generate = onRequest(
         : clientGone
         ? { code: "disconnected", message: "Connection to the client was lost." }
         : e?.status === 402
-        ? { code: "insufficient_credits", message: e.message ?? "Not enough AI credits to read more files." }
+        ? { code: "insufficient_credits", message: e.message ?? "Not enough AI credits to continue this build." }
         : { code: "llm_error", message: turns.error instanceof Error ? turns.error.message : "The model request failed." };
-    } else if (final) {
-      // Harmful requests can be refused by the API itself: empty content with this stop reason.
-      if ((final.stop_reason as string) === "refusal") refused = true;
-      if (final.stop_reason === "max_tokens") {
-        failure = { code: "truncated", message: "The model hit its output limit; the last file was cut off." };
-      }
+    } else if (turns.truncated) {
+      failure = { code: "truncated", message: "The model hit its output limit; the last file was cut off." };
     }
+    // The file being written when the build ended (cut off, stopped or failed) is not saved.
+    const unclosed = turns.unfinished ? callPaths.get(turns.unfinished.index) ?? null : null;
+    const rejected: Rejection[] = [...unresolved.values()].map(({ path, reason }) => ({ path, reason }));
+    if (unclosed) rejected.push({ path: unclosed, reason: "cut off before it was finished" });
+    const ops: FileOp[] = workspace.ops();
+    const problems = workspace.problems(); // left after the model's last turn
+    const plan = planParts.join("").trim();
+    const codeInText = /```|<template[\s>]|<script[\s>]/.test(plan);
     streamEnded = true;
     stopWatching();
 
@@ -279,9 +345,9 @@ export const generate = onRequest(
     const observe = async (status: string, failure: { code: string; message: string } | null, actions: BuildTraceInput["actions"], charged: number) => {
       const input: BuildTraceInput = {
         generationId, uid, projectId: pid, projectName: trace.projectName, startedAt, endedAt: Date.now(),
-        status, error: failure, prompt, plan: planParts.join("").trim(), followUp: trace.followUp, history: trace.history,
+        status, error: failure, prompt, plan, followUp: trace.followUp, history: trace.history,
         model, summaryModel, fileStore: trace.fileStore, contextTools: trace.contextTools, context: trace.context,
-        rounds: turns.rounds, actions, fixups, credits: { held, extraHolds: held - ctx.held, charged }, summaryUsage,
+        rounds: turns.rounds, actions, toolErrors, problems, codeInText, credits: { held, extraHolds: held - ctx.held, charged }, summaryUsage,
         timings: {
           checksMs: trace.checksMs, contextMs: trace.contextMs, holdMs: trace.holdMs,
           firstTokenMs: firstTokenAt === null ? null : firstTokenAt - startedAt, streamMs, saveMs: Date.now() - saveStarted,
@@ -291,13 +357,8 @@ export const generate = onRequest(
       const traceId = await sendBuildTrace(input);
       logBuild(input, traceId);
     };
-    // A file left open when the model finished its turn on its own is a forgotten close tag, not a cut-off file.
-    const finishedNormally = final?.stop_reason === "end_turn" && !failure && !cancelled && !clientGone;
-    const unclosed = parser.end({ complete: finishedNormally });
-    if (unclosed) rejected.push({ path: unclosed, reason: "file was never closed (output incomplete)" });
-
     // ---- Declined: nothing is stored in history; the client shows a transient notice ----
-    if (refused && !ops.length && !unclosed) {
+    if (refused && !ops.length) {
       await genRef.update({ status: "declined" }).catch(() => {});
       const credits = await settle({ ...buildUsage, outputTokens: 0 }); // declined requests pay for input only
       await observe("declined", null, { written: [], deleted: [], rejected: [], snapshotId: null, summary: null }, credits.charged);
@@ -311,34 +372,29 @@ export const generate = onRequest(
     let status: Status = "error";
     let snapshotId: string | null = null;
     let applied: string[] = [];
-    let validOps: FileOp[] = [];
     let summaryText: string | null = null;
     saveStarted = Date.now();
     try {
-      const existing = new Set(Object.keys(manifest));
-      const tooLarge = new Set(Object.keys(manifest).filter((p) => manifest[p]!.size > SINGLE_FILE_LIMIT_CHARS));
-      const result = validateOps(ops, existing, seen);
-      rejected.push(...result.rejected.map((r) =>
-        r.reason === NOT_READ && tooLarge.has(r.path) ? { ...r, reason: "too large for the AI to edit; split it or edit it by hand" } : r));
-      validOps = result.valid;
-      if (result.valid.length) {
-        await time("uploadFiles", () => store.apply(pid, result.valid));
-        applied = result.valid.map((o) => o.path);
+      if (ops.length) {
+        await time("uploadFiles", () => store.apply(pid, ops));
+        applied = ops.map((o) => o.path);
         // A stopped build gets a fixed label instead of a model-written summary: no extra wait or cost.
         const summarized = cancelled
           ? { summary: "Stopped before finishing", usage: null }
-          : await time("summary", () => summarizeChange(client, summaryModel, { prompt, plan: planParts.join("").trim(), files: applied }));
+          : await time("summary", () => summarizeChange(client, summaryModel, { prompt, plan: plan, files: applied }));
         if (summarized.usage) summaryUsage = toTokenUsage(summarized.usage);
         summaryText = summarized.summary;
         snapshotId = await time("snapshot", () => store.snapshot(pid, generationId, "generation", summarized.summary));
       }
 
-      if (!failure && rejected.length) {
+      if (!failure && problems.length) {
+        failure = { code: "invalid_output", message: `Saved, but some files have problems: ${problems.join("; ")}` };
+      } else if (!failure && rejected.length) {
         failure = {
           code: "invalid_output",
           message: `Some changes were rejected: ${rejected.map((r) => `${r.path} (${r.reason})`).join("; ")}`,
         };
-      } else if (!failure && !applied.length && !planParts.join("").trim()) {
+      } else if (!failure && !applied.length && (!plan || codeInText)) {
         failure = { code: "malformed_output", message: "The model returned no valid file changes." };
       }
       status = cancelled ? "cancelled" : !failure ? "done" : applied.length ? "partial" : "error";
@@ -349,7 +405,7 @@ export const generate = onRequest(
       const stopped = !cancelled ? ""
         : !applied.length ? "Stopped before any files were written."
         : `Stopped. Kept the files below${unclosed ? `; ${unclosed} was not finished` : ""}.`;
-      const prose = [planParts.join("").trim(), stopped].filter(Boolean).join("\n\n");
+      const prose = [plan, stopped].filter(Boolean).join("\n\n");
       const summary = applied.length ? `${prose}\n\nFiles: ${applied.join(", ")}` : prose || failure?.message || "";
       await time("saveMessages", () => proj.collection("messages").add({
         role: "assistant", content: summary, generationId, createdAt: FieldValue.serverTimestamp(),
@@ -370,8 +426,8 @@ export const generate = onRequest(
 
     const credits = await settle(buildUsage);
     await observe(status, failure, {
-      written: validOps.flatMap((o) => (o.type === "write" ? [{ path: o.path, bytes: Buffer.byteLength(o.content) }] : [])),
-      deleted: validOps.flatMap((o) => (o.type === "delete" ? [o.path] : [])),
+      written: ops.flatMap((o) => (o.type === "write" ? [{ path: o.path, bytes: Buffer.byteLength(o.content) }] : [])),
+      deleted: ops.flatMap((o) => (o.type === "delete" ? [o.path] : [])),
       rejected,
       snapshotId,
       summary: summaryText,
