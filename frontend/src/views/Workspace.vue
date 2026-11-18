@@ -93,12 +93,14 @@ const gen = useGeneration({
   onFinished: resync,
 })
 
-// Manual edits: update locally, save after a short pause, then refresh the preview.
+// Manual edits: update locally; after a short pause, refresh the preview from the editor's content and save in
+// parallel (the preview doesn't wait for the save; a failed save still shows its error).
 const timers = new Map<string, ReturnType<typeof setTimeout>>()
 function edit(path: string, content: string) {
   project.files[path] = content
   clearTimeout(timers.get(path))
   timers.set(path, setTimeout(async () => {
+    void preview.value?.refresh()
     const save = () => api('PUT', `/projects/${projectId}/files`, { path, content })
     try {
       // Rate limited (429): wait as told and retry once before showing an error.
@@ -108,7 +110,6 @@ function edit(path: string, content: string) {
         return save()
       })
       saveError.value = ''
-      await preview.value?.refresh()
     } catch (e) {
       saveError.value = `Could not save ${path}: ${(e as Error).message}`
     }

@@ -300,7 +300,7 @@ sequenceDiagram
 - **Follow-up prompts** in the workspace refine the same app. Only the files that change are sent back.
 - **The overlay stays until the new version runs.** When the stream ends, the overlay switches to "Starting your app" and stays while the files reload and Sandpack compiles and runs them (several seconds for a new app, which also loads the components' package); it lifts when Sandpack reports the run finished or failed, or after 15 seconds. Without this, the previous version (for a new app, the "New project" page) showed in between.
 - **Fix with AI:** when the preview reports an error (compile or runtime), its banner offers **Fix with AI**, which starts a follow-up build with the error, file and line ("The preview shows this error: TypeError: … (in src/utils.js, line 2). Fix it."). Not offered on ready-made apps or while a build runs.
-- **Manual edits** in Monaco save after an 800 ms pause and refresh the preview.
+- **Manual edits** in Monaco: after an 800 ms pause the preview is refreshed from the editor's content and the file is saved in parallel, so the preview doesn't wait for the save (1.6–3.2 s in production; a failed save still shows its error). Any change to the app's files (an edit, a restore, the Refresh button) shows a light "Updating preview" overlay until Sandpack reports the new version ran.
 - **History** opens a shadcn Sheet listing snapshots with timestamps and Haiku-written summaries. Restoring one is non-destructive, because it records a new snapshot.
 
 ### 5.4 Launch, pin and edit
