@@ -57,26 +57,38 @@ async function ensureToken() {
   refreshTimer = setTimeout(() => refresh(), Math.max(token!.expiresAt - Date.now() - 60_000, 5_000))
 }
 
-// Callers waiting for the sandbox to finish running the files it was just given (see refresh).
-let waiting: (() => void)[] = []
-const ran = () => {
-  const w = waiting
-  waiting = []
-  w.forEach((resolve) => resolve())
-}
+// Refreshes run one at a time (queue): each sends the files current when its turn comes and waits until the sandbox
+// has run them, so there is only ever one Sandpack client and every "done" belongs to the refresh that sent the
+// files. Before, a refresh during the first load (a build finishing early, on a slow connection) created a second
+// client on the same frame, and the first client's "done" lifted the overlay over the old version.
 const RUN_TIMEOUT_MS = 15_000
+const ERROR_GRACE_MS = 1_500 // after an error, how long to wait for the run's "done" before treating it as finished
+let queue: Promise<void> = Promise.resolve()
+let queued = 0
 let lastSent = ''
 let lastFiles = ''
-/** A change is on its way to the preview (sent, not yet run): shows the "Updating preview" overlay. */
+/** A change is on its way to the preview (queued or sent, not yet run): shows the "Updating preview" overlay. */
 const updating = ref(false)
-let runs = 0
+let settle: (() => void) | null = null
+let runId = 0
 
-/**
- * Rebuilds the sandbox from current files + injected (never persisted) system files, and resolves once it has run
- * them (or failed, or after 15 s), so a caller can keep a loading state up until the new version shows. Unchanged
- * files aren't sent again unless `force` (the Refresh button, which reloads live data).
- */
-async function refresh({ force = false } = {}) {
+/** Handles the sandbox's messages: errors for the banner, and the end of the current run. */
+function onMessage(msg: Parameters<Parameters<SandpackClient['listen']>[0]>[0]) {
+  if (msg.type === 'action' && msg.action === 'show-error') {
+    const m = msg as unknown as { title?: string; message?: string; path?: string; line?: number }
+    banner.value = String(m.message ?? 'Preview error')
+    const where = m.path ? ` (in ${m.path.replace(/^\//, '')}${m.line ? `, line ${m.line}` : ''})` : ''
+    codeError.value = `${m.title ? `${m.title}: ` : ''}${m.message ?? ''}${where}`.trim()
+    const id = runId
+    setTimeout(() => { if (id === runId) settle?.() }, ERROR_GRACE_MS)
+  } else if (msg.type === 'done') {
+    if (!msg.compilatonError) { banner.value = ''; codeError.value = '' }
+    settle?.()
+  }
+}
+
+/** Sends the current files (or nothing, when unchanged) and resolves once the sandbox has run them. */
+async function send(force: boolean) {
   if (!props.connected) return
   try {
     await ensureToken()
@@ -113,42 +125,42 @@ async function refresh({ force = false } = {}) {
   const key = JSON.stringify(setup)
   if (client && key === lastSent && !force) return
   lastSent = key
-  // The overlay shows for changes to the app's own files (and the Refresh button), not for a renewed preview token.
-  const filesKey = JSON.stringify(props.files)
-  const run = ++runs
-  if (force || filesKey !== lastFiles) updating.value = true
-  lastFiles = filesKey
-  const done = new Promise<void>((resolve) => {
-    waiting.push(resolve)
-    setTimeout(resolve, RUN_TIMEOUT_MS)
+  lastFiles = JSON.stringify(props.files)
+  runId++
+  const ran = new Promise<void>((resolve) => {
+    const timer = setTimeout(() => { settle = null; resolve() }, RUN_TIMEOUT_MS)
+    settle = () => { clearTimeout(timer); settle = null; resolve() }
   })
   try {
     if (client) {
       client.updateSandbox(setup)
     } else if (iframe.value) {
       client = await loadSandpackClient(iframe.value, setup, {})
-      client.listen((msg) => {
-        if (msg.type === 'action' && msg.action === 'show-error') {
-          const m = msg as unknown as { title?: string; message?: string; path?: string; line?: number }
-          banner.value = String(m.message ?? 'Preview error')
-          const where = m.path ? ` (in ${m.path.replace(/^\//, '')}${m.line ? `, line ${m.line}` : ''})` : ''
-          codeError.value = `${m.title ? `${m.title}: ` : ''}${m.message ?? ''}${where}`.trim()
-          ran()
-        } else if (msg.type === 'done') {
-          if (!msg.compilatonError) { banner.value = ''; codeError.value = '' }
-          ran()
-        }
-      })
+      client.listen(onMessage)
     } else {
-      ran()
+      settle?.()
     }
   } catch (e) {
     banner.value = `Preview failed to load: ${(e as Error).message}`
     codeError.value = ''
-    ran()
+    settle?.()
   }
-  await done
-  if (run === runs) updating.value = false // a later refresh keeps the overlay until it has run too
+  await ran
+}
+
+/**
+ * Rebuilds the sandbox from current files + injected (never persisted) system files, and resolves once it has run
+ * them (or failed, or after 15 s), so a caller can keep a loading state up until the new version shows. Unchanged
+ * files aren't sent again unless `force` (the Refresh button, which reloads live data).
+ */
+function refresh({ force = false } = {}): Promise<void> {
+  // The overlay shows for changes to the app's own files (and the Refresh button), not for a renewed preview token.
+  if (props.connected && (force || JSON.stringify(props.files) !== lastFiles)) updating.value = true
+  queued++
+  queue = queue.then(() => send(force)).catch(() => {}).finally(() => {
+    if (--queued === 0) updating.value = false
+  })
+  return queue
 }
 
 // Connecting, or switching to another sub-account, after the panel opened: drop the stale token and reload.
