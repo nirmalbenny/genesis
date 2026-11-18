@@ -42,7 +42,7 @@ cd frontend && npm run lint && npm test && npm run build
 
 Tests don't replace looking at the change:
 
-- **UI change:** run the app (`firebase emulators:start`, then `cd frontend && npm run dev`) and take headless-browser screenshots of the affected screens, desktop and phone width.
+- **UI change:** run the app (`firebase emulators:start`, then `cd frontend && npm run dev`) and screenshot the affected screens at desktop and phone width: `node scripts/shoot.mjs <route> --email <local account>` (or `--app <id|name|latest>` for an app), then read the images in `.shots/`.
 - **Generation or data change:** try it against the real HighLevel sandbox and real Claude on the emulators.
 - **Docs change:** run the `docs-check` skill.
 

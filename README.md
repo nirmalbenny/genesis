@@ -62,7 +62,7 @@ Genesis is an AI app builder for [HighLevel](https://www.gohighlevel.com). Conne
 
 - **Real data:** generated apps read and write contacts, conversations, calendars and opportunities: create and update contacts (tags and notes too), book, reschedule and cancel appointments, mark conversations read or starred, send SMS or email, move deals through pipeline stages. Deletes are never allowed.
 - **Paginated by design:** lists load 20 at a time behind Load more, with server-side search and counts that cover all the data.
-- **One look:** apps are built from 66 injected components with shadcn-vue's API on Genesis's own UI kit, so they look consistent and Claude writes almost no CSS. Ask for another look and it restyles.
+- **Customer-ready UI:** new apps are built with [Element Plus](https://element-plus.org) (MIT): sortable tables, date pickers, searchable selects, validated forms, messages, drawers, plus icons and Chart.js charts, set up once by Genesis and pinned to exact versions. A built-in design standard (palette, spacing, type, every component's states, layouts that adapt to phones, an optional dark theme) makes every app look designed from a one-line prompt; ask for your brand colors and the whole app follows. Ready-made apps use it too; apps built on the earlier Genesis kit keep working on it. Ask for another look and it restyles.
 - **Ready-made apps:** six for every user (Customer 360, Daily Briefing, Appointment Prep Sheet, No-Contact Radar, Lead Follow-up Board, Activity Timeline): launch, copy to edit, or pin to the sidebar.
 
 ### Trust
@@ -146,6 +146,7 @@ Details and per-case numbers: [the tool-protocol plan](docs/plans/tool-protocol.
 |---|---|
 | Frontend | Vue 3, TypeScript, Vite, **shadcn-vue** (Tailwind v4, reka-ui), `@lucide/vue`, `vue-router` |
 | Editor and preview | `@guolao/vue-monaco-editor`, `@codesandbox/sandpack-client` |
+| Generated apps | Vue 3 with **Element Plus**, `@element-plus/icons-vue`, Chart.js and `vue-chartjs` (all MIT, exact versions, installed by the preview only when imported) |
 | Backend | Firebase Auth (Identity Platform), Firestore, Cloud Storage, Cloud Functions 2nd gen on **Node 24**, TypeScript |
 | AI | Claude via `@anthropic-ai/sdk`: **Sonnet 5.5** builds (streamed tool calls), **Haiku 5.5** writes snapshot summaries; `@vue/compiler-sfc` checks the code |
 | HighLevel | OAuth 2.0 (sub-account), Contacts, Conversations and Calendars APIs: reads plus allowlisted writes, no deletes |
@@ -231,10 +232,13 @@ Details and per-case numbers: [the tool-protocol plan](docs/plans/tool-protocol.
 | `functions/` | `npm run hl:probe -- <resource> --email <account>` | Checks a HighLevel resource in `hl-resources/` against the real sandbox through the local proxy (every read, each list paged to its end), records anonymized fixtures and compares the guide with the real fields. Emulators only |
 | `functions/` | `npm run measure:files` | Times both file stores on the emulators |
 | `functions/` | `npm run lint` | ESLint (TypeScript) |
-| repo root | `node scripts/eval-builds.mjs <label> [case…]` | Build eval: 13 real builds against the running emulators (real Claude, about $1), each saved file compiled; results in `eval-results.jsonl` |
+| repo root | `node scripts/eval-builds.mjs <label> [case…]` | Build eval: 14 real builds against the running emulators (real Claude, about $1), each saved file compiled; results in `eval-results.jsonl` |
+| repo root | `node scripts/eval-compare.mjs [label] [baseline]` | Compares an eval run with the one before it (or a baseline): passes, median time, output tokens and credits per case; exits 1 when a case passes less often |
+| repo root | `node scripts/inspect-app.mjs <app id \| name \| latest>` | A local app's files, what the code check says about them, and each build (prompt, outcome, tokens, credits, reply) |
+| repo root | `node scripts/shoot.mjs [route] --email <account> [--app <…>]` | Desktop and phone screenshots of the local app (signed in, preview loaded) into `.shots/`, with console errors; uses Chrome, no browser library |
 | repo root | `node scripts/check-docs.mjs` | Docs check: markdownlint, every local link and anchor, and that every Mermaid diagram renders |
 
-CI runs lint, unit and integration tests and the production build on every push and pull request (the integration tests on a throwaway `demo-` project). **Claude Code skills** in [`.claude/skills/`](.claude/skills) automate the routine work: `/verify` (definition of done), `/hl-resource`, `/new-template`, `/docs-check` and `/prod-check`.
+CI runs lint, unit and integration tests and the production build on every push and pull request (the integration tests on a throwaway `demo-` project). **Claude Code skills** in [`.claude/skills/`](.claude/skills) automate the routine work: `/verify` (definition of done), `/hl-resource`, `/new-template`, `/inspect-app`, `/docs-check` and `/prod-check`.
 
 ## HighLevel setup
 
@@ -397,7 +401,7 @@ A refused build never counts tokens, holds credits or calls Claude. Details: [ge
 │   ├── src/                   views · components (ui/ = shadcn-vue) · composables · lib
 │   │   └── sandbox/genesis/   injected into every preview: HighLevel client, UI kit, components
 │   └── scripts/dev.mjs        npm run dev: Cloudflare tunnel + Vite
-├── scripts/                   one-time GCP setup, eval-builds.mjs (build eval), check-docs.mjs
+├── scripts/                   one-time GCP setup, build eval and comparison, app inspector, screenshots, check-docs.mjs
 ├── docs/
 │   ├── ARCHITECTURE.md        goals, system design, data model, API, flows, credits, limits, security, testing
 │   ├── plans/                 change plans with their verification and measurements

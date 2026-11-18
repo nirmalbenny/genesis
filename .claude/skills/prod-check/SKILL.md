@@ -10,11 +10,11 @@ Project `genesisaibuilder` (see `.firebaserc`), region `us-central1`.
 ## 1. CI and deploy
 
 ```bash
-id=$(gh run list -L1 --json databaseId -q '.[0].databaseId')
+id=$(gh run list -b main -L1 --json databaseId -q '.[0].databaseId')
 gh run watch "$id" --exit-status >/dev/null; gh run view "$id" --json conclusion,headSha,jobs
 ```
 
-Both jobs ("Type-check, test, build" and "Deploy to Firebase") must succeed, for the commit you pushed. Pushes that change only Markdown or `docs/` don't run CI.
+Both jobs ("Type-check, test, build" and "Deploy to Firebase") must succeed, for the commit you pushed. Pushes that change only Markdown, `docs/` or `.env.example` files don't run CI.
 
 ## 2. Live site and functions
 

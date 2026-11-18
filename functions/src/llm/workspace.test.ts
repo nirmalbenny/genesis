@@ -133,15 +133,31 @@ test("problems: imports the build's changes leave unresolved, in its files and i
   assert.deepEqual(w.problems(), ["src/components/Stats.vue: imports Chart from \"../genesis/ui\", which isn't a Genesis component"], "files written later in the build count");
 });
 
-test("problems: src/main.js must load the UI kit's styles, whether or not the build changed it", () => {
+test("problems: src/main.js must set up the UI, whether or not the build changed it", () => {
   const files = { "src/main.js": 'import App from "./App.vue";', "src/App.vue": "<template>app</template>" };
   const m: Manifest = Object.fromEntries(Object.entries(files).map(([p, c]) => [p, entryFor(p, c)]));
   const w = createWorkspace(m);
   for (const [p, c] of Object.entries(files)) w.show(p, c);
-  const missing = "src/main.js: doesn't import the UI kit's styles: add import \"./genesis/ui.css\"; before App";
+  const missing = "src/main.js: doesn't set up the UI: write import { mountApp } from \"./genesis/setup.js\"; and mountApp(App); instead of createApp(App).mount(\"#app\")";
   assert.deepEqual(w.problems(), [missing], "an unchanged main.js without it");
   w.write("src/App.vue", "<template>new</template>");
   assert.deepEqual(w.problems(), [missing], "still reported when the build changes other files");
-  w.write("src/main.js", 'import "./genesis/ui.css";\nimport App from "./App.vue";');
+  w.write("src/main.js", 'import { mountApp } from "./genesis/setup.js";\nimport App from "./App.vue";\nmountApp(App);');
   assert.deepEqual(w.problems(), []);
+});
+
+test("problems: apps on Element Plus follow the design standard; other apps keep their CSS", () => {
+  const app = (main: string) => {
+    const files = { "src/main.js": main, "src/App.vue": "<template>app</template>" };
+    const m: Manifest = Object.fromEntries(Object.entries(files).map(([p, c]) => [p, entryFor(p, c)]));
+    const w = createWorkspace(m);
+    for (const [p, c] of Object.entries(files)) w.show(p, c);
+    w.write("src/App.vue", "<template><h1>Hi 👋</h1></template>\n<style scoped>\nh1 { color: #123456; }\n</style>");
+    return w.problems();
+  };
+  const plus = app('import { mountApp } from "./genesis/setup.js";\nimport App from "./App.vue";\nmountApp(App);');
+  assert.equal(plus.length, 2);
+  assert.match(plus[0]!, /^src\/App\.vue: has a color of its own \(#123456…/);
+  assert.match(plus[1]!, /^src\/App\.vue: uses an emoji/);
+  assert.deepEqual(app('import { createApp } from "vue";\nimport "./genesis/ui.css";\nimport App from "./App.vue";\ncreateApp(App).mount("#app");'), [], "an app on the older kit");
 });

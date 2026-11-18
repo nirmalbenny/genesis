@@ -5,27 +5,11 @@
 //   firebase emulators:start          (with functions/.env.local; OUTPUT_PROTOCOL selects the protocol under test)
 //   (cd functions && npm run build)
 //   node scripts/eval-builds.mjs <label> [case…]      results appended to eval-results.jsonl (git-ignored)
+//   node scripts/eval-compare.mjs [label] [baseline]   compare a run with the one before it (or a baseline)
 //
 // Cases run in order; follow-ups build on the app of the case they follow. With no case names, all of them run.
-import { createRequire } from "node:module";
-import { appendFileSync, readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-
-const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const fnRequire = createRequire(`${ROOT}functions/package.json`);
-const feRequire = createRequire(`${ROOT}frontend/package.json`);
-
-// The same emulator settings and file store as the functions emulator.
-for (const line of readFileSync(`${ROOT}functions/.env.local`, "utf8").split("\n")) {
-  const m = /^(FILE_STORE)=(.*)$/.exec(line.trim());
-  if (m) process.env[m[1]] ??= m[2];
-}
-process.env.FIRESTORE_EMULATOR_HOST ??= "127.0.0.1:8080";
-process.env.FIREBASE_AUTH_EMULATOR_HOST ??= "127.0.0.1:9099";
-process.env.FIREBASE_STORAGE_EMULATOR_HOST ??= "127.0.0.1:9199";
-process.env.GCLOUD_PROJECT ??= "genesisaibuilder";
-// What the functions runtime provides (the default bucket for the blob store).
-process.env.FIREBASE_CONFIG ??= JSON.stringify({ projectId: "genesisaibuilder", storageBucket: "genesisaibuilder.firebasestorage.app" });
+import { appendFileSync } from "node:fs";
+import { feRequire, FN, fnRequire, ROOT } from "./lib/local.mjs";
 
 const { db } = fnRequire("./lib/admin");
 const { fileStore, SEED_FILES } = fnRequire("./lib/files");
@@ -34,7 +18,6 @@ const { getAuth } = fnRequire("firebase-admin/auth");
 const { parse, compileScript, compileTemplate } = feRequire("vue/compiler-sfc");
 const babel = feRequire("@babel/parser");
 
-const FN = "http://127.0.0.1:5001/genesisaibuilder/us-central1";
 const HINTS = { activePath: "src/App.vue", openPaths: ["src/App.vue"] };
 
 /** A large app (four copies of a ready-made one), so some files are left out of the context and need read_files. */

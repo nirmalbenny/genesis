@@ -31,3 +31,6 @@ Thumbs.db
 .claude/settings.local.json
 
 eval-results.jsonl
+
+# Local screenshots (scripts/shoot.mjs)
+.shots/

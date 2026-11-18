@@ -1,7 +1,7 @@
 <template>
   <div class="page">
-    <header class="top">
-      <h1>Customer <span class="accent">360</span></h1>
+    <header>
+      <h1>Customer 360<template v-if="LOCATION_NAME"> · {{ LOCATION_NAME }}</template></h1>
       <p class="muted">A complete view of each contact: profile, conversations and appointments.</p>
     </header>
 
@@ -16,9 +16,9 @@
           <ConversationsPanel :contact-id="selectedId" />
           <AppointmentsPanel :contact-id="selectedId" />
         </template>
-        <div v-else class="card placeholder muted">
-          Select a contact to see their profile, conversations and appointments.
-        </div>
+        <el-card v-else shadow="never">
+          <el-empty description="Select a contact to see their profile, conversations and appointments." />
+        </el-card>
       </section>
     </div>
   </div>
@@ -26,6 +26,7 @@
 
 <script setup>
 import { ref, nextTick } from "vue";
+import { LOCATION_NAME } from "./genesis/hl.js";
 import ContactSearch from "./components/ContactSearch.vue";
 import ProfileCard from "./components/ProfileCard.vue";
 import ConversationsPanel from "./components/ConversationsPanel.vue";
@@ -46,49 +47,29 @@ function onPicked() {
 </script>
 
 <style scoped>
-.page {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 28px 20px 48px;
-}
-
-.top {
-  margin-bottom: 24px;
-}
-
-.top h1 {
+h1 {
   margin: 0 0 4px;
-  font-size: 1.7rem;
+  font-size: 22px;
+  font-weight: 600;
 }
-
-.top p {
+.muted {
   margin: 0;
+  color: var(--el-text-color-secondary);
 }
-
-.accent {
-  color: var(--accent);
-}
-
 .layout {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 20px;
+  gap: 16px;
   align-items: start;
+  margin-top: 16px;
 }
-
 .right {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
   min-width: 0;
   scroll-margin-top: 12px;
 }
-
-.placeholder {
-  text-align: center;
-  padding: 48px 20px;
-}
-
 @media (min-width: 860px) {
   .layout {
     grid-template-columns: 340px minmax(0, 1fr);
@@ -96,12 +77,6 @@ function onPicked() {
   .left {
     position: sticky;
     top: 16px;
-  }
-}
-
-@media (max-width: 480px) {
-  .page {
-    padding: 20px 12px 40px;
   }
 }
 </style>

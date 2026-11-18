@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from "vue";
+import { Calendar } from "@element-plus/icons-vue";
 import { dayLabel, fullLabel, prettify, relative, timeLabel } from "../utils.js";
 
 const props = defineProps({
@@ -9,50 +10,50 @@ const props = defineProps({
 });
 
 const STATUS = {
-  confirmed: ["Confirmed", "#00a38d", "#e5f8f6"],
-  new: ["Booked", "#007a8c", "#e5f5f8"],
-  booked: ["Booked", "#007a8c", "#e5f5f8"],
-  showed: ["Showed", "#00a38d", "#e5f8f6"],
-  completed: ["Completed", "#00a38d", "#e5f8f6"],
-  noshow: ["No-show", "#d9363e", "#fdecee"],
-  cancelled: ["Cancelled", "#7c98b6", "#eef3f7"],
-  invalid: ["Invalid", "#7c98b6", "#eef3f7"],
+  confirmed: ["Confirmed", "success"],
+  new: ["Booked", "primary"],
+  booked: ["Booked", "primary"],
+  showed: ["Showed", "success"],
+  completed: ["Completed", "success"],
+  noshow: ["No-show", "danger"],
+  cancelled: ["Cancelled", "info"],
+  invalid: ["Invalid", "info"],
 };
 const status = computed(() => {
   const s = String(props.item.status || "").toLowerCase();
-  const [label, color, bg] = STATUS[s] || [prettify(s) || "Scheduled", "#516f90", "#eef3f7"];
-  return { label, color, bg };
+  const [label, type] = STATUS[s] || [prettify(s) || "Scheduled", "info"];
+  return { label, type };
 });
 </script>
 
 <template>
   <!-- Upcoming appointment card -->
   <li v-if="upcoming" class="up-card">
-    <div class="when">
-      <span class="day">{{ dayLabel(item.date) }}</span>
-      <span class="rel">{{ relative(item.date) }}</span>
-    </div>
-    <p class="title">{{ item.title || "Untitled appointment" }}</p>
-    <div class="foot">
-      <time :title="fullLabel(item.date)">{{ timeLabel(item.date) }}</time>
-      <span class="status" :style="{ color: status.color, background: status.bg }">{{ status.label }}</span>
-    </div>
+    <el-card shadow="never" :body-style="{ padding: '12px 14px' }">
+      <div class="when">
+        <span class="day">{{ dayLabel(item.date) }}</span>
+        <span class="rel">{{ relative(item.date) }}</span>
+      </div>
+      <p class="title">{{ item.title || "Untitled appointment" }}</p>
+      <div class="foot">
+        <time :title="fullLabel(item.date)">{{ timeLabel(item.date) }}</time>
+        <el-tag :type="status.type" size="small">{{ status.label }}</el-tag>
+      </div>
+    </el-card>
   </li>
 
   <!-- Past appointment, inline in the thread -->
   <li v-else-if="item.type === 'appointment'" class="event">
-    <span class="event-icon" aria-hidden="true">
-      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
-    </span>
+    <el-icon><Calendar /></el-icon>
     <span class="event-text"><b>{{ item.title || "Appointment" }}</b> · {{ timeLabel(item.date) }}</span>
-    <span class="status" :style="{ color: status.color, background: status.bg }">{{ status.label }}</span>
+    <el-tag :type="status.type" size="small">{{ status.label }}</el-tag>
   </li>
 
   <!-- Message bubble: customer on the left, team on the right -->
   <li v-else class="msg" :class="item.type">
     <div class="bubble">
       <p v-if="item.body" class="body">{{ item.body }}</p>
-      <p v-else class="body muted">(No text content)</p>
+      <p v-else class="body empty">(No text content)</p>
     </div>
     <span class="meta" :title="fullLabel(item.date)">
       {{ item.type === "inbound" ? "Customer" : "Team" }}<template v-if="item.channel"> · {{ item.channel }}</template> · {{ timeLabel(item.date) }}
@@ -61,16 +62,8 @@ const status = computed(() => {
 </template>
 
 <style scoped>
-/* Upcoming cards */
 .up-card {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 14px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--primary);
-  border-radius: 10px;
+  list-style: none;
 }
 .when {
   display: flex;
@@ -78,54 +71,39 @@ const status = computed(() => {
   gap: 8px;
   font-size: 12px;
 }
-.when .day {
+.day {
   font-weight: 700;
-  color: var(--primary);
+  color: var(--el-color-primary);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
-.when .rel {
-  color: color-mix(in srgb, var(--muted) 70%, var(--surface));
+.rel {
+  color: var(--el-text-color-secondary);
 }
 .title {
-  margin: 0;
+  margin: 6px 0;
   font-weight: 600;
   font-size: 14px;
-  line-height: 1.4;
 }
 .foot {
   display: flex;
   justify-content: space-between;
   align-items: center;
   font-size: 13px;
-  color: var(--muted);
-}
-.status {
-  padding: 2px 8px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 600;
-  white-space: nowrap;
+  color: var(--el-text-color-secondary);
 }
 
-/* Inline past appointment */
 .event {
   align-self: center;
   display: flex;
   align-items: center;
   gap: 8px;
-  max-width: 92%;
+  max-width: 100%;
   padding: 6px 12px;
-  border: 1px dashed var(--input-border);
+  border: 1px dashed var(--el-border-color);
   border-radius: 999px;
-  background: var(--surface);
   font-size: 13px;
-  color: color-mix(in srgb, var(--text) 85%, var(--muted));
-}
-.event-icon {
-  display: grid;
-  place-items: center;
-  color: var(--primary);
+  color: var(--el-text-color-regular);
 }
 .event-text {
   min-width: 0;
@@ -134,7 +112,6 @@ const status = computed(() => {
   white-space: nowrap;
 }
 
-/* Message bubbles */
 .msg {
   display: flex;
   flex-direction: column;
@@ -155,13 +132,12 @@ const status = computed(() => {
   line-height: 1.45;
 }
 .msg.inbound .bubble {
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--el-fill-color-light);
   border-bottom-left-radius: 4px;
 }
 .msg.outbound .bubble {
-  background: var(--primary);
-  color: var(--on-primary);
+  background: var(--el-color-primary);
+  color: var(--app-on-primary);
   border-bottom-right-radius: 4px;
 }
 .body {
@@ -169,7 +145,7 @@ const status = computed(() => {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.body.muted {
+.body.empty {
   opacity: 0.7;
   font-style: italic;
 }
@@ -177,11 +153,11 @@ const status = computed(() => {
   margin-top: 3px;
   padding: 0 4px;
   font-size: 11px;
-  color: color-mix(in srgb, var(--muted) 70%, var(--surface));
+  color: var(--el-text-color-secondary);
 }
 @media (max-width: 520px) {
   .msg {
-    max-width: 90%;
+    max-width: 92%;
   }
 }
 </style>

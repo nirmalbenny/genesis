@@ -10,6 +10,9 @@ import { api } from '@/lib/api'
 import { clientRegistry } from '@/lib/registry'
 import HL_CLIENT from '@/sandbox/genesis/hl.js?raw'
 import UI_KIT from '@/sandbox/genesis/ui.css?raw'
+import THEME from '@/sandbox/genesis/theme.css?raw'
+import SETUP from '@/sandbox/genesis/setup.js?raw'
+import { packagesFor } from '@/lib/previewPackages'
 
 // Components for generated apps (shadcn's API, styled by the kit), injected as src/genesis/ui/*.
 const UI_COMPONENTS = import.meta.glob('@/sandbox/genesis/ui/*', { query: '?raw', import: 'default', eager: true }) as Record<string, string>
@@ -99,7 +102,10 @@ async function send(force: boolean) {
   }
   const files: Record<string, { code: string }> = {}
   for (const [path, code] of Object.entries(props.files)) files[`/${path}`] = { code }
-  const dependencies = usesComponents(props.files) ? { ...BASE_DEPENDENCIES, ...UI_DEPENDENCIES } : BASE_DEPENDENCIES
+  // npm packages the app imports, directly or through the injected setup file (Element Plus), at pinned versions.
+  const sources = Object.values(props.files)
+  if (sources.some((code) => /genesis\/setup(\.js)?["']/.test(code))) sources.push(SETUP)
+  const dependencies = { ...BASE_DEPENDENCIES, ...(usesComponents(props.files) ? UI_DEPENDENCIES : {}), ...packagesFor(sources) }
   files['/package.json'] = {
     code: JSON.stringify({ name: 'genesis-preview', main: '/src/main.js', dependencies, devDependencies: { '@vue/cli-plugin-babel': '^5.0.8' } }),
   }
@@ -118,6 +124,9 @@ async function send(force: boolean) {
   // The endpoints the client can call (lists and call()), from the resource registry.
   files['/src/genesis/hl.registry.js'] = { code: `export default ${JSON.stringify(clientRegistry())}\n` }
   files['/src/genesis/ui.css'] = { code: UI_KIT }
+  // Element Plus with Genesis's design standard, set up once for apps whose main.js is mountApp(App).
+  files['/src/genesis/setup.js'] = { code: SETUP }
+  files['/src/genesis/theme.css'] = { code: THEME }
   for (const [path, code] of Object.entries(UI_COMPONENTS)) files[`/src/genesis/ui/${path.split('/').pop()}`] = { code }
   const setup = {
     files,

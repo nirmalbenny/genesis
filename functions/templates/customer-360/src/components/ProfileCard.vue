@@ -1,5 +1,5 @@
 <template>
-  <div class="card">
+  <el-card shadow="never">
     <StateBlock
       :loading="loading"
       :error="error"
@@ -9,65 +9,46 @@
       @retry="load"
     >
       <div v-if="contact" class="head">
-        <span class="avatar">{{ initials(contact) }}</span>
+        <el-avatar :size="56">{{ initials(contact) }}</el-avatar>
         <div class="title">
-          <h2>{{ displayName(contact) }}</h2>
-          <p v-if="contact.companyName" class="muted">{{ contact.companyName }}</p>
+          <h2>{{ contactName(contact) }}</h2>
+          <div v-if="contact.companyName" class="muted">{{ contact.companyName }}</div>
         </div>
       </div>
 
-      <dl v-if="contact" class="grid">
-        <div>
-          <dt>Email</dt>
-          <dd>{{ contact.email || "—" }}</dd>
-        </div>
-        <div>
-          <dt>Phone</dt>
-          <dd>{{ contact.phone || "—" }}</dd>
-        </div>
-        <div>
-          <dt>Source</dt>
-          <dd>{{ contact.source || "—" }}</dd>
-        </div>
-        <div>
-          <dt>Date added</dt>
-          <dd>{{ fmtDate(contact.dateAdded) }}</dd>
-        </div>
-        <div class="wide">
-          <dt>Address</dt>
-          <dd>{{ address || "—" }}</dd>
-        </div>
-        <div class="wide">
-          <dt>Tags</dt>
-          <dd>
-            <span v-if="tags.length" class="tags">
-              <span v-for="t in tags" :key="t" class="badge tag">{{ t }}</span>
-            </span>
-            <span v-else>—</span>
-          </dd>
-        </div>
-      </dl>
+      <el-descriptions v-if="contact" :column="isPhone ? 1 : 2" border>
+        <el-descriptions-item label="Email">{{ contact.email || "—" }}</el-descriptions-item>
+        <el-descriptions-item label="Phone">{{ contact.phone || "—" }}</el-descriptions-item>
+        <el-descriptions-item label="Source">{{ contact.source || "—" }}</el-descriptions-item>
+        <el-descriptions-item label="Date added">{{ fmtDate(contact.dateAdded) }}</el-descriptions-item>
+        <el-descriptions-item label="Address" :span="isPhone ? 1 : 2">{{ address || "—" }}</el-descriptions-item>
+        <el-descriptions-item label="Tags" :span="isPhone ? 1 : 2">
+          <div v-if="tags.length" class="tags">
+            <el-tag v-for="t in tags" :key="t" size="small">{{ t }}</el-tag>
+          </div>
+          <span v-else>—</span>
+        </el-descriptions-item>
+      </el-descriptions>
     </StateBlock>
-  </div>
+  </el-card>
 </template>
 
 <script setup>
 import { ref, computed, watch } from "vue";
-import { hl } from "../api.js";
-import { displayName, initials, fmtDate } from "../utils.js";
+import { call, contactName } from "../genesis/hl.js";
+import { initials, fmtDate, useIsPhone } from "../utils.js";
 import StateBlock from "./StateBlock.vue";
 
 const props = defineProps({ contactId: { type: String, required: true } });
 
+const isPhone = useIsPhone();
 const contact = ref(null);
 const loading = ref(false);
 const error = ref("");
 let reqId = 0;
 
 const tags = computed(() =>
-  Array.isArray(contact.value && contact.value.tags)
-    ? contact.value.tags.filter(Boolean).map(String)
-    : []
+  Array.isArray(contact.value && contact.value.tags) ? contact.value.tags.filter(Boolean).map(String) : []
 );
 
 const address = computed(() => {
@@ -83,9 +64,9 @@ async function load() {
   error.value = "";
   contact.value = null;
   try {
-    const data = await hl(`/contacts/${encodeURIComponent(props.contactId)}`);
+    const data = await call("getContact", { contactId: props.contactId });
     if (id !== reqId) return;
-    contact.value = data.contact || null;
+    contact.value = (data && (data.contact || data)) || null;
   } catch (e) {
     if (id !== reqId) return;
     error.value = e.message;
@@ -102,76 +83,22 @@ watch(() => props.contactId, load, { immediate: true });
   display: flex;
   align-items: center;
   gap: 16px;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
-
-.avatar {
-  flex: none;
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  background: var(--accent);
-  color: var(--on-primary);
-  font-size: 1.2rem;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
 .title {
   min-width: 0;
 }
-
 .title h2 {
   margin: 0;
-  font-size: 1.35rem;
+  font-size: 20px;
   word-break: break-word;
 }
-
-.title p {
-  margin: 2px 0 0;
+.muted {
+  color: var(--el-text-color-secondary);
 }
-
-.grid {
-  margin: 0;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px 24px;
-}
-
-.grid .wide {
-  grid-column: 1 / -1;
-}
-
-dt {
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--muted);
-  margin-bottom: 2px;
-}
-
-dd {
-  margin: 0;
-  word-break: break-word;
-}
-
 .tags {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-}
-
-.tag {
-  background: var(--accent-soft);
-  border-color: transparent;
-  color: var(--accent);
-}
-
-@media (max-width: 520px) {
-  .grid {
-    grid-template-columns: 1fr;
-  }
 }
 </style>

@@ -10,72 +10,40 @@ defineProps({
 </script>
 
 <template>
-  <section class="column">
-    <header class="head">
-      <h2>{{ title }}</h2>
-      <span class="count">{{ cards.length }}</span>
-    </header>
-    <p v-if="hint" class="hint">{{ hint }}</p>
+  <el-card shadow="never" class="column">
+    <template #header>
+      <div class="head">
+        <strong>{{ title }}</strong>
+        <el-tag round type="info">{{ cards.length }}</el-tag>
+      </div>
+      <div v-if="hint" class="hint">{{ hint }}</div>
+    </template>
 
     <div class="list">
       <LeadCard v-for="c in cards" :key="c.id" :card="c" />
-      <p v-if="!cards.length" class="empty">
-        {{ filtering ? "No leads match your search." : "Nothing here right now." }}
-      </p>
+      <el-empty
+        v-if="!cards.length"
+        :image-size="60"
+        :description="filtering ? 'No leads match your search.' : 'Nothing here right now.'"
+      />
     </div>
-  </section>
+  </el-card>
 </template>
 
 <style scoped>
-.column {
-  background: var(--surface-muted);
-  border-radius: 10px;
-  padding: 14px;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
 .head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
 }
-h2 {
-  margin: 0;
-  font-size: 16px;
-  color: var(--text);
-}
-.count {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  color: var(--text);
-  font-weight: 600;
-  font-size: 13px;
-  min-width: 28px;
-  text-align: center;
-  padding: 2px 8px;
-  border-radius: 999px;
-}
 .hint {
-  margin: 0;
+  margin-top: 4px;
   font-size: 13px;
-  color: var(--muted);
+  color: var(--el-text-color-secondary);
 }
 .list {
   display: grid;
   gap: 12px;
-  margin-top: 6px;
-}
-.empty {
-  margin: 0;
-  padding: 20px 12px;
-  text-align: center;
-  color: var(--muted);
-  font-size: 14px;
-  border: 1px dashed var(--input-border);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.5);
 }
 </style>

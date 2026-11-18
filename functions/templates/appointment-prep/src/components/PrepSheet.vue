@@ -1,6 +1,7 @@
 <script setup>
 import { computed } from "vue";
-import { fmtDay, fmtTime, parseDate, statusClass } from "../utils.js";
+import { toDate } from "../genesis/hl.js";
+import { fmtDay, fmtTime, statusType, capitalize } from "../utils.js";
 import ContactCard from "./ContactCard.vue";
 import MessageList from "./MessageList.vue";
 
@@ -9,39 +10,37 @@ const props = defineProps({
   calendarName: { type: String, default: "" },
 });
 
-const start = computed(() => parseDate(props.appointment.startTime));
-const end = computed(() => parseDate(props.appointment.endTime));
+const start = computed(() => toDate(props.appointment.startTime));
+const end = computed(() => toDate(props.appointment.endTime));
 </script>
 
 <template>
   <div class="sheet">
-    <section class="card">
-      <div class="head">
-        <h2>{{ appointment.title || "Untitled appointment" }}</h2>
-        <span v-if="appointment.appointmentStatus" class="badge" :class="statusClass(appointment.appointmentStatus)">
-          {{ appointment.appointmentStatus }}
-        </span>
-      </div>
-      <dl>
-        <dt>When</dt>
-        <dd>
+    <el-card>
+      <template #header>
+        <div class="head">
+          <span class="title">{{ appointment.title || "Untitled appointment" }}</span>
+          <el-tag v-if="appointment.appointmentStatus" :type="statusType(appointment.appointmentStatus)">
+            {{ capitalize(appointment.appointmentStatus) }}
+          </el-tag>
+        </div>
+      </template>
+      <el-descriptions :column="1" border>
+        <el-descriptions-item label="When">
           <template v-if="start">
             {{ fmtDay(start) }}, {{ fmtTime(start) }}<template v-if="end"> – {{ fmtTime(end) }}</template>
           </template>
           <template v-else>Time not set</template>
-        </dd>
-        <dt>Calendar</dt>
-        <dd>{{ calendarName || "Unknown calendar" }}</dd>
-        <template v-if="appointment.address">
-          <dt>Address</dt>
-          <dd>{{ appointment.address }}</dd>
-        </template>
-        <template v-if="appointment.notes">
-          <dt>Notes</dt>
-          <dd class="notes">{{ appointment.notes }}</dd>
-        </template>
-      </dl>
-    </section>
+        </el-descriptions-item>
+        <el-descriptions-item label="Calendar">{{ calendarName || "Unknown calendar" }}</el-descriptions-item>
+        <el-descriptions-item v-if="appointment.address" label="Address">
+          {{ appointment.address }}
+        </el-descriptions-item>
+        <el-descriptions-item v-if="appointment.notes" label="Notes">
+          <span class="notes">{{ appointment.notes }}</span>
+        </el-descriptions-item>
+      </el-descriptions>
+    </el-card>
 
     <ContactCard :key="'c-' + appointment.id" :contact-id="appointment.contactId || ''" />
     <MessageList :key="'m-' + appointment.id" :contact-id="appointment.contactId || ''" />
@@ -59,37 +58,14 @@ const end = computed(() => parseDate(props.appointment.endTime));
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 12px;
 }
-h2 {
-  margin: 0;
-  font-size: 20px;
-  word-break: break-word;
-}
-dl {
-  display: grid;
-  grid-template-columns: 110px 1fr;
-  gap: 8px 12px;
-  margin: 0;
-}
-dt {
-  color: var(--muted);
-  font-size: 14px;
-}
-dd {
-  margin: 0;
+.title {
+  font-size: 18px;
+  font-weight: 600;
   word-break: break-word;
 }
 .notes {
   white-space: pre-wrap;
-}
-@media (max-width: 420px) {
-  dl {
-    grid-template-columns: 1fr;
-    gap: 2px;
-  }
-  dd {
-    margin-bottom: 8px;
-  }
+  word-break: break-word;
 }
 </style>

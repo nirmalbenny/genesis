@@ -1,48 +1,40 @@
 <script setup>
-import { computed, onMounted, watch } from "vue";
+import { computed, watch } from "vue";
 import SectionCard from "./SectionCard.vue";
-import { Avatar, Badge } from "../genesis/ui";
-import { hlGet, LOCATION_ID } from "../api.js";
-import { useResource } from "../useResource.js";
-import { relativeTime, toDate, contactDisplayName } from "../utils.js";
+import LoadMoreBar from "./LoadMoreBar.vue";
+import { usePager, contactName, toDate } from "../genesis/hl.js";
+import { relativeTime, initials } from "../utils.js";
 
 const props = defineProps({ refreshKey: { type: Number, default: 0 } });
 const emit = defineEmits(["count"]);
 
-const LIMIT = 20;
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
-async function fetchLeads() {
-  const res = await hlGet("/contacts/", {
-    locationId: LOCATION_ID,
-    sortBy: "date_added",
-    order: "desc",
-    limit: LIMIT,
-  });
-  const contacts = Array.isArray(res.contacts) ? res.contacts : [];
+const { items, hasMore, loading, error, loadMore, reset } = usePager("contacts", () => ({
+  sortBy: "date_added",
+  order: "desc",
+  limit: 20,
+}));
+
+const initialLoading = computed(() => loading.value && items.value.length === 0);
+
+// Contacts come newest first, so recent leads are a prefix of what is loaded.
+const leads = computed(() => {
   const cutoff = Date.now() - WEEK_MS;
-  const recent = contacts.filter((c) => {
+  return items.value.filter((c) => {
     const d = toDate(c && c.dateAdded);
     return d && d.getTime() >= cutoff;
   });
-  // If every fetched contact is recent, there may be more beyond the first page.
-  const maybeMore = contacts.length >= LIMIT && recent.length === contacts.length;
-  return { recent, maybeMore };
-}
+});
+// More recent leads may exist only if every loaded contact is recent and more pages exist.
+const maybeMore = computed(() => hasMore.value && leads.value.length === items.value.length);
+const countText = computed(() => (maybeMore.value ? `${leads.value.length}+` : leads.value.length));
 
-const { data, loading, error, load } = useResource(fetchLeads);
-const leads = computed(() => (data.value ? data.value.recent : []));
-
-onMounted(load);
-watch(() => props.refreshKey, load);
+watch(() => props.refreshKey, reset);
 watch(
-  [data, loading, error],
+  [leads, maybeMore, loading, error],
   () => {
-    if (loading.value || error.value || !data.value) {
-      emit("count", null);
-    } else {
-      emit("count", data.value.maybeMore ? `${leads.value.length}+` : leads.value.length);
-    }
+    emit("count", initialLoading.value || error.value ? null : countText.value);
   },
   { immediate: true }
 );
@@ -53,44 +45,88 @@ function source(c) {
 function tags(c) {
   return Array.isArray(c && c.tags) ? c.tags.filter(Boolean) : [];
 }
+function nameOf(c) {
+  return contactName(c) || "Unnamed contact";
+}
 </script>
 
 <template>
 <SectionCard
   title="New leads"
-  :loading="loading"
-  :error="error"
+  :loading="initialLoading"
+  :error="error && items.length === 0 ? error.message : ''"
   :empty="leads.length === 0"
   empty-text="No new leads in the last 7 days."
-  empty-icon="🌱"
-  :badge="data && data.maybeMore ? leads.length + '+' : leads.length"
-  @retry="load"
+  :badge="countText"
+  @retry="reset"
 >
-  <ul class="list">
-    <li v-for="(c, i) in leads" :key="c.id || i" class="list-item" style="align-items: flex-start">
-      <Avatar :name="contactDisplayName(c)" />
-      <div class="info">
-        <div class="row" style="justify-content: space-between; flex-wrap: nowrap">
-          <p class="truncate name">{{ contactDisplayName(c) }}</p>
-          <span class="small muted" style="flex: none">{{ relativeTime(c.dateAdded) }}</span>
-        </div>
-        <p class="truncate small muted">{{ source(c) }}</p>
-        <div v-if="tags(c).length" class="row" style="margin-top: 6px; gap: 6px">
-          <Badge v-for="t in tags(c).slice(0, 3)" :key="t" variant="secondary">{{ t }}</Badge>
-          <Badge v-if="tags(c).length > 3" variant="outline">+{{ tags(c).length - 3 }}</Badge>
-        </div>
+  <div v-for="(c, i) in leads" :key="c.id || i" class="item">
+    <el-avatar>{{ initials(nameOf(c)) }}</el-avatar>
+    <div class="info">
+      <div class="top">
+        <span class="name">{{ nameOf(c) }}</span>
+        <span class="muted when">{{ relativeTime(c.dateAdded) }}</span>
       </div>
-    </li>
-  </ul>
+      <div class="muted source">{{ source(c) }}</div>
+      <div v-if="tags(c).length" class="tags">
+        <el-tag v-for="t in tags(c).slice(0, 3)" :key="t" size="small" type="info">{{ t }}</el-tag>
+        <el-tag v-if="tags(c).length > 3" size="small" effect="plain" type="info">+{{ tags(c).length - 3 }}</el-tag>
+      </div>
+    </div>
+  </div>
+  <el-alert v-if="error && items.length" type="error" show-icon :closable="false" :title="error.message" />
+  <LoadMoreBar
+    :shown="leads.length"
+    :has-more="maybeMore"
+    :loading="loading"
+    noun="new leads"
+    @more="loadMore"
+  />
 </SectionCard>
 </template>
 
 <style scoped>
+.item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
+.item:last-of-type {
+  border-bottom: 0;
+}
 .info {
   flex: 1;
   min-width: 0;
 }
+.top {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
 .name {
   font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.when {
+  flex: none;
+}
+.source {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.muted {
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
 }
 </style>

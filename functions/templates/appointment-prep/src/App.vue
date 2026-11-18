@@ -1,102 +1,19 @@
 <script setup>
 import { ref, computed, onMounted, nextTick } from "vue";
-import { hlGet, LOCATION_ID } from "./api.js";
-import { parseDate, dayKey, fmtDay } from "./utils.js";
+import { Refresh } from "@element-plus/icons-vue";
+import { LOCATION_NAME } from "./genesis/hl.js";
+import { useAppointments, DAYS } from "./useAppointments.js";
 import LoadState from "./components/LoadState.vue";
-import { Alert, Button, Label, NativeSelect } from "./genesis/ui";
 import AppointmentList from "./components/AppointmentList.vue";
 import PrepSheet from "./components/PrepSheet.vue";
 
-const DAYS = 14;
+const { calendars, events, loading, error, warning, calendarFilter, calendarNames, filtered, groups, load } =
+  useAppointments();
 
-const calendars = ref([]);
-const events = ref([]);
-const loading = ref(false);
-const error = ref("");
-const warning = ref("");
-const calendarFilter = ref("all");
 const selectedId = ref("");
 const sheetEl = ref(null);
 
-const calendarNames = computed(() => {
-  const map = {};
-  for (const c of calendars.value) map[c.id] = c.name || "Untitled calendar";
-  return map;
-});
-
-const filtered = computed(() =>
-  calendarFilter.value === "all"
-    ? events.value
-    : events.value.filter((e) => e.calendarId === calendarFilter.value)
-);
-
-const groups = computed(() => {
-  const map = new Map();
-  for (const ev of filtered.value) {
-    const d = parseDate(ev.startTime);
-    const key = dayKey(d);
-    if (!map.has(key)) map.set(key, { key, label: fmtDay(d), items: [] });
-    map.get(key).items.push(ev);
-  }
-  return [...map.values()];
-});
-
 const selected = computed(() => filtered.value.find((e) => e.id === selectedId.value) || null);
-
-async function load() {
-  loading.value = true;
-  error.value = "";
-  warning.value = "";
-  events.value = [];
-  try {
-    const cal = await hlGet("/calendars/", { locationId: LOCATION_ID });
-    calendars.value = Array.isArray(cal.calendars) ? cal.calendars : [];
-    if (!calendars.value.length) return;
-
-    const start = Date.now();
-    const end = start + DAYS * 24 * 60 * 60 * 1000;
-    const results = await Promise.allSettled(
-      calendars.value.map((c) =>
-        hlGet("/calendars/events", {
-          locationId: LOCATION_ID,
-          calendarId: c.id,
-          startTime: start,
-          endTime: end,
-        })
-      )
-    );
-
-    const failures = results.filter((r) => r.status === "rejected");
-    if (failures.length === results.length) {
-      throw failures[0].reason;
-    }
-    if (failures.length) {
-      warning.value = `Some calendars could not be loaded: ${failures[0].reason?.message || "unknown error"}`;
-    }
-
-    const seen = new Set();
-    const merged = [];
-    results.forEach((r, i) => {
-      if (r.status !== "fulfilled") return;
-      const list = Array.isArray(r.value.events) ? r.value.events : [];
-      for (const ev of list) {
-        if (!ev || !ev.id || seen.has(ev.id)) continue;
-        seen.add(ev.id);
-        merged.push({ ...ev, calendarId: ev.calendarId || calendars.value[i].id });
-      }
-    });
-    merged.sort((a, b) => {
-      const ta = parseDate(a.startTime)?.getTime() ?? Infinity;
-      const tb = parseDate(b.startTime)?.getTime() ?? Infinity;
-      return ta - tb;
-    });
-    events.value = merged;
-  } catch (e) {
-    error.value = e.message;
-  } finally {
-    loading.value = false;
-  }
-}
 
 async function select(id) {
   selectedId.value = id;
@@ -111,25 +28,27 @@ onMounted(load);
 
 <template>
   <div class="page">
-    <header class="top">
+    <div class="top">
       <div>
-        <h1>Appointment Prep Sheet</h1>
-        <p class="muted">Upcoming appointments for the next {{ 14 }} days, with context on each contact.</p>
+        <h1>Appointment Prep Sheet<template v-if="LOCATION_NAME"> · {{ LOCATION_NAME }}</template></h1>
+        <p class="sub">Upcoming appointments for the next {{ DAYS }} days, with context on each contact.</p>
       </div>
-      <Button variant="outline" :disabled="loading" @click="load">Refresh</Button>
-    </header>
+      <el-button :icon="Refresh" :loading="loading" @click="load">Refresh</el-button>
+    </div>
 
     <div class="layout">
       <aside class="left">
-        <div v-if="calendars.length" class="field">
-          <Label for="cal">Calendar</Label>
-          <NativeSelect id="cal" v-model="calendarFilter">
-            <option value="all">All calendars</option>
-            <option v-for="c in calendars" :key="c.id" :value="c.id">{{ c.name || "Untitled calendar" }}</option>
-          </NativeSelect>
-        </div>
+        <el-select
+          v-if="calendars.length"
+          v-model="calendarFilter"
+          placeholder="Calendar"
+          aria-label="Calendar"
+        >
+          <el-option label="All calendars" value="all" />
+          <el-option v-for="c in calendars" :key="c.id" :label="c.name || 'Untitled calendar'" :value="c.id" />
+        </el-select>
 
-        <Alert v-if="warning" variant="warning">{{ warning }}</Alert>
+        <el-alert v-if="warning" type="warning" show-icon :closable="false" :title="warning" />
 
         <LoadState
           :loading="loading"
@@ -140,7 +59,7 @@ onMounted(load);
           :empty-text="
             events.length
               ? 'Try choosing a different calendar.'
-              : 'Appointments booked in your HighLevel calendars over the next 14 days will appear here.'
+              : `Appointments booked in your HighLevel calendars over the next ${DAYS} days will appear here.`
           "
           @retry="load"
         >
@@ -160,58 +79,46 @@ onMounted(load);
           :appointment="selected"
           :calendar-name="calendarNames[selected.calendarId] || ''"
         />
-        <div v-else class="card placeholder">
-          <strong>Select an appointment</strong>
-          <span class="muted">Choose an appointment on the left to see its prep sheet.</span>
-        </div>
+        <el-card v-else>
+          <el-empty description="Choose an appointment on the left to see its prep sheet." />
+        </el-card>
       </section>
     </div>
   </div>
 </template>
 
 <style scoped>
-.page {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 32px 20px 48px;
-}
 .top {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 28px;
+  gap: 12px;
 }
 h1 {
   margin: 0 0 4px;
-  font-size: 26px;
+  font-size: 22px;
+  font-weight: 600;
 }
-.top p {
+.sub {
   margin: 0;
+  color: var(--el-text-color-secondary);
+  font-size: 14px;
 }
 .layout {
   display: grid;
   grid-template-columns: 380px 1fr;
-  gap: 24px;
+  gap: 20px;
   align-items: start;
 }
 .left {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
   min-width: 0;
 }
 .right {
   min-width: 0;
   scroll-margin-top: 16px;
-}
-.placeholder {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  text-align: center;
-  padding: 48px 20px;
 }
 @media (max-width: 860px) {
   .layout {
@@ -219,12 +126,6 @@ h1 {
   }
 }
 @media (max-width: 480px) {
-  .page {
-    padding: 20px 12px 32px;
-  }
-  h1 {
-    font-size: 22px;
-  }
   .top {
     flex-direction: column;
   }

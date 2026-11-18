@@ -1,5 +1,5 @@
 import type { Manifest } from "../files";
-import { checkFile, checkImports } from "./checkCode";
+import { checkDesign, checkFile, checkImports } from "./checkCode";
 import { SINGLE_FILE_LIMIT_CHARS } from "./prompt";
 import { checkContent, checkPath, ENTRY_FILES, type FileOp } from "./validate";
 
@@ -89,17 +89,26 @@ export function createWorkspace(manifest: Manifest) {
       return c?.type === "write" ? c.content : undefined;
     },
     /**
-     * Import problems the build's changes leave in the app: in files it wrote, in src/main.js, and in other files that
-     * import a file it deleted. One line per problem, "path: problem".
+     * Problems the build's changes leave in the app: imports in files it wrote, in src/main.js, and in other files that
+     * import a file it deleted; in apps on Element Plus, the design standard's rules (checkDesign). One line per
+     * problem, "path: problem".
      */
     problems(): string[] {
       const out: string[] = [];
       for (const op of changes.values()) {
         if (op.type === "write") out.push(...checkImports(op.path, op.content, exists).map((p) => `${op.path}: ${p}`));
       }
-      // src/main.js is always in the context: an unchanged one is checked too (it must load the UI kit's styles).
+      // src/main.js is always in the context: an unchanged one is checked too (it must set up the UI).
       const main = "src/main.js";
       if (!changes.has(main) && known.has(main)) out.push(...checkImports(main, known.get(main)!, exists).map((p) => `${main}: ${p}`));
+      // Apps on Element Plus follow the design standard; apps with their own CSS or on the older kit keep theirs.
+      const entry = changes.get(main);
+      const mainCode = entry?.type === "write" ? entry.content : known.get(main) ?? "";
+      if (/genesis\/setup(\.js)?["']/.test(mainCode)) {
+        for (const op of changes.values()) {
+          if (op.type === "write") out.push(...checkDesign(op.path, op.content).map((p) => `${op.path}: ${p}`));
+        }
+      }
       const deleted = [...changes.values()].filter((o) => o.type === "delete").map((o) => o.path);
       if (deleted.length) {
         for (const [path, entry] of Object.entries(manifest)) {

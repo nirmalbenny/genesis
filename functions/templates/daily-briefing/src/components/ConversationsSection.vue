@@ -1,82 +1,109 @@
 <script setup>
-import { computed, onMounted, watch } from "vue";
+import { computed, watch } from "vue";
 import SectionCard from "./SectionCard.vue";
-import { Avatar, Badge } from "../genesis/ui";
-import { hlGet, LOCATION_ID } from "../api.js";
-import { useResource } from "../useResource.js";
-import { relativeTime, contactDisplayName } from "../utils.js";
+import LoadMoreBar from "./LoadMoreBar.vue";
+import { usePager, contactName } from "../genesis/hl.js";
+import { relativeTime, initials } from "../utils.js";
 
 const props = defineProps({ refreshKey: { type: Number, default: 0 } });
 const emit = defineEmits(["count"]);
 
-async function fetchUnread() {
-  const res = await hlGet("/conversations/search", {
-    locationId: LOCATION_ID,
-    status: "unread",
-    sortBy: "last_message_date",
-    sort: "desc",
-    limit: 20,
-  });
-  const conversations = Array.isArray(res.conversations) ? res.conversations : [];
-  const total = typeof res.total === "number" ? res.total : conversations.length;
-  return { conversations, total };
-}
+const { items, total, hasMore, loading, error, loadMore, reset } = usePager("conversations", () => ({
+  status: "unread",
+  limit: 20,
+}));
 
-const { data, loading, error, load } = useResource(fetchUnread);
-const conversations = computed(() => (data.value ? data.value.conversations : []));
-const total = computed(() => (data.value ? Math.max(data.value.total, conversations.value.length) : 0));
+const initialLoading = computed(() => loading.value && items.value.length === 0);
+const shownTotal = computed(() => (typeof total.value === "number" ? Math.max(total.value, items.value.length) : null));
 
-onMounted(load);
-watch(() => props.refreshKey, load);
+watch(() => props.refreshKey, reset);
 watch(
-  [data, loading, error],
+  [items, total, loading, error],
   () => {
-    emit("count", !loading.value && !error.value && data.value ? total.value : null);
+    const ready = !initialLoading.value && !error.value;
+    emit("count", ready ? (shownTotal.value ?? items.value.length) : null);
   },
   { immediate: true }
 );
 
 function preview(c) {
-  const body = c.lastMessageBody && String(c.lastMessageBody).trim();
-  if (body) return body;
-  return "No message preview";
+  const body = c && c.lastMessageBody && String(c.lastMessageBody).trim();
+  return body || "No message preview";
+}
+function nameOf(c) {
+  return contactName(c) || "Unnamed contact";
 }
 </script>
 
 <template>
 <SectionCard
   title="Unread conversations"
-  :loading="loading"
-  :error="error"
-  :empty="conversations.length === 0"
+  :loading="initialLoading"
+  :error="error && items.length === 0 ? error.message : ''"
+  :empty="items.length === 0"
   empty-text="You're all caught up — no unread conversations."
-  empty-icon="💬"
-  :badge="total"
-  @retry="load"
+  :badge="shownTotal ?? items.length"
+  @retry="reset"
 >
-  <ul class="list">
-    <li v-for="(c, i) in conversations" :key="c.id || i" class="list-item">
-      <Avatar :name="contactDisplayName(c)" />
-      <div class="info">
-        <div class="row" style="justify-content: space-between; flex-wrap: nowrap">
-          <p class="truncate name">{{ contactDisplayName(c) }}</p>
-          <span class="small muted" style="flex: none">{{ relativeTime(c.lastMessageDate) }}</span>
-        </div>
-        <p class="truncate small muted">{{ preview(c) }}</p>
+  <div v-for="(c, i) in items" :key="c.id || i" class="item">
+    <el-avatar>{{ initials(nameOf(c)) }}</el-avatar>
+    <div class="info">
+      <div class="top">
+        <span class="name">{{ nameOf(c) }}</span>
+        <span class="muted when">{{ relativeTime(c.lastMessageDate) }}</span>
       </div>
-      <Badge v-if="c.unreadCount > 0">{{ c.unreadCount }}</Badge>
-    </li>
-  </ul>
-  <p v-if="total > conversations.length" class="small muted" style="text-align: center">Showing {{ conversations.length }} of {{ total }}</p>
+      <div class="muted preview">{{ preview(c) }}</div>
+    </div>
+    <el-tag v-if="c.unreadCount > 0" type="primary" round>{{ c.unreadCount }}</el-tag>
+  </div>
+  <el-alert v-if="error && items.length" type="error" show-icon :closable="false" :title="error.message" />
+  <LoadMoreBar
+    :shown="items.length"
+    :total="shownTotal"
+    :has-more="hasMore"
+    :loading="loading"
+    noun="conversations"
+    @more="loadMore"
+  />
 </SectionCard>
 </template>
 
 <style scoped>
+.item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--el-border-color-lighter);
+}
+.item:last-of-type {
+  border-bottom: 0;
+}
 .info {
   flex: 1;
   min-width: 0;
 }
+.top {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
 .name {
   font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.when {
+  flex: none;
+}
+.preview {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.muted {
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
 }
 </style>

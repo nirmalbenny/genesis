@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed } from "vue";
-import { Button } from "./genesis/ui";
+import { Refresh } from "@element-plus/icons-vue";
+import { LOCATION_NAME } from "./genesis/hl.js";
 import StatCard from "./components/StatCard.vue";
 import AppointmentsSection from "./components/AppointmentsSection.vue";
 import ConversationsSection from "./components/ConversationsSection.vue";
@@ -13,8 +14,7 @@ const apptCount = ref(null);
 const unreadCount = ref(null);
 const leadCount = ref(null);
 
-const now = new Date();
-const dateText = now.toLocaleDateString([], {
+const dateText = new Date().toLocaleDateString([], {
   weekday: "long",
   month: "long",
   day: "numeric",
@@ -40,60 +40,58 @@ const updatedText = computed(() =>
 
 <template>
 <div class="page">
-  <header class="header">
-    <div class="stack" style="gap: 4px">
-      <p class="date">{{ dateText }}</p>
-      <h1>{{ greeting }} 👋</h1>
+  <header class="head">
+    <div>
+      <p class="date">{{ dateText }}<template v-if="LOCATION_NAME"> · {{ LOCATION_NAME }}</template></p>
+      <h1>{{ greeting }}</h1>
       <p class="muted">Here's your daily briefing. Last refreshed at {{ updatedText }}.</p>
     </div>
-    <Button @click="refresh">↻ Refresh</Button>
+    <el-button :icon="Refresh" @click="refresh">Refresh</el-button>
   </header>
 
-  <div class="stats">
-    <StatCard label="Appointments today" :value="apptCount" />
-    <StatCard label="Unread conversations" :value="unreadCount" />
-    <StatCard label="New leads (7 days)" :value="leadCount" />
-  </div>
+  <el-row :gutter="16">
+    <el-col :xs="24" :sm="8" class="cell"><StatCard label="Appointments today" :value="apptCount" /></el-col>
+    <el-col :xs="24" :sm="8" class="cell"><StatCard label="Unread conversations" :value="unreadCount" /></el-col>
+    <el-col :xs="24" :sm="8" class="cell"><StatCard label="New leads (7 days)" :value="leadCount" /></el-col>
+  </el-row>
 
-  <div class="sections">
-    <div class="full">
+  <el-row :gutter="16">
+    <el-col :span="24" class="cell">
       <AppointmentsSection :refresh-key="refreshKey" @count="apptCount = $event" />
-    </div>
-    <ConversationsSection :refresh-key="refreshKey" @count="unreadCount = $event" />
-    <LeadsSection :refresh-key="refreshKey" @count="leadCount = $event" />
-  </div>
+    </el-col>
+    <el-col :xs="24" :md="12" class="cell">
+      <ConversationsSection :refresh-key="refreshKey" @count="unreadCount = $event" />
+    </el-col>
+    <el-col :xs="24" :md="12" class="cell">
+      <LeadsSection :refresh-key="refreshKey" @count="leadCount = $event" />
+    </el-col>
+  </el-row>
 </div>
 </template>
 
 <style scoped>
-.page {
-  max-width: 1080px;
-}
-.date {
-  color: var(--primary);
-  font-weight: 600;
-  letter-spacing: 0.02em;
+.head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 h1 {
-  font-size: 28px;
+  margin: 4px 0;
+  font-size: 24px;
+  font-weight: 600;
 }
-.sections {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  align-items: start;
+.date {
+  margin: 0;
+  color: var(--el-color-primary);
+  font-weight: 600;
 }
-.full {
-  grid-column: 1 / -1;
+.muted {
+  margin: 0;
+  color: var(--el-text-color-secondary);
 }
-@media (max-width: 900px) {
-  .sections {
-    grid-template-columns: 1fr;
-  }
-}
-@media (max-width: 640px) {
-  h1 {
-    font-size: 24px;
-  }
+.cell {
+  margin-bottom: 16px;
 }
 </style>

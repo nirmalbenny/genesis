@@ -1,16 +1,4 @@
-// Convert ISO strings, ms epoch numbers or numeric strings into a Date (or null).
-export function toDate(value) {
-  if (value === undefined || value === null || value === "") return null;
-  let d;
-  if (typeof value === "number") {
-    d = new Date(value);
-  } else if (typeof value === "string" && /^\d{11,}$/.test(value.trim())) {
-    d = new Date(Number(value));
-  } else {
-    d = new Date(value);
-  }
-  return isNaN(d.getTime()) ? null : d;
-}
+import { toDate } from "./genesis/hl.js";
 
 export function relativeTime(value) {
   const d = toDate(value);
@@ -36,8 +24,8 @@ export function formatTime(value) {
   return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
-export function contactDisplayName(c) {
-  if (!c) return "Unnamed contact";
-  const full = [c.firstName, c.lastName].filter(Boolean).join(" ").trim();
-  return (c.contactName || c.fullName || full || c.email || c.phone || "Unnamed contact").toString();
+export function initials(name) {
+  const parts = String(name || "").trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return "?";
+  return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase();
 }

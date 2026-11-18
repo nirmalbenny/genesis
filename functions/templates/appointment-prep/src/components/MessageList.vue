@@ -1,32 +1,17 @@
 <script setup>
-import { ref, onMounted, computed } from "vue";
-import { hlGet, LOCATION_ID } from "../api.js";
-import { fmtDateTime, parseDate } from "../utils.js";
+import { ref, onMounted } from "vue";
+import { hlGet, LOCATION_ID } from "../genesis/hl.js";
 import LoadState from "./LoadState.vue";
+import MessageThread from "./MessageThread.vue";
 
 const props = defineProps({ contactId: { type: String, default: "" } });
 
-const messages = ref([]);
+const conversationId = ref("");
 const loading = ref(false);
 const error = ref("");
 
-const ordered = computed(() =>
-  [...messages.value].sort((a, b) => {
-    const da = parseDate(a.dateAdded)?.getTime() ?? 0;
-    const db = parseDate(b.dateAdded)?.getTime() ?? 0;
-    return da - db;
-  })
-);
-
-function typeLabel(m) {
-  return String(m.messageType || "")
-    .replace(/^TYPE_/, "")
-    .replace(/_/g, " ")
-    .toLowerCase();
-}
-
 async function load() {
-  messages.value = [];
+  conversationId.value = "";
   if (!props.contactId) return;
   loading.value = true;
   error.value = "";
@@ -39,12 +24,7 @@ async function load() {
       sort: "desc",
     });
     const latest = Array.isArray(conv.conversations) ? conv.conversations[0] : null;
-    if (!latest || !latest.id) return;
-    const data = await hlGet(`/conversations/${encodeURIComponent(latest.id)}/messages`, {
-      limit: 10,
-    });
-    const list = data?.messages?.messages;
-    messages.value = Array.isArray(list) ? list : [];
+    conversationId.value = latest && latest.id ? latest.id : "";
   } catch (e) {
     error.value = e.message;
   } finally {
@@ -56,70 +36,24 @@ onMounted(load);
 </script>
 
 <template>
-  <section class="card">
-    <h3>Recent messages</h3>
+  <el-card>
+    <template #header><span class="head">Recent messages</span></template>
     <LoadState
       :loading="loading"
       :error="error"
-      :empty="!messages.length"
+      :empty="!conversationId"
       loading-text="Loading messages…"
       empty-title="No messages yet"
       empty-text="There is no conversation history with this contact."
       @retry="load"
     >
-      <ul class="msgs">
-        <li v-for="m in ordered" :key="m.id" :class="['msg', m.direction === 'outbound' ? 'out' : 'in']">
-          <div class="bubble">{{ m.body || "(no text content)" }}</div>
-          <div class="meta muted">
-            {{ m.direction === "outbound" ? "Sent" : "Received" }}
-            <template v-if="typeLabel(m)"> · {{ typeLabel(m) }}</template>
-            · {{ fmtDateTime(m.dateAdded) }}
-          </div>
-        </li>
-      </ul>
+      <MessageThread :conversation-id="conversationId" />
     </LoadState>
-  </section>
+  </el-card>
 </template>
 
 <style scoped>
-h3 {
-  margin: 0 0 12px;
-  font-size: 16px;
-}
-.msgs {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.msg {
-  display: flex;
-  flex-direction: column;
-  max-width: 88%;
-}
-.msg.in {
-  align-self: flex-start;
-}
-.msg.out {
-  align-self: flex-end;
-  align-items: flex-end;
-}
-.bubble {
-  padding: 10px 14px;
-  border-radius: 10px;
-  white-space: pre-wrap;
-  word-break: break-word;
-  background: var(--bg);
-  border: 1px solid var(--border);
-}
-.out .bubble {
-  background: var(--primary-soft);
-  border-color: color-mix(in srgb, var(--primary) 25%, var(--surface));
-}
-.meta {
-  font-size: 12px;
-  margin-top: 4px;
+.head {
+  font-weight: 600;
 }
 </style>

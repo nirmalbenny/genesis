@@ -16,7 +16,7 @@ import { summarizeChange } from "./llm/summary";
 import type { ToolCall } from "./llm/assemble";
 import { renderContext, selectContext } from "./llm/context";
 import { selectGuides } from "./llm/guides";
-import { RECENT_MESSAGES, systemBlocks } from "./llm/prompt";
+import { RECENT_MESSAGES, systemBlocks, uiOf } from "./llm/prompt";
 import { buildTools, runBuildTool, runReadFiles } from "./llm/tools";
 import { createFieldReader } from "./llm/toolInput";
 import { runTurns } from "./llm/turns";
@@ -132,7 +132,8 @@ export const generate = onRequest(
       });
       const request = {
         model,
-        system: systemBlocks(guides),
+        // The UI library the app is built with (Element Plus, or the older kit for apps that use it).
+        system: systemBlocks(guides, uiOf(files.map((f) => f.content))),
         tools: buildTools(contextTools),
         messages: [
           ...history,

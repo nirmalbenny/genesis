@@ -1,0 +1,243 @@
+/* The design standard every generated app shares (docs/plans/ui-library.md): tokens, Element Plus mapped onto them,
+   refined components and a few layout classes. Injected as src/genesis/theme.css and loaded by setup.js after Element
+   Plus's own styles; never written by the model, never sent to it (it reads only the class and token names).
+   Everything derives from the --app-* tokens: an app restyles (only when its user asks) by overriding them in :root in
+   src/style.css. Dark theme: mountApp(App, { theme: "dark" }) puts .dark on <html>, which swaps the tokens; the
+   Element Plus mapping mixes shades with the surface color, so the same mapping serves both. */
+
+:root {
+  /* Brand */
+  --app-primary: #ff7a59;
+  --app-primary-hover: #f56645;
+  --app-primary-light: #fff1ec;
+  /* The brand coral is too light for text (2.6:1 with white). Text in or on the brand color uses this darker coral of
+     the same hue (5:1 with white, 4.5:1 on --app-primary-light: WCAG AA); --app-primary stays for tints, borders,
+     focus rings and charts. Filled buttons are text-bearing, so they use it too. */
+  --app-primary-strong: #d62b00;
+  --app-primary-strong-hover: #bd2600;
+  --app-on-primary: #ffffff; /* text and icons on --app-primary-strong */
+  /* Surfaces */
+  --app-bg: #f5f6f7;
+  --app-surface: #ffffff;
+  --app-surface-2: #f8f9fa;
+  /* Text */
+  --app-text: #33475b;
+  --app-text-secondary: #516f90;
+  --app-text-muted: #7c98b6; /* about 3:1 on white: placeholders, disabled text and decoration only, never content */
+  /* Borders */
+  --app-border: #dfe3eb;
+  --app-border-subtle: #eaf0f6;
+  /* Meaning */
+  --app-success: #00a38a;
+  --app-warning: #f5a623;
+  --app-danger: #f2545b;
+  --app-info: #0091ae;
+  /* Chart series, in this order (canvas charts read them with getComputedStyle) */
+  --app-chart-1: #ff7a59;
+  --app-chart-2: #0091ae;
+  --app-chart-3: #00a38a;
+  --app-chart-4: #f5a623;
+  --app-chart-5: #7c98b6;
+  /* Type */
+  --app-font: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --app-text-xs: 12px;
+  --app-text-sm: 13px;
+  --app-text-base: 14px;
+  --app-text-lg: 16px;
+  --app-text-xl: 18px;
+  --app-text-2xl: 22px;
+  /* Spacing: an 8px system */
+  --app-space-1: 4px;
+  --app-space-2: 8px;
+  --app-space-3: 12px;
+  --app-space-4: 16px;
+  --app-space-5: 24px;
+  --app-space-6: 32px;
+  --app-space-7: 48px;
+  /* Shape and depth */
+  --app-radius-sm: 4px;
+  --app-radius: 6px;
+  --app-radius-lg: 8px;
+  --app-shadow-sm: 0 1px 2px rgba(45, 62, 80, 0.06);
+  --app-shadow: 0 6px 20px rgba(45, 62, 80, 0.12);
+  --app-focus-ring: 0 0 0 3px color-mix(in srgb, var(--app-primary) 22%, transparent);
+  color-scheme: light;
+}
+
+html.dark {
+  /* On the dark surface the brand coral itself reaches 6.4:1, so text uses it, and filled buttons get dark text. */
+  --app-primary-strong: var(--app-primary);
+  --app-primary-strong-hover: color-mix(in srgb, var(--app-primary) 85%, white);
+  --app-on-primary: #10151b;
+  --app-primary-light: color-mix(in srgb, var(--app-primary) 16%, var(--app-surface));
+  --app-bg: #10151b;
+  --app-surface: #18202a;
+  --app-surface-2: #1f2934;
+  --app-text: #e6edf3;
+  --app-text-secondary: #a9b7c6;
+  --app-text-muted: #7f90a3;
+  --app-border: #2d3947;
+  --app-border-subtle: #243039;
+  --app-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --app-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  color-scheme: dark;
+}
+
+/* Element Plus, mapped onto the tokens. Shades mix with the surface (white in light mode, near-black in dark). */
+:root {
+  --el-font-family: var(--app-font);
+  --el-font-size-extra-small: var(--app-text-xs);
+  --el-font-size-small: var(--app-text-sm);
+  --el-font-size-base: var(--app-text-base);
+  --el-font-size-medium: var(--app-text-lg);
+  --el-font-size-large: var(--app-text-xl);
+  --el-font-size-extra-large: var(--app-text-2xl);
+  --el-border-radius-small: var(--app-radius-sm);
+  --el-border-radius-base: var(--app-radius);
+  --el-border-radius-round: 999px;
+  --el-component-size: 32px;
+  --el-component-size-large: 40px;
+  --el-component-size-small: 24px;
+
+  --el-color-white: var(--app-surface);
+  --el-color-primary: var(--app-primary-strong); /* Element Plus draws text and filled buttons with it */
+  --el-color-primary-light-3: color-mix(in srgb, var(--app-primary) 70%, var(--app-surface));
+  --el-color-primary-light-5: color-mix(in srgb, var(--app-primary) 50%, var(--app-surface));
+  --el-color-primary-light-7: color-mix(in srgb, var(--app-primary) 30%, var(--app-surface));
+  --el-color-primary-light-8: color-mix(in srgb, var(--app-primary) 20%, var(--app-surface));
+  --el-color-primary-light-9: var(--app-primary-light);
+  --el-color-primary-dark-2: var(--app-primary-strong-hover);
+  --el-color-success: var(--app-success);
+  --el-color-success-light-3: color-mix(in srgb, var(--app-success) 70%, var(--app-surface));
+  --el-color-success-light-5: color-mix(in srgb, var(--app-success) 50%, var(--app-surface));
+  --el-color-success-light-7: color-mix(in srgb, var(--app-success) 30%, var(--app-surface));
+  --el-color-success-light-8: color-mix(in srgb, var(--app-success) 20%, var(--app-surface));
+  --el-color-success-light-9: color-mix(in srgb, var(--app-success) 10%, var(--app-surface));
+  --el-color-success-dark-2: color-mix(in srgb, var(--app-success) 80%, black);
+  --el-color-warning: var(--app-warning);
+  --el-color-warning-light-3: color-mix(in srgb, var(--app-warning) 70%, var(--app-surface));
+  --el-color-warning-light-5: color-mix(in srgb, var(--app-warning) 50%, var(--app-surface));
+  --el-color-warning-light-7: color-mix(in srgb, var(--app-warning) 30%, var(--app-surface));
+  --el-color-warning-light-8: color-mix(in srgb, var(--app-warning) 20%, var(--app-surface));
+  --el-color-warning-light-9: color-mix(in srgb, var(--app-warning) 10%, var(--app-surface));
+  --el-color-warning-dark-2: color-mix(in srgb, var(--app-warning) 80%, black);
+  --el-color-danger: var(--app-danger);
+  --el-color-danger-light-3: color-mix(in srgb, var(--app-danger) 70%, var(--app-surface));
+  --el-color-danger-light-5: color-mix(in srgb, var(--app-danger) 50%, var(--app-surface));
+  --el-color-danger-light-7: color-mix(in srgb, var(--app-danger) 30%, var(--app-surface));
+  --el-color-danger-light-8: color-mix(in srgb, var(--app-danger) 20%, var(--app-surface));
+  --el-color-danger-light-9: color-mix(in srgb, var(--app-danger) 10%, var(--app-surface));
+  --el-color-danger-dark-2: color-mix(in srgb, var(--app-danger) 80%, black);
+  --el-color-error: var(--app-danger);
+  --el-color-error-light-3: var(--el-color-danger-light-3);
+  --el-color-error-light-5: var(--el-color-danger-light-5);
+  --el-color-error-light-7: var(--el-color-danger-light-7);
+  --el-color-error-light-8: var(--el-color-danger-light-8);
+  --el-color-error-light-9: var(--el-color-danger-light-9);
+  --el-color-error-dark-2: var(--el-color-danger-dark-2);
+  --el-color-info: var(--app-text-secondary);
+  --el-color-info-light-3: color-mix(in srgb, var(--app-text-secondary) 70%, var(--app-surface));
+  --el-color-info-light-5: color-mix(in srgb, var(--app-text-secondary) 50%, var(--app-surface));
+  --el-color-info-light-7: color-mix(in srgb, var(--app-text-secondary) 30%, var(--app-surface));
+  --el-color-info-light-8: color-mix(in srgb, var(--app-text-secondary) 20%, var(--app-surface));
+  --el-color-info-light-9: color-mix(in srgb, var(--app-text-secondary) 8%, var(--app-surface));
+  --el-color-info-dark-2: color-mix(in srgb, var(--app-text-secondary) 80%, black);
+
+  --el-bg-color: var(--app-surface);
+  --el-bg-color-page: var(--app-bg);
+  --el-bg-color-overlay: var(--app-surface);
+  --el-text-color-primary: var(--app-text);
+  --el-text-color-regular: var(--app-text);
+  --el-text-color-secondary: var(--app-text-secondary);
+  --el-text-color-placeholder: var(--app-text-muted);
+  --el-text-color-disabled: color-mix(in srgb, var(--app-text-muted) 70%, var(--app-surface));
+  --el-border-color: var(--app-border);
+  --el-border-color-light: var(--app-border);
+  --el-border-color-lighter: var(--app-border-subtle);
+  --el-border-color-extra-light: var(--app-border-subtle);
+  --el-border-color-dark: color-mix(in srgb, var(--app-border) 80%, var(--app-text));
+  --el-border-color-darker: color-mix(in srgb, var(--app-border) 65%, var(--app-text));
+  --el-border-color-hover: var(--app-text-muted);
+  --el-fill-color: var(--app-surface-2);
+  --el-fill-color-light: var(--app-surface-2);
+  --el-fill-color-lighter: var(--app-surface-2);
+  --el-fill-color-extra-light: var(--app-surface);
+  --el-fill-color-dark: color-mix(in srgb, var(--app-border) 60%, var(--app-surface));
+  --el-fill-color-darker: var(--app-border);
+  --el-fill-color-blank: var(--app-surface);
+  --el-mask-color: color-mix(in srgb, var(--app-surface) 88%, transparent);
+  --el-mask-color-extra-light: color-mix(in srgb, var(--app-surface) 30%, transparent);
+  --el-overlay-color-lighter: rgba(16, 24, 32, 0.45);
+  --el-box-shadow: var(--app-shadow);
+  --el-box-shadow-light: var(--app-shadow);
+  --el-box-shadow-lighter: var(--app-shadow-sm);
+  --el-box-shadow-dark: var(--app-shadow);
+}
+
+/* Base */
+*, *::before, *::after { box-sizing: border-box; }
+body { margin: 0; background: var(--app-bg); color: var(--app-text); font-family: var(--app-font); font-size: var(--app-text-base); line-height: 1.5; -webkit-font-smoothing: antialiased; }
+h1, h2, h3, h4, p { margin: 0; }
+h1 { font-size: var(--app-text-2xl); font-weight: 600; line-height: 1.25; letter-spacing: -0.01em; }
+h2 { font-size: var(--app-text-xl); font-weight: 600; line-height: 1.3; }
+h3 { font-size: var(--app-text-lg); font-weight: 600; line-height: 1.35; }
+h4 { font-size: var(--app-text-base); font-weight: 600; }
+a { color: var(--app-primary-strong); text-decoration: none; }
+a:hover { text-decoration: underline; }
+:focus-visible { outline: none; box-shadow: var(--app-focus-ring); }
+.el-avatar { flex-shrink: 0; }
+
+/* Layout */
+.page { max-width: 1200px; margin: 0 auto; padding: var(--app-space-5) var(--app-space-4) var(--app-space-7); display: flex; flex-direction: column; gap: var(--app-space-5); }
+.page-header { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--app-space-4); flex-wrap: wrap; }
+.page-header p { margin-top: var(--app-space-1); color: var(--app-text-secondary); }
+.toolbar { display: flex; align-items: center; gap: var(--app-space-2); flex-wrap: wrap; }
+.stack { display: flex; flex-direction: column; gap: var(--app-space-4); }
+.kpi-grid { display: grid; gap: var(--app-space-4); grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+.card-header { display: flex; align-items: center; justify-content: space-between; gap: var(--app-space-2); flex-wrap: wrap; font-weight: 600; }
+.load-more { display: flex; align-items: center; justify-content: center; gap: var(--app-space-3); padding-top: var(--app-space-3); color: var(--app-text-secondary); font-size: var(--app-text-sm); }
+.muted { color: var(--app-text-secondary); } /* quieter content still needs 4.5:1, so not --app-text-muted */
+.text-secondary { color: var(--app-text-secondary); }
+.app-shell { display: grid; grid-template-columns: 232px minmax(0, 1fr); min-height: 100vh; }
+.app-sidebar { background: var(--app-surface); border-right: 1px solid var(--app-border); padding: var(--app-space-4) var(--app-space-3); display: flex; flex-direction: column; gap: var(--app-space-4); }
+.app-sidebar .el-menu { border-right: 0; }
+.app-content { min-width: 0; }
+.app-mobile-nav { display: none; }
+
+/* Components: one shape, one weight scale, the same states everywhere */
+.el-button { font-weight: 500; }
+.el-button--primary { --el-button-hover-bg-color: var(--app-primary-strong-hover); --el-button-hover-border-color: var(--app-primary-strong-hover); --el-button-active-bg-color: color-mix(in srgb, var(--app-primary-strong-hover) 88%, black); --el-button-active-border-color: color-mix(in srgb, var(--app-primary-strong-hover) 88%, black); --el-button-text-color: var(--app-on-primary); --el-button-hover-text-color: var(--app-on-primary); }
+.el-button:focus-visible, .el-input__wrapper.is-focus, .el-textarea__inner:focus, .el-select__wrapper.is-focused { box-shadow: 0 0 0 1px var(--app-primary) inset, var(--app-focus-ring) !important; }
+.el-card { --el-card-border-color: var(--app-border); --el-card-border-radius: var(--app-radius-lg); --el-card-padding: 20px; }
+.el-card.is-always-shadow, .el-card.is-hover-shadow:hover { box-shadow: var(--app-shadow-sm); }
+.el-card__header { padding: var(--app-space-4) 20px; font-weight: 600; }
+.el-table { --el-table-border-color: var(--app-border-subtle); --el-table-header-bg-color: var(--app-surface-2); --el-table-header-text-color: var(--app-text-secondary); --el-table-row-hover-bg-color: var(--app-surface-2); --el-table-text-color: var(--app-text); font-size: var(--app-text-sm); }
+.el-table th.el-table__cell { font-size: var(--app-text-xs); font-weight: 600; letter-spacing: 0.02em; }
+.el-table .el-table__cell { padding: 10px 0; }
+.el-tag { font-weight: 500; border-radius: var(--app-radius-sm); width: fit-content; }
+.el-dialog { --el-dialog-border-radius: var(--app-radius-lg); --el-dialog-padding-primary: 20px; }
+.el-dialog__title, .el-drawer__title { font-size: var(--app-text-lg); font-weight: 600; color: var(--app-text); }
+.el-drawer__header { margin-bottom: 0; padding: var(--app-space-4) 20px; border-bottom: 1px solid var(--app-border-subtle); }
+.el-tabs__item { font-weight: 500; }
+.el-menu { --el-menu-active-color: var(--app-primary); --el-menu-hover-bg-color: var(--app-surface-2); --el-menu-item-height: 40px; --el-menu-bg-color: transparent; }
+.el-menu-item.is-active { background: var(--app-primary-light); border-radius: var(--app-radius); font-weight: 500; }
+.el-menu-item { border-radius: var(--app-radius); }
+.el-statistic__head { font-size: var(--app-text-xs); color: var(--app-text-secondary); margin-bottom: var(--app-space-1); }
+.el-statistic__content { font-size: var(--app-text-2xl); font-weight: 600; font-variant-numeric: tabular-nums; }
+.el-alert { border-radius: var(--app-radius); }
+.el-empty__description p { color: var(--app-text-secondary); }
+.el-message { border-radius: var(--app-radius); box-shadow: var(--app-shadow); }
+.el-form-item__label { font-weight: 500; color: var(--app-text); }
+
+/* Phones and tablets */
+@media (max-width: 768px) {
+  .app-shell { grid-template-columns: minmax(0, 1fr); }
+  .app-sidebar { display: none; }
+  .app-mobile-nav { display: flex; align-items: center; gap: var(--app-space-2); padding: var(--app-space-2) var(--app-space-3); background: var(--app-surface); border-bottom: 1px solid var(--app-border); }
+}
+@media (max-width: 640px) {
+  .page { padding: var(--app-space-4) var(--app-space-3) var(--app-space-6); gap: var(--app-space-4); }
+  h1 { font-size: var(--app-text-xl); }
+  .el-dialog { --el-dialog-width: calc(100% - 24px) !important; }
+}
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }

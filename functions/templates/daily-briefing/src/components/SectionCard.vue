@@ -1,41 +1,40 @@
 <script setup>
-import { Alert, AlertDescription, Badge, Button, Card, CardContent, CardHeader, CardTitle, EmptyState, Skeleton } from "../genesis/ui";
-
 defineProps({
   title: { type: String, required: true },
   loading: { type: Boolean, default: false },
   error: { type: String, default: "" },
   empty: { type: Boolean, default: false },
   emptyText: { type: String, default: "Nothing to show." },
-  emptyIcon: { type: String, default: "✨" },
   badge: { type: [Number, String], default: null },
 });
 defineEmits(["retry"]);
 </script>
 
 <template>
-<Card>
-  <CardHeader class="row">
-    <CardTitle>{{ title }}</CardTitle>
-    <Badge v-if="badge !== null && badge !== undefined && !loading && !error" variant="secondary">{{ badge }}</Badge>
-  </CardHeader>
-
-  <CardContent>
-    <div v-if="loading" class="stack" aria-busy="true">
-      <Skeleton v-for="n in 3" :key="n" style="height: 46px" />
-      <span class="sr-only">Loading…</span>
+<el-card shadow="never">
+  <template #header>
+    <div class="head">
+      <strong>{{ title }}</strong>
+      <el-tag v-if="badge !== null && badge !== undefined && !loading && !error" type="info" round>{{ badge }}</el-tag>
     </div>
+  </template>
 
-    <Alert v-else-if="error" variant="destructive">
-      <AlertDescription class="stack" style="align-items: flex-start">
-        <span>{{ error }}</span>
-        <Button size="sm" @click="$emit('retry')">Retry</Button>
-      </AlertDescription>
-    </Alert>
+  <el-skeleton v-if="loading" :rows="3" animated />
 
-    <EmptyState v-else-if="empty" :title="emptyIcon" :description="emptyText" />
+  <el-alert v-else-if="error" type="error" show-icon :closable="false" :title="error">
+    <el-button size="small" @click="$emit('retry')">Retry</el-button>
+  </el-alert>
 
-    <slot v-else />
-  </CardContent>
-</Card>
+  <el-empty v-else-if="empty" :description="emptyText" :image-size="80" />
+
+  <slot v-else />
+</el-card>
 </template>
+
+<style scoped>
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+</style>

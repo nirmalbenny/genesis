@@ -1,190 +1,117 @@
 <script setup>
-import { ref, watch, onMounted, onBeforeUnmount } from "vue";
-import { hlGet } from "../api.js";
-import { LOCATION_ID } from "../hl.config.js";
-import { avatarColor, contactDisplayName, initials } from "../utils.js";
+import { ref, computed, watch } from "vue";
+import { Search } from "@element-plus/icons-vue";
+import { usePager, contactName } from "../genesis/hl.js";
+import { initials } from "../utils.js";
 import StatusBlock from "./StatusBlock.vue";
 
 defineProps({ selectedId: { type: String, default: "" } });
 const emit = defineEmits(["select", "loaded"]);
 
-const query = ref("");
-const contacts = ref([]);
-const loading = ref(false);
-const error = ref("");
+const search = ref("");
+// Under 3 characters the server lists everything, so only send real queries.
+const effective = computed(() => (search.value.trim().length >= 3 ? search.value.trim() : ""));
 
-let reqId = 0;
-let timer = null;
-let lastKey = null;
+const { items, total, hasMore, loading, error, loadMore, reset } = usePager("contacts", () => ({
+  query: effective.value,
+  sortBy: "date_added",
+  order: "desc",
+  limit: 20,
+}));
 
-function effectiveKey() {
-  const q = query.value.trim();
-  return q.length >= 3 ? q : "";
-}
+watch(
+  () => items.value.length,
+  () => {
+    if (items.value.length) emit("loaded", items.value);
+  },
+);
 
-async function load() {
-  const id = ++reqId;
-  const key = effectiveKey();
-  lastKey = key;
-  loading.value = true;
-  error.value = "";
-  try {
-    const params = { locationId: LOCATION_ID, limit: 20 };
-    if (key) {
-      params.query = key;
-    } else {
-      params.sortBy = "date_added";
-      params.order = "desc";
-    }
-    const data = await hlGet("/contacts/", params);
-    if (id !== reqId) return;
-    contacts.value = Array.isArray(data.contacts) ? data.contacts : [];
-    emit("loaded", contacts.value);
-  } catch (e) {
-    if (id !== reqId) return;
-    contacts.value = [];
-    error.value = e.message;
-  } finally {
-    if (id === reqId) loading.value = false;
-  }
-}
-
-watch(query, () => {
-  clearTimeout(timer);
-  if (effectiveKey() === lastKey) return;
-  timer = setTimeout(load, 300);
-});
-
-onMounted(load);
-onBeforeUnmount(() => clearTimeout(timer));
+const hint = computed(() =>
+  effective.value ? `Results for “${effective.value}”` : search.value.trim() ? "Type 3+ characters to search" : "Newest contacts",
+);
 </script>
 
 <template>
-  <aside class="sidebar">
-    <div class="search">
-      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
-      <input
-        id="contact-search"
-        v-model="query"
-        type="search"
-        placeholder="Search contacts"
-        aria-label="Search contacts by name, email or phone"
-        autocomplete="off"
-      />
-    </div>
-    <p class="hint">
-      {{ effectiveKey() ? `Results for “${effectiveKey()}”` : query.trim() ? "Type 3+ characters to search" : "Newest contacts" }}
-    </p>
+  <el-card shadow="never">
+    <template #header><span class="card-title">Contacts</span></template>
 
-    <StatusBlock v-if="loading" state="loading" message="Loading contacts…" />
-    <StatusBlock v-else-if="error" state="error" title="Couldn't load contacts" :message="error" @retry="load" />
+    <el-input v-model="search" clearable :prefix-icon="Search" placeholder="Search contacts" aria-label="Search contacts by name, email or phone" />
+    <p class="hint">{{ hint }}</p>
+
+    <StatusBlock v-if="loading && !items.length" state="loading" />
+    <StatusBlock v-else-if="error && !items.length" state="error" title="Couldn't load contacts" :message="error.message" @retry="reset" />
     <StatusBlock
-      v-else-if="!contacts.length"
+      v-else-if="!items.length"
       state="empty"
       title="No contacts found"
-      :message="effectiveKey() ? 'Try a different search term.' : 'This location has no contacts yet.'"
+      :message="effective ? 'Try a different search term.' : 'This location has no contacts yet.'"
     />
-    <ul v-else class="list">
-      <li v-for="c in contacts" :key="c.id">
-        <button type="button" class="row" :class="{ active: c.id === selectedId }" @click="emit('select', c)">
-          <span class="avatar" :style="{ background: avatarColor(contactDisplayName(c)) }">{{ initials(contactDisplayName(c)) }}</span>
-          <span class="info">
-            <span class="name">{{ contactDisplayName(c) }}</span>
-            <span class="sub">{{ c.companyName || c.email || c.phone || "No email or phone" }}</span>
-          </span>
-        </button>
-      </li>
-    </ul>
-  </aside>
+    <template v-else>
+      <ul class="list">
+        <li v-for="c in items" :key="c.id">
+          <button type="button" class="row" :class="{ active: c.id === selectedId }" @click="emit('select', c)">
+            <el-avatar :size="34">{{ initials(contactName(c)) }}</el-avatar>
+            <span class="info">
+              <span class="name">{{ contactName(c) }}</span>
+              <span class="detail">{{ c.companyName || c.email || c.phone || "No email or phone" }}</span>
+            </span>
+          </button>
+        </li>
+      </ul>
+      <el-alert v-if="error" :title="error.message" type="error" show-icon :closable="false" />
+      <div class="foot">
+        <span class="count">Showing {{ items.length }}<template v-if="total !== null"> of {{ total }}</template> contacts</span>
+        <el-button v-if="hasMore" size="small" :loading="loading" @click="loadMore">Load more</el-button>
+      </div>
+    </template>
+  </el-card>
 </template>
 
 <style scoped>
-.sidebar {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  background: var(--surface);
-  border-right: 1px solid var(--border);
-}
-.search {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 16px 16px 0;
-  padding: 0 12px;
-  height: 40px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  color: var(--muted);
-  background: var(--bg);
-}
-.search:focus-within {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(255, 92, 53, 0.15);
-  background: var(--surface);
-}
-.search input {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  background: transparent;
-  font: inherit;
-  color: var(--text);
-  outline: none;
+.card-title {
+  font-weight: 600;
 }
 .hint {
-  margin: 12px 16px 6px;
-  font-size: 11px;
+  margin: 12px 0 6px;
+  font-size: 12px;
   font-weight: 600;
-  color: color-mix(in srgb, var(--muted) 70%, var(--surface));
   text-transform: uppercase;
   letter-spacing: 0.06em;
+  color: var(--el-text-color-secondary);
 }
 .list {
   list-style: none;
   margin: 0;
-  padding: 0 8px 16px;
+  padding: 0;
+  max-height: 55vh;
   overflow-y: auto;
-  min-height: 0;
-  flex: 1;
 }
 .row {
   display: flex;
   align-items: center;
   gap: 12px;
   width: 100%;
-  background: transparent;
+  padding: 8px;
   border: 0;
-  border-radius: 8px;
-  padding: 9px 10px;
+  border-radius: var(--el-border-radius-base);
+  background: transparent;
   text-align: left;
   font: inherit;
   color: inherit;
   cursor: pointer;
 }
 .row:hover {
-  background: var(--bg);
+  background: var(--el-fill-color-light);
 }
 .row:focus-visible {
-  outline: 2px solid var(--primary);
+  outline: 2px solid var(--el-color-primary);
   outline-offset: -2px;
 }
 .row.active {
-  background: var(--primary-soft);
+  background: var(--el-color-primary-light-9);
 }
 .row.active .name {
-  color: var(--primary);
-}
-.avatar {
-  flex: none;
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  color: var(--on-primary);
-  display: grid;
-  place-items: center;
-  font-size: 12px;
-  font-weight: 600;
+  color: var(--el-color-primary);
 }
 .info {
   display: flex;
@@ -198,11 +125,28 @@ onBeforeUnmount(() => clearTimeout(timer));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.sub {
+.detail {
   font-size: 12px;
-  color: var(--muted);
+  color: var(--el-text-color-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+.count {
+  font-size: 13px;
+  color: var(--el-text-color-secondary);
+}
+@media (max-width: 640px) {
+  .list {
+    max-height: 300px;
+  }
 }
 </style>
