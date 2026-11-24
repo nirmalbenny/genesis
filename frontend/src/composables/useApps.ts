@@ -7,6 +7,8 @@ import { api } from '@/lib/api'
 import type { Category } from '@/lib/catalog'
 
 export type App = CatalogApp & { category: Category }
+/** A variant build's app before the customer saves one version (docs/plans/build-variants.md). Not in any app list. */
+export type Draft = { id: string; name: string; updatedAt: number }
 
 // Account setup (ready-made apps + signup credits) runs once per signed-in user, shared by every component.
 let setupUid: string | null = null
@@ -32,6 +34,7 @@ function runSetup(uid: string, error: Ref<string>) {
 export function useApps() {
   const { user } = useAuth()
   const apps = ref<App[]>([])
+  const drafts = ref<Draft[]>([])
   const loaded = ref(false)
   const error = ref('')
   /** True while a first-time setup is adding the ready-made apps; show a placeholder, not a partial list. */
@@ -42,7 +45,8 @@ export function useApps() {
   const stop = onSnapshot(
     query(collection(db, 'projects'), where('ownerId', '==', user.value!.uid), where('deletedAt', '==', null)),
     (s) => {
-      apps.value = s.docs.map((d) => ({
+      drafts.value = s.docs.filter((d) => d.get('draft')).map((d) => ({ id: d.id, name: d.get('name'), updatedAt: d.get('updatedAt')?.toMillis() ?? 0 }))
+      apps.value = s.docs.filter((d) => !d.get('draft')).map((d) => ({
         id: d.id,
         name: d.get('name'),
         description: d.get('description') ?? '',
@@ -60,5 +64,5 @@ export function useApps() {
   )
   onUnmounted(stop)
 
-  return { apps, loaded, error, settingUp }
+  return { apps, drafts, loaded, error, settingUp }
 }

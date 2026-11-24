@@ -3,6 +3,7 @@ import { getStorage } from "firebase-admin/storage";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { bucket as defaultBucket, db } from "../admin";
 import { BLOB_CLEANUP } from "../config";
+import { expireDrafts } from "../projects";
 import type { Manifest } from "./index";
 
 /**
@@ -84,5 +85,6 @@ export async function cleanupBlobs(opts: {
 
 /** Daily. BLOB_CLEANUP=dry-run (default) only logs what it would delete; `delete` deletes. */
 export const cleanupFileBlobs = onSchedule({ schedule: "every day 03:30", timeZone: "Etc/UTC", timeoutSeconds: 540 }, async () => {
+  console.info(`draft cleanup: ${await expireDrafts()} expired`);
   await cleanupBlobs({ dryRun: BLOB_CLEANUP.value() !== "delete" });
 });

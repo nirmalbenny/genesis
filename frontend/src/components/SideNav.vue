@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Copy, Ellipsis, House, LayoutGrid, Pencil, Pin, PinOff } from '@lucide/vue'
+import { Copy, Ellipsis, Hammer, House, LayoutGrid, Pencil, Pin, PinOff } from '@lucide/vue'
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import AppLogo from '@/components/AppLogo.vue'
@@ -9,6 +9,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
+import { useActiveBuilds } from '@/composables/useActiveBuilds'
 import { useApps, type App } from '@/composables/useApps'
 import { useLaunchApp } from '@/composables/useLaunchApp'
 import { categoryOf, iconOf } from '@/lib/catalog'
@@ -22,10 +23,13 @@ const { apps } = useApps()
 const { launch, setPinned } = useLaunchApp()
 const copySource = ref<App | null>(null)
 
-const links = [
-  { to: '/', label: 'Home', icon: House },
-  { to: '/apps', label: 'Apps', icon: LayoutGrid },
-]
+// Builds: in progress and finished (the build history); the count is what is building or waiting to be chosen.
+const { items: activeBuilds } = useActiveBuilds()
+const links = computed(() => [
+  { to: '/', label: 'Home', icon: House, count: 0 },
+  { to: '/apps', label: 'Apps', icon: LayoutGrid, count: 0 },
+  { to: '/builds', label: 'Builds', icon: Hammer, count: activeBuilds.value.length },
+])
 const pinned = computed(() =>
   apps.value.filter((a) => a.pinnedAt !== null).sort((a, b) => (a.pinnedAt ?? 0) - (b.pinnedAt ?? 0)),
 )
@@ -60,6 +64,7 @@ const active = 'bg-sidebar-accent text-primary hover:bg-sidebar-accent'
       <nav class="grid gap-1 p-3" aria-label="Main">
         <RouterLink v-for="l in links" :key="l.to" :to="l.to" :class="item" :exact-active-class="active" @click="close">
           <component :is="l.icon" class="size-4" />{{ l.label }}
+          <span v-if="l.count" class="ml-auto grid min-w-5 place-items-center rounded-full bg-primary px-1.5 text-[11px] font-bold leading-5 text-primary-foreground" :aria-label="`${l.count} in progress`">{{ l.count }}</span>
         </RouterLink>
       </nav>
 

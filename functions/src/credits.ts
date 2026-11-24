@@ -2,7 +2,7 @@ import type { Usage } from "@anthropic-ai/sdk/resources/messages/messages";
 import { FieldValue } from "firebase-admin/firestore";
 import { db } from "./admin";
 import { httpError, rateLimited } from "./http";
-import { decideBuildStart, type BuildState } from "./rateLimits";
+import { decideBuildStart, type BuildState, type BuildWeight } from "./rateLimits";
 
 /**
  * AI credits: 1 credit = $0.001 of Claude list price. Every user gets SIGNUP_CREDITS once their email is
@@ -11,11 +11,13 @@ import { decideBuildStart, type BuildState } from "./rateLimits";
  */
 export const SIGNUP_CREDITS = 2500; // keep in sync with frontend/src/composables/useCredits.ts
 // 2: Sonnet 5.5 cache reads corrected to $0.10/MTok (was $0.20), with prompt caching of the system prompt.
-export const RATE_CARD_VERSION = 2;
+// 3: Opus 5.5 added ($4 / $20, cache reads $0.20), for variant builds that use it.
+export const RATE_CARD_VERSION = 3;
 
 type Rate = { input: number; output: number; cacheWrite: number; cacheRead: number }; // credits per 1M tokens
 const RATES: Record<string, Rate> = {
   "claude-sonnet-5-5": { input: 2000, output: 10000, cacheWrite: 2500, cacheRead: 100 },
+  "claude-opus-5-5": { input: 4000, output: 20000, cacheWrite: 5000, cacheRead: 200 },
   "claude-haiku-5-5": { input: 100, output: 500, cacheWrite: 125, cacheRead: 10 },
 };
 // An unknown model is billed at the highest known rate rather than for free.
@@ -97,11 +99,11 @@ export async function grantSignupCredits(uid: string): Promise<boolean> {
  * (at most 10 per 10 minutes), or refuses with 429. Runs before any Claude call or credit hold. A limiter
  * error refuses the build too: this is the limit that protects real spend. Released by settleCredits.
  */
-export async function reserveBuildSlot(uid: string, projectId: string, generationId: string): Promise<void> {
+export async function reserveBuildSlot(uid: string, projectId: string, generationId: string, weight?: BuildWeight): Promise<void> {
   await db.runTransaction(async (tx) => {
     const d = (await tx.get(userRef(uid))).data();
     const state: BuildState = { activeBuilds: d?.activeBuilds ?? {}, buildStarts: d?.buildStarts ?? [] };
-    const decision = decideBuildStart(state, projectId, generationId, Date.now());
+    const decision = decideBuildStart(state, projectId, generationId, Date.now(), weight);
     if (!decision.ok) throw rateLimited(decision.retryAfter, decision.message, { limit: "build", uid, projectId });
     // activeBuilds is replaced whole (not merged) so expired slots are dropped.
     tx.set(userRef(uid), { activeBuilds: decision.next.activeBuilds, buildStarts: decision.next.buildStarts }, { mergeFields: ["activeBuilds", "buildStarts"] });
@@ -172,5 +174,25 @@ export async function settleCredits(
     // Settling also frees the build's slot (rateLimits): every build, however it ended, settles exactly once.
     tx.set(userRef(uid), { credits: next, activeBuilds: { [generationId]: FieldValue.delete() } }, { merge: true });
     return next.balance;
+  });
+}
+
+/**
+ * Adjusts a settled build's charge by `delta` credits (positive charges more, negative refunds): a variant build
+ * charges the version applied, and keeping the other one costs that version's usage instead. Once per build
+ * (`{generationId}-adjust`); a charge is capped at the available balance.
+ */
+export async function adjustCharge(uid: string, generationId: string, delta: number, detail: Record<string, unknown>): Promise<void> {
+  if (!delta) return;
+  await db.runTransaction(async (tx) => {
+    const entry = ledger(uid).doc(`${generationId}-adjust`);
+    const s = stateOf((await tx.get(userRef(uid))).data());
+    if ((await tx.get(entry)).exists) return;
+    const credits = delta > 0 ? Math.min(delta, Math.max(0, s.balance - s.reserved)) : Math.max(delta, -s.used);
+    tx.set(entry, {
+      type: credits >= 0 ? "charge" : "refund", credits, generationId, rateCardVersion: RATE_CARD_VERSION, ...detail,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+    tx.set(userRef(uid), { credits: { ...s, balance: s.balance - credits, used: s.used + credits } }, { merge: true });
   });
 }

@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { Check, ChevronDown, Pencil, Plug, RefreshCw, RefreshCcw } from '@lucide/vue'
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { Check, ChevronDown, Pencil, Plug, RefreshCw, RefreshCcw, Save } from '@lucide/vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import AppDetailsDialog, { type AppDetails } from '@/components/AppDetailsDialog.vue'
 import AppLogo from '@/components/AppLogo.vue'
 import PreviewPanel from '@/components/PreviewPanel.vue'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -11,8 +12,14 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { useHl } from '@/composables/useHl'
 import { useProject } from '@/composables/useProject'
+import { useVersions } from '@/composables/useVersions'
+import { api } from '@/lib/api'
+import { guessCategory } from '@/lib/catalog'
 
-const projectId = String(useRoute().params.id)
+const route = useRoute()
+const projectId = String(route.params.id)
+/** A version of a variant build, previewed before it is saved (docs/plans/build-variants.md). */
+const version = typeof route.query.version === 'string' ? route.query.version : null
 const router = useRouter()
 const project = useProject(projectId)
 const { hl, loaded, busy, error, connect } = useHl()
@@ -21,8 +28,41 @@ const ready = ref(false)
 
 onMounted(async () => {
   await project.init()
+  if (version) {
+    try {
+      const { files } = await api<{ files: { path: string; content: string }[] }>('GET', `/projects/${projectId}/snapshots/${version}/files`)
+      for (const k of Object.keys(project.files)) delete project.files[k]
+      for (const f of files) project.files[f.path] = f.content
+    } catch (e) {
+      project.loadError.value = (e as Error).message
+    }
+  }
   ready.value = true
 })
+
+// Saving the previewed version makes it the app; the editor opens on it.
+const versions = version ? useVersions(projectId) : null
+const saveOpen = ref(false)
+const saving = ref(false)
+const saveError = ref('')
+const saveInitial = computed<AppDetails | null>(() => saveOpen.value && versions ? {
+  name: versions.name.value,
+  description: (versions.prompt.value || project.description.value).slice(0, 500),
+  category: guessCategory(versions.prompt.value),
+} : null)
+async function saveVersion(details: AppDetails) {
+  if (!versions || !version) return
+  saving.value = true
+  saveError.value = ''
+  try {
+    await versions.save(version, details)
+    await router.push(`/p/${projectId}`)
+  } catch (e) {
+    saveError.value = (e as Error).message
+  } finally {
+    saving.value = false
+  }
+}
 
 // Without a connected sub-account the app has no data to run on: say so, then return home.
 const REDIRECT_SECONDS = 6
@@ -57,7 +97,8 @@ function connectNow() {
     <header class="flex h-14 shrink-0 items-center gap-2 bg-ink-100 px-3 text-white sm:gap-3 sm:px-4">
       <AppLogo inverted />
       <span class="hidden text-white/50 sm:inline">/</span>
-      <span class="hidden max-w-60 truncate text-[13px] font-semibold sm:inline">{{ project.name.value }}</span>
+      <span v-if="version" class="rounded-md bg-white/15 px-2 py-0.5 text-xs font-semibold">Preview</span>
+      <span v-else class="hidden max-w-60 truncate text-[13px] font-semibold sm:inline">{{ project.name.value }}</span>
       <div class="flex-1" />
 
       <!-- One HighLevel location per user: the menu shows the connected one and lets you re-authorize -->
@@ -96,7 +137,10 @@ function connectNow() {
       <Button size="sm" variant="outline" class="h-7 shrink-0 gap-1.5 border-white/25 bg-white/10 text-xs text-white hover:bg-white/20 hover:text-white" aria-label="Refresh" :disabled="!hl" @click="preview?.refresh({ force: true })">
         <RefreshCw class="size-3.5" /><span class="hidden sm:inline">Refresh</span>
       </Button>
-      <Button size="sm" class="h-7 shrink-0 gap-1.5 text-xs" as-child>
+      <Button v-if="version" size="sm" class="h-7 shrink-0 gap-1.5 text-xs" aria-label="Save as app" @click="saveOpen = true">
+        <Save class="size-3.5" /><span class="hidden sm:inline">Save as app</span>
+      </Button>
+      <Button v-else size="sm" class="h-7 shrink-0 gap-1.5 text-xs" as-child>
         <RouterLink :to="`/p/${projectId}`" aria-label="Edit"><Pencil class="size-3.5" /><span class="hidden sm:inline">Edit</span></RouterLink>
       </Button>
     </header>
@@ -133,6 +177,17 @@ function connectNow() {
       :location-name="hl?.locationName ?? null"
       :building="false"
       @connect="connect()"
+    />
+
+    <AppDetailsDialog
+      :initial="saveInitial"
+      title="Save your app"
+      subtitle="Give it a name. You can change the app any time after saving."
+      submit-label="Save app"
+      :busy="saving"
+      :error="saveError"
+      @submit="saveVersion"
+      @close="saveOpen = false"
     />
   </div>
 </template>

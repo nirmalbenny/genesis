@@ -1,9 +1,9 @@
 import { FieldValue } from "firebase-admin/firestore";
 import { onRequest, type Request } from "firebase-functions/v2/https";
 import { db } from "./admin";
-import { APP_ORIGINS, PREVIEW_TOKEN_SECRET } from "./config";
+import { APP_ORIGINS, LANGFUSE_BASE_URL, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, PREVIEW_TOKEN_SECRET, TRACING } from "./config";
 import { fileStore, projectRef, SEED_FILES, writeOps } from "./files";
-import { grantSignupCredits } from "./credits";
+import { adjustCharge, grantSignupCredits } from "./credits";
 import { httpError, rateLimited, requireVerifiedUser, sendError } from "./http";
 import { createLimiter, LIMITS } from "./rateLimits";
 import { checkPath, MAX_FILE_BYTES } from "./llm/validate";
@@ -11,6 +11,11 @@ import { signPreviewToken } from "./previewToken";
 import { assertEditable, getOwnedProject, getUserHl, toCategory, useConnectedLocation } from "./projects";
 import { seedTemplates } from "./templates";
 import { syncGrantedScopes } from "./hl/scopes";
+import { startVariants, type Finalist } from "./variants";
+import { markRead } from "./notifications";
+import { updateBuild } from "./buildHistory";
+import { sendScores } from "./observability/scores";
+import { keptScores, type SentTrace } from "./observability/variantTrace";
 
 type Handler = (uid: string, req: Request, m: string[]) => Promise<unknown>;
 
@@ -107,13 +112,16 @@ const deleteProject: Handler = async (uid, _req, [pid]) => {
   return { ok: true };
 };
 
+// A single build streams; a variant build (variants.ts) goes through these steps in the background.
+const RUNNING = new Set(["streaming", "queued", "planning", "building", "checking"]);
+
 /** Asks a running build to stop. The generate function watches the generation doc and stops the model. */
 const cancelGeneration: Handler = async (uid, _req, [pid, gid]) => {
   await getOwnedProject(uid, pid);
   const ref = projectRef(pid).collection("generations").doc(gid);
   const snap = await ref.get();
   if (!snap.exists) throw httpError(404, "not_found", "Generation not found");
-  if (snap.get("status") !== "streaming") return { requested: false }; // already finished
+  if (!RUNNING.has(snap.get("status"))) return { requested: false }; // already finished
   await ref.update({ cancelRequested: true });
   return { requested: true };
 };
@@ -162,6 +170,58 @@ const restore: Handler = async (uid, _req, [pid, sid]) => {
   return { snapshotId };
 };
 
+/** One snapshot's files (a variant build's version, previewed before it is saved). */
+const snapshotFiles: Handler = async (uid, _req, [pid, sid]) => {
+  await getOwnedProject(uid, pid);
+  const files = await fileStore().readSnapshot(pid, sid);
+  if (!files) throw httpError(404, "not_found", "Version not found");
+  return { files };
+};
+
+/**
+ * Saves one version of a variant build as the app: its files become the app's (a non-destructive restore unless it
+ * is the one already applied), the details are set, the chat starts with the request and that version's plan, and
+ * the draft becomes a normal app. The other version stays in History.
+ */
+const saveVersion: Handler = async (uid, req, [pid]) => {
+  const project = await getOwnedProject(uid, pid);
+  const { name, description } = requireDetails(req.body);
+  const unavailable = () => httpError(409, "version_unavailable", "This version is no longer available.");
+  if (!project.draft) throw unavailable();
+  const genRef = projectRef(pid).collection("generations").doc(project.draft.generationId);
+  const gen = await genRef.get();
+  const chosen = ((gen.get("finalists") as Finalist[] | undefined) ?? []).find((f) => f.snapshotId === req.body?.snapshotId);
+  if (gen.get("status") !== "ready" || !chosen) throw unavailable();
+  const store = fileStore();
+  if (chosen.snapshotId !== gen.get("snapshotId") && !(await store.restore(pid, chosen.snapshotId))) throw unavailable();
+  const messages = projectRef(pid).collection("messages");
+  await messages.add({ role: "user", content: gen.get("prompt") ?? description, generationId: gen.id, createdAt: FieldValue.serverTimestamp() });
+  await messages.add({ role: "assistant", content: `${chosen.plan}\n\nFiles: ${chosen.files.join(", ")}`, generationId: gen.id, createdAt: FieldValue.serverTimestamp() });
+  await genRef.update({ status: "done", snapshotId: chosen.snapshotId, files: chosen.files });
+  await projectRef(pid).update({
+    name, description, category: toCategory(req.body?.category), draft: FieldValue.delete(), updatedAt: FieldValue.serverTimestamp(),
+  });
+  // The customer pays for the version they keep: the job charged the applied one, so keeping the other adjusts it.
+  const applied = ((gen.get("finalists") as Finalist[] | undefined) ?? []).find((f) => f.snapshotId === gen.get("snapshotId"));
+  const delta = applied && typeof chosen.credits === "number" && typeof applied.credits === "number" ? chosen.credits - applied.credits : 0;
+  await adjustCharge(uid, gen.id, delta, { kind: "variants", reason: "kept another version", projectId: pid });
+  const charged = (typeof gen.get("credits") === "number" ? gen.get("credits") as number : 0) + delta;
+  if (delta) await genRef.update({ credits: charged });
+  await updateBuild(uid, gen.id, { outcome: "saved", appName: name, href: `/p/${pid}`, versions: [chosen.title], ...(delta ? { credits: charged } : {}) });
+  // In Langfuse, which version the customer kept: does the ranking match their taste? (1 = the top-ranked finalist)
+  if (TRACING.value() === "langfuse") {
+    const scores = (await db.doc(`variantScores/${gen.id}`).get()).data();
+    const trace = scores?.trace as SentTrace | undefined;
+    const rank = ((gen.get("finalists") as Finalist[] | undefined) ?? []).findIndex((f) => f.snapshotId === chosen.snapshotId) + 1;
+    const versionIndex = (scores?.finalists as number[] | undefined)?.[rank - 1];
+    if (trace && rank > 0 && versionIndex !== undefined) {
+      await sendScores({ publicKey: LANGFUSE_PUBLIC_KEY.value(), secretKey: LANGFUSE_SECRET_KEY.value(), baseUrl: LANGFUSE_BASE_URL.value() },
+        keptScores(gen.id, trace, versionIndex, rank));
+    }
+  }
+  return { id: pid };
+};
+
 const previewToken: Handler = async (uid, _req, [pid]) => {
   const project = await getOwnedProject(uid, pid);
   const hl = await getUserHl(uid);
@@ -195,6 +255,10 @@ const routes: Array<[string, RegExp, Handler]> = [
   ["POST", /^\/bootstrap$/, bootstrap],
   ["POST", /^\/hl\/disconnect$/, disconnectHl],
   ["POST", /^\/projects$/, createProject],
+  ["POST", /^\/variants$/, (uid, req) => startVariants(uid, req.body)],
+  ["POST", /^\/notifications\/read$/, (uid, req) => markRead(uid, req.body?.ids)],
+  ["POST", /^\/projects\/([^/]+)\/save$/, saveVersion],
+  ["GET", /^\/projects\/([^/]+)\/snapshots\/([^/]+)\/files$/, snapshotFiles],
   ["GET", /^\/projects\/([^/]+)$/, getProject],
   ["POST", /^\/projects\/([^/]+)\/duplicate$/, duplicateProject],
   ["POST", /^\/projects\/([^/]+)\/pin$/, pinProject],
@@ -213,7 +277,7 @@ const routes: Array<[string, RegExp, Handler]> = [
 const writes = createLimiter(LIMITS.apiWrites);
 const reads = createLimiter(LIMITS.apiReads);
 
-export const api = onRequest({ cors: APP_ORIGINS, secrets: [PREVIEW_TOKEN_SECRET] }, async (req, res) => {
+export const api = onRequest({ cors: APP_ORIGINS, secrets: [PREVIEW_TOKEN_SECRET, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY] }, async (req, res) => {
   try {
     const uid = await requireVerifiedUser(req);
     const isWrite = req.method !== "GET";

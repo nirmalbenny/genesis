@@ -52,3 +52,17 @@ test("at most 10 build starts per 10 minutes, with the exact wait", () => {
   const later = decideBuildStart({ ...s, activeBuilds: {} }, "p1", "g10", 10 * 60_000);
   assert.ok(later.ok && later.next.buildStarts.length === 10); // the oldest start dropped out
 });
+
+test("a variant build takes every slot and counts as several starts", () => {
+  const weight = { exclusive: true, starts: 4 };
+  const busy = start(empty, "p1", "g1", 0) as BuildState;
+  assert.equal(decideBuildStart(busy, "p2", "v1", 1000, weight).ok, false); // another build is running
+  const v = decideBuildStart(empty, "p2", "v1", 0, weight);
+  assert.ok(v.ok);
+  assert.equal(v.next.buildStarts.length, 4);
+  assert.equal(decideBuildStart(v.next, "p3", "g2", 1000).ok, false); // nothing else while it runs
+  const crowded: BuildState = { activeBuilds: {}, buildStarts: [1, 2, 3, 4, 5, 6, 7] };
+  const refused = decideBuildStart(crowded, "p2", "v2", 10, weight);
+  assert.equal(refused.ok, false);
+  assert.ok(!refused.ok && refused.retryAfter >= 1);
+});

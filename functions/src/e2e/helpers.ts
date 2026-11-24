@@ -25,6 +25,11 @@ export const FILE_STORE = process.env.FILE_STORE
   ?? fs.readFileSync(path.join(__dirname, "..", "..", ".env.local"), "utf8").match(/^FILE_STORE=(.+)$/m)?.[1]?.trim()
   ?? "firestore";
 
+/** Whether the emulator runs with variant builds on (functions/.env.local VARIANTS). */
+export const VARIANTS = process.env.VARIANTS
+  ?? fs.readFileSync(path.join(__dirname, "..", "..", ".env.local"), "utf8").match(/^VARIANTS=(.+)$/m)?.[1]?.trim()
+  ?? "off";
+
 const app = getApps().find((a) => a.name === "e2e") ?? initializeApp({ projectId: PROJECT }, "e2e");
 export const db = getFirestore(app);
 const auth = getAuth(app);

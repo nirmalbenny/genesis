@@ -52,18 +52,26 @@ export function createLimiter(opts: { perSecond: number; burst: number }, now: (
 // ---- Build slots + sliding-window log (pure; applied inside a Firestore transaction) ----
 
 export type BuildState = {
-  activeBuilds: Record<string, { projectId: string; startedAt: number }>;
+  /** `exclusive`: a variant build (4 builds at once) holds every slot of the user. */
+  activeBuilds: Record<string, { projectId: string; startedAt: number; exclusive?: boolean }>;
   buildStarts: number[];
 };
+
+/** A variant build runs several builds at once: it needs every slot, and counts as that many starts. */
+export type BuildWeight = { exclusive: boolean; starts: number };
+const SINGLE: BuildWeight = { exclusive: false, starts: 1 };
 
 export type BuildDecision =
   | { ok: true; next: BuildState }
   | { ok: false; retryAfter: number; message: string };
 
 /** Decides whether a new build may start, and returns the state to store if it may. */
-export function decideBuildStart(state: BuildState, projectId: string, generationId: string, now: number): BuildDecision {
+export function decideBuildStart(state: BuildState, projectId: string, generationId: string, now: number, weight: BuildWeight = SINGLE): BuildDecision {
   const { maxPerProject, maxPerUser, startsPerWindow, windowMs } = LIMITS.build;
   const active = Object.entries(state.activeBuilds).filter(([, s]) => now - s.startedAt < BUILD_SLOT_TTL_MS);
+  if (active.some(([, s]) => s.exclusive) || (weight.exclusive && active.length)) {
+    return { ok: false, retryAfter: 30, message: "Your app versions are still being built. Wait for them to finish, or stop them." };
+  }
   if (active.filter(([, s]) => s.projectId === projectId).length >= maxPerProject) {
     return { ok: false, retryAfter: 30, message: "A build is already running for this app. Wait for it to finish, or stop it." };
   }
@@ -71,15 +79,17 @@ export function decideBuildStart(state: BuildState, projectId: string, generatio
     return { ok: false, retryAfter: 30, message: `You can run ${maxPerUser} builds at a time. Wait for one to finish.` };
   }
   const starts = state.buildStarts.filter((t) => now - t < windowMs);
-  if (starts.length >= startsPerWindow) {
-    const retryAfter = Math.ceil((starts[0]! + windowMs - now) / 1000);
+  if (starts.length + weight.starts > startsPerWindow) {
+    // Wait until enough of the oldest starts leave the window (one for a single build).
+    const oldest = starts[Math.min(starts.length - 1, starts.length + weight.starts - startsPerWindow - 1)] ?? now;
+    const retryAfter = Math.max(1, Math.ceil((oldest + windowMs - now) / 1000));
     return { ok: false, retryAfter, message: `You've started ${startsPerWindow} builds in 10 minutes. Try again in ${retryAfter} s.` };
   }
   return {
     ok: true,
     next: {
-      activeBuilds: { ...Object.fromEntries(active), [generationId]: { projectId, startedAt: now } },
-      buildStarts: [...starts, now],
+      activeBuilds: { ...Object.fromEntries(active), [generationId]: { projectId, startedAt: now, ...(weight.exclusive ? { exclusive: true } : {}) } },
+      buildStarts: [...starts, ...Array<number>(weight.starts).fill(now)],
     },
   };
 }

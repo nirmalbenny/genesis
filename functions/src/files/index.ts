@@ -18,7 +18,7 @@ export type FileEntry = { hash: string } & FileMeta;
 /** path → entry, for every file of a project (or of a snapshot). */
 export type Manifest = Record<string, FileEntry>;
 
-export type SnapshotReason = "generation" | "restore" | "template" | "copy";
+export type SnapshotReason = "generation" | "restore" | "template" | "copy" | "variant";
 export type SnapshotInfo = {
   id: string; reason: SnapshotReason; summary: string | null; generationId: string | null; fileCount: number; createdAt: number | null;
 };
@@ -35,6 +35,13 @@ export interface FileStore {
    */
   apply(pid: string, ops: FileOp[], opts?: { expectedVersion?: number }): Promise<void>;
   snapshot(pid: string, generationId: string | null, reason: SnapshotReason, summary?: string | null): Promise<string>;
+  /**
+   * Records a snapshot of the files `ops` would produce on top of the current ones, without changing the project's
+   * files (a variant build's finalists, docs/plans/build-variants.md). Content is stored first.
+   */
+  stageSnapshot(pid: string, ops: FileOp[], generationId: string, summary: string): Promise<string>;
+  /** A snapshot's files, sorted by path, or null when it doesn't exist. */
+  readSnapshot(pid: string, sid: string): Promise<ProjectFile[] | null>;
   /** Replaces the files with the snapshot's, then records a `restore` snapshot. Null when the snapshot doesn't exist. */
   restore(pid: string, sid: string): Promise<string | null>;
   /** Gives `toPid` the same files as `fromPid` (same owner). */

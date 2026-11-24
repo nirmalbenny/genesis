@@ -29,6 +29,19 @@ export const BLOB_CLEANUP = defineString("BLOB_CLEANUP", { default: "dry-run" })
  * `enforce` refuses it with hl_scope_missing. Writes always need their scope. Switch to `enforce` once the
  * `hl.read_scope_missing` logs stay clean.
  */
+/** Variant builds (docs/plans/build-variants.md): `on` lets a new app be built as 4 versions, 2 offered; `off` (default) refuses them. */
+export const VARIANTS = defineString("VARIANTS", { default: "off" });
+/**
+ * The model and effort of each variant build version, comma-separated `model:effort` (effort: low, medium, high,
+ * xhigh, max). Which prompt gets which setting rotates per build (assignBuilds in llm/variants.ts).
+ */
+export const VARIANT_BUILDS = defineString("VARIANT_BUILDS", {
+  default: "claude-sonnet-5-5:medium,claude-sonnet-5-5:high,claude-opus-5-5:medium,claude-opus-5-5:high",
+});
+/** The model that scores a variant build's versions for quality (llm/rubric.md). */
+export const GRADER_MODEL = defineString("GRADER_MODEL", { default: "claude-haiku-5-5" });
+/** The model that reviews each version's security (llm/security.md): a gate, so the stronger model. */
+export const SECURITY_MODEL = defineString("SECURITY_MODEL", { default: "claude-sonnet-5-5" });
 export const READ_SCOPES = defineString("READ_SCOPES", { default: "log" });
 
 /**

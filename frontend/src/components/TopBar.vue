@@ -4,6 +4,7 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import AppLogo from '@/components/AppLogo.vue'
 import ConnectRequiredDialog from '@/components/ConnectRequiredDialog.vue'
+import NotificationsSheet from '@/components/NotificationsSheet.vue'
 import SideNav from '@/components/SideNav.vue'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
@@ -48,6 +49,8 @@ async function confirmed() {
     <slot name="status" />
     <div class="flex-1" />
     <slot name="actions" />
+
+    <NotificationsSheet />
 
     <!-- AI credits -->
     <div

@@ -1,6 +1,7 @@
 import { db } from "./admin";
 import { httpError } from "./http";
 import { projectRef } from "./files";
+import { updateBuild } from "./buildHistory";
 
 /** App catalog categories (duplicated in frontend/src/lib/catalog.ts). */
 export const CATEGORIES = ["sales", "service", "scheduling", "insights", "other"] as const;
@@ -19,6 +20,8 @@ export type Project = {
   kind?: "prebuilt" | "user";
   templateSlug?: string;
   templateVersion?: string;
+  /** A variant build's app before the customer saves one version (docs/plans/build-variants.md): hidden from lists. */
+  draft?: { generationId: string; expiresAt: FirebaseFirestore.Timestamp } | null;
 };
 
 /** Loads a project and checks it belongs to `uid` and is not soft-deleted. */
@@ -47,4 +50,17 @@ export async function useConnectedLocation(pid: string, project: Project, locati
 export async function getUserHl(uid: string): Promise<{ locationId: string; locationName: string } | null> {
   const snap = await db.doc(`users/${uid}`).get();
   return (snap.get("hl") as { locationId: string; locationName: string } | null) ?? null;
+}
+
+/** Days a variant build's versions wait for the customer to save one. */
+export const DRAFT_DAYS = 7;
+
+/** Deletes (soft) the drafts nobody saved within DRAFT_DAYS; their content then goes with the daily blob cleanup. */
+export async function expireDrafts(now = Date.now()): Promise<number> {
+  const stale = await db.collection("projects").where("draft.expiresAt", "<", new Date(now)).get();
+  await Promise.all(stale.docs.filter((d) => !d.get("deletedAt")).map(async (d) => {
+    await d.ref.update({ deletedAt: new Date(now) });
+    await updateBuild(d.get("ownerId"), d.get("draft.generationId"), { outcome: "expired", href: "/" });
+  }));
+  return stale.size;
 }

@@ -107,6 +107,26 @@ export function createManifestStore(blobs: BlobStore, migrate?: Migrator): FileS
     apply,
     snapshot,
 
+    async stageSnapshot(pid, ops, generationId, summary) {
+      const { uid, manifest } = await load(pid);
+      const entries = new Map(ops.flatMap((op) => (op.type === "write" ? [[op.path, entryFor(op.path, op.content)] as const] : [])));
+      await Promise.all([...uploadsFor(manifest, ops, entries).values()].map((content) => blobs.put(uid, content)));
+      const staged = nextManifest(manifest, ops, entries);
+      const ref = snapshots(pid).doc();
+      await ref.set({ generationId, reason: "variant", summary, createdAt: FieldValue.serverTimestamp(), fileCount: Object.keys(staged).length, manifest: staged });
+      return ref.id;
+    },
+
+    async readSnapshot(pid, sid) {
+      const { uid } = await load(pid);
+      const ref = snapshots(pid).doc(sid);
+      const snap = await ref.get();
+      if (!snap.exists) return null;
+      const manifest = (snap.get("manifest") as Manifest | undefined) ?? (await migrate?.snapshot(uid, ref)) ?? {};
+      const paths = Object.keys(manifest).sort((a, b) => a.localeCompare(b));
+      return Promise.all(paths.map(async (path) => ({ path, content: await blobs.get(uid, manifest[path]!.hash) })));
+    },
+
     async restore(pid, sid) {
       const { uid } = await load(pid);
       const ref = snapshots(pid).doc(sid);

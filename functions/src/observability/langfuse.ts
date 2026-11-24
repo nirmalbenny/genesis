@@ -39,10 +39,23 @@ export const stripFileContent = (data: string): string =>
 export function langfuseProcessor(cfg: { publicKey: string; secretKey: string; baseUrl: string; exporter?: SpanExporter }): SpanProcessor {
   return new LangfuseSpanProcessor({
     ...cfg,
-    environment: process.env.FUNCTIONS_EMULATOR === "true" ? "development" : "production",
+    environment: traceEnvironment(),
     mask: ({ data }) => stripFileContent(typeof data === "string" ? data : JSON.stringify(data)),
     ...(cfg.exporter ? { exportMode: "immediate" as const } : {}),
   });
+}
+
+/** Whether traces are being sent (Langfuse configured on this instance). */
+export const tracingOn = (): boolean => processor !== null;
+
+/** The environment traces and scores are recorded under. */
+export const traceEnvironment = (): string => (process.env.FUNCTIONS_EMULATOR === "true" ? "development" : "production");
+
+/** Sends what is buffered, but never waits more than FLUSH_TIMEOUT_MS (Cloud Functions throttle CPU after a response). */
+export async function flushTraces(): Promise<void> {
+  if (!processor) return;
+  const timeout = new Promise<void>((resolve) => setTimeout(resolve, FLUSH_TIMEOUT_MS).unref());
+  await Promise.race([processor.forceFlush(), timeout]);
 }
 
 /** Langfuse, configured from the functions' params and secrets. Idempotent. */
@@ -54,14 +67,14 @@ export function ensureLangfuse(cfg: { publicKey: string; secretKey: string; base
  * Runs `create` with `parent` as the active span, so the new observation is its child AND keeps the user, session
  * and tags propagated in the current context (an explicit parentSpanContext would drop them).
  */
-const under = <T>(parent: { otelSpan: Span }, create: () => T): T =>
+export const under = <T>(parent: { otelSpan: Span }, create: () => T): T =>
   context.with(trace.setSpan(context.active(), parent.otelSpan), create);
 
 /**
  * Usage in Langfuse's buckets, which must not overlap: `output` excludes the thinking tokens, reported as
  * `output_reasoning_tokens` (Anthropic counts thinking inside output_tokens).
  */
-const usageDetails = (u: TokenUsage, thinkingTokens = 0) => ({
+export const usageDetails = (u: TokenUsage, thinkingTokens = 0) => ({
   input: u.inputTokens,
   output: u.outputTokens - thinkingTokens,
   output_reasoning_tokens: thinkingTokens,
@@ -70,7 +83,7 @@ const usageDetails = (u: TokenUsage, thinkingTokens = 0) => ({
 });
 
 /** Cost in the same buckets as usageDetails (thinking is billed at the output rate). */
-function costDetails(model: string, u: TokenUsage, thinkingTokens = 0) {
+export function costDetails(model: string, u: TokenUsage, thinkingTokens = 0) {
   const c = costUsd(model, u);
   const reasoning = u.outputTokens ? c.output * (thinkingTokens / u.outputTokens) : 0;
   return { ...c, output: c.output - reasoning, output_reasoning_tokens: reasoning };

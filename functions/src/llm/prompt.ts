@@ -59,7 +59,8 @@ Rules:
 - Vue 3 single-file components using <script setup>. Use ONLY vue, the npm packages the UI guide lists, and browser APIs. No other npm packages, no CDN scripts.
 - Get ALL HighLevel data through the system client described under "Client" below: import what you need from "./genesis/hl.js" (adjust the relative path, e.g. "../genesis/hl.js" from src/components). Never write your own fetch, retry or pagination code for HighLevel. If the project already has its own fetch helper, code you don't change may keep using it; new and rewritten code uses the client. Never invent data, never hard-code sample records.
 - The same app runs on whichever HighLevel sub-account is connected. Never write a sub-account's name or id into the code: to show the name, import LOCATION_NAME from the client (it may be empty: then show nothing); the client already sends the id.
-- Show loading, empty, and error states. Display the error.message of failed calls (the client throws errors with the proxy's message).
+- Show loading, empty, and error states. Display the error.message of failed calls (the client throws errors with the proxy's message). When a call fails with rate_limited or hl_rate_limited, say when to try again (error.retryAfter is in seconds).
+- Never call the client once per row of a list (one getContact, contactAppointments or messages call per contact or card): show what the list already returns, and load a record's details when the user opens it.
 - Paginated lists (every usePager kind in the guides) always use usePager (it pages with the verified cursors, skips duplicates, and resets when its options change):
   - Show the first page only. Offer a "Load more" button (for message threads: "Load older messages") bound to loadMore(), with its own loading state, shown only while hasMore is true.
   - Show how much is loaded when total is known, e.g. "Showing 40 of 54 contacts".

@@ -5,6 +5,18 @@ service cloud.firestore {
       allow read: if request.auth != null && request.auth.uid == uid;
       allow write: if false;
 
+      // Build history: one record per build, readable by its owner, written only by Cloud Functions.
+      match /builds/{id} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+        allow write: if false;
+      }
+
+      // Build notifications: readable by their owner, written only by Cloud Functions (marked read through the API).
+      match /notifications/{id} {
+        allow read: if request.auth != null && request.auth.uid == uid;
+        allow write: if false;
+      }
+
       // AI credit ledger: readable by its owner, written only by Cloud Functions.
       match /creditLedger/{entry} {
         allow read: if request.auth != null && request.auth.uid == uid;
@@ -13,6 +25,9 @@ service cloud.firestore {
     }
     match /hlTokens/{uid} { allow read, write: if false; }
     match /oauthStates/{state} { allow read, write: if false; }
+    // Variant builds: the job and the scores are server-only (docs/plans/build-variants.md).
+    match /variantJobs/{gid} { allow read, write: if false; }
+    match /variantScores/{gid} { allow read, write: if false; }
 
     // All writes to projects and their subcollections go through Cloud Functions (Admin SDK).
     match /projects/{pid} {

@@ -1,6 +1,8 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuth } from '@/composables/useAuth'
 import AppsView from '@/views/AppsView.vue'
+import BuildsView from '@/views/BuildsView.vue'
+import ChooseView from '@/views/ChooseView.vue'
 import Dashboard from '@/views/Dashboard.vue'
 import SignIn from '@/views/SignIn.vue'
 import SignUp from '@/views/SignUp.vue'
@@ -16,8 +18,10 @@ const router = createRouter({
     { path: '/verify', component: VerifyEmail, meta: { unverified: true } },
     { path: '/', component: Dashboard },
     { path: '/apps', component: AppsView },
+    { path: '/builds', component: BuildsView },
     { path: '/p/:id', component: Workspace },
     { path: '/run/:id', component: RunView },
+    { path: '/choose/:id', component: ChooseView },
   ],
 })
 

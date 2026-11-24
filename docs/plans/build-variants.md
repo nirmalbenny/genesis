@@ -151,6 +151,10 @@ them. What stays out of the prompts is that there is a scoring at all.
 
 ## 5. Scoring and elimination
 
+> **Superseded** by [build-variants-evaluation.md](build-variants-evaluation.md): two gates (builds; an AI security
+> review) and an 8-criterion quality score on levels. The rest of this section is the earlier design, kept for its
+> reasoning.
+
 ### 5.1 The rubric
 
 Genesis's rubric, 100 points (kept in `functions/src/llm/rubric.md`, read only by the grader):
@@ -289,7 +293,7 @@ non-destructive.
   3 × 19 credits. The rubric is cached for the grader in the same way.
 - **Time** _(estimate)_: planner (~10 s), then the slowest build plus the stagger, then grading (~10 s, parallel):
   about 1.5× a single build. The customer may leave the page meanwhile (§2).
-- **Anthropic rate limits:** 4 streams of up to 16,000 output tokens count against the organisation's
+- **Anthropic rate limits:** 4 streams of up to 30,000 output tokens (`VARIANT_MAX_OUTPUT_TOKENS`; thinking counts as output) count against the organisation's
   output-tokens-per-minute limit. A build that gets a 429 is ineligible, and the rest carry on. It is logged, so the
   limit can be raised before the feature is widely used.
 - **Function limits:** one `generate` instance runs the 4 builds and grades concurrently (I/O-bound). The

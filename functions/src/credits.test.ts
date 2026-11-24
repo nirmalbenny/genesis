@@ -8,6 +8,8 @@ const usage = (inputTokens: number, outputTokens: number, cacheReadTokens = 0, c
 // 1 credit = $0.001: Sonnet 5.5 is $2 / $10 per MTok, Haiku 5.5 is $0.10 / $0.50.
 test("Sonnet build is priced at list cost", () => {
   assert.equal(creditsFor("claude-sonnet-5-5", usage(10_000, 10_000)), 120); // $0.02 + $0.10
+  assert.equal(creditsFor("claude-opus-5-5", usage(10_000, 10_000)), 240); // $0.04 + $0.20: Opus 5.5 is 2x Sonnet 5.5
+  assert.equal(creditsFor("claude-opus-5-5", usage(0, 0, 1_000_000, 1_000_000)), 5200); // cache reads $0.20, writes $5
   assert.equal(creditsFor("claude-sonnet-5-5", usage(0, 0, 1_000_000)), 100); // cache reads $0.10 / MTok (0.05x)
   assert.equal(creditsFor("claude-sonnet-5-5", usage(0, 0, 0, 1_000_000)), 2500); // 5-minute cache writes 1.25x
 });
@@ -36,7 +38,7 @@ test("Haiku summary costs a fraction of a credit", () => {
 });
 
 test("unknown models are billed at the highest known rate, never free", () => {
-  assert.equal(creditsFor("some-new-model", usage(10_000, 10_000)), 120);
+  assert.equal(creditsFor("some-new-model", usage(10_000, 10_000)), 240); // the dearest on the card: Opus 5.5
 });
 
 test("charges round up once per build", () => {

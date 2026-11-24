@@ -87,6 +87,25 @@ export const firestoreFileStore: FileStore = {
   apply,
   snapshot,
 
+  async stageSnapshot(pid, ops, generationId, summary) {
+    const files = new Map((await readAll(pid)).map((f) => [f.path, f.content]));
+    for (const op of ops) {
+      if (op.type === "write") files.set(op.path, op.content);
+      else files.delete(op.path);
+    }
+    const ref = project(pid).collection("snapshots").doc();
+    await ref.set({ generationId, reason: "variant", summary, createdAt: FieldValue.serverTimestamp(), fileCount: files.size });
+    await commitInChunks([...files].map(([path, content]) => (b: WriteBatch) => b.set(ref.collection("files").doc(fileId(path)), { path, content })));
+    return ref.id;
+  },
+
+  async readSnapshot(pid, sid) {
+    const ref = project(pid).collection("snapshots").doc(sid);
+    if (!(await ref.get()).exists) return null;
+    const files = (await ref.collection("files").get()).docs.map((d) => d.data() as ProjectFile);
+    return files.sort((a, b) => a.path.localeCompare(b.path));
+  },
+
   async restore(pid, sid) {
     const snapRef = project(pid).collection("snapshots").doc(sid);
     const snapSnap = await snapRef.get();

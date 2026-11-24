@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowRight, CalendarDays, Check, Contact, CornerDownLeft, LoaderCircle, MessageSquare, Plug, Sparkles } from '@lucide/vue'
+import { ArrowRight, CalendarDays, Check, Columns2, Contact, CornerDownLeft, LoaderCircle, MessageSquare, Plug, Sparkles } from '@lucide/vue'
 import { computed, nextTick, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppCard from '@/components/AppCard.vue'
@@ -10,10 +10,13 @@ import { DATA_LABELS } from '@/lib/registry'
 import TopBar from '@/components/TopBar.vue'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { useApps, type App } from '@/composables/useApps'
 import { useCreateApp } from '@/composables/useCreateApp'
 import { useHl } from '@/composables/useHl'
+import { startVersions, VARIANTS_ENABLED } from '@/composables/useVersions'
 
 // Starting points fill the composer with an existing prompt; the user reviews it and presses Build.
 const starters = [
@@ -44,10 +47,23 @@ async function useStarter(text: string) {
   composer.value?.querySelector('textarea')?.focus()
 }
 
-function startBuild() {
+/** "Show me 2 options": several versions are built in the background and the customer picks one (no details first). */
+const twoOptions = ref(false)
+const starting = ref(false)
+
+async function startBuild() {
   const text = prompt.value.trim()
-  if (!text) return
-  creator.fromPrompt(text)
+  if (!text || starting.value) return
+  if (!twoOptions.value) return creator.fromPrompt(text)
+  starting.value = true
+  error.value = ''
+  try {
+    await router.push(`/choose/${await startVersions(text)}`)
+  } catch (e) {
+    error.value = (e as Error).message
+  } finally {
+    starting.value = false
+  }
 }
 </script>
 
@@ -104,13 +120,24 @@ function startBuild() {
             @keydown.ctrl.enter.prevent="startBuild"
           />
           </div>
-          <div class="flex flex-wrap items-center gap-2 border-t border-border px-3 py-2.5">
-            <span class="text-xs text-muted-foreground">Using live data:</span>
-            <span v-for="d in sources" :key="d" class="rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-ink-200">{{ d }}</span>
-            <span class="hidden truncate text-xs text-muted-foreground sm:inline">from <span class="font-medium text-ink-200">{{ hl.locationName }}</span></span>
-            <span class="flex-1" />
-            <span class="hidden items-center gap-0.5 text-xs text-muted-foreground sm:inline-flex">⌘<CornerDownLeft class="size-3" /></span>
-            <Button class="h-9 px-4" :disabled="!prompt.trim()" @click="startBuild"><Sparkles class="size-4" />Build</Button>
+          <!-- Two groups: the live data on the left, the actions together on the right (wrapping below, still right-aligned) -->
+          <div class="flex flex-wrap items-center gap-x-4 gap-y-2.5 border-t border-border px-3 py-2.5">
+            <div class="flex min-w-0 flex-[1_1_18rem] flex-wrap items-center gap-2">
+              <span class="text-xs text-muted-foreground">Using live data:</span>
+              <span v-for="d in sources" :key="d" class="rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-ink-200">{{ d }}</span>
+              <span class="hidden truncate text-xs text-muted-foreground sm:inline">from <span class="font-medium text-ink-200">{{ hl.locationName }}</span></span>
+            </div>
+            <div class="ml-auto flex shrink-0 items-center gap-3">
+              <!-- "Show me 2 options": a switch, so it reads as a setting of this build, not an action -->
+              <div v-if="VARIANTS_ENABLED" class="flex items-center gap-2" title="Genesis builds a few versions and you pick the one you like. You only pay for the one you keep.">
+                <Switch id="two-options" v-model="twoOptions" />
+                <Label for="two-options" class="cursor-pointer gap-1.5 text-xs font-medium" :class="twoOptions ? 'text-primary' : 'text-ink-200'">
+                  <Columns2 class="size-4" aria-hidden="true" />Show me 2 options
+                </Label>
+              </div>
+              <span class="hidden items-center gap-0.5 text-xs text-muted-foreground sm:inline-flex">⌘<CornerDownLeft class="size-3" /></span>
+              <Button class="h-9 px-4" :disabled="!prompt.trim() || starting" @click="startBuild"><Sparkles class="size-4" />{{ starting ? 'Starting…' : 'Build' }}</Button>
+            </div>
           </div>
         </div>
 

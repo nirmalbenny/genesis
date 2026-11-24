@@ -12,6 +12,9 @@ import {
 } from "./credits";
 import { fileStore, projectRef } from "./files";
 import { httpError, requireVerifiedUser, sendError } from "./http";
+import { countInput } from "./llm/count";
+import { recordBuild } from "./buildHistory";
+import { notify } from "./notifications";
 import { summarizeChange } from "./llm/summary";
 import type { ToolCall } from "./llm/assemble";
 import { renderContext, selectContext } from "./llm/context";
@@ -29,28 +32,16 @@ import { assertEditable, getOwnedProject, getUserHl, useConnectedLocation } from
 const MAX_PROMPT_CHARS = 4000;
 const MAX_HINT_PATHS = 10; // active + open editor tabs sent as context hints
 const RECENT_GENERATIONS = 2; // files changed by these rank first in a large app's context
-const MAX_OUTPUT_TOKENS = 16000; // for the whole build, across its turns
-const MAX_READ_CALLS = 2; // read_files calls per build; later ones are answered with an error
-const MAX_TURNS = 6; // requests per build; the last one can't call tools, so the model has to finish
+export const MAX_OUTPUT_TOKENS = 16000; // for the whole build, across its turns
+export const MAX_READ_CALLS = 2; // read_files calls per build; later ones are answered with an error
+export const MAX_TURNS = 6; // requests per build; the last one can't call tools, so the model has to finish
 const HEARTBEAT_MS = 15_000;
 // Worst case for the one-line Haiku snapshot summary, included in every build's hold.
 const SUMMARY_ALLOWANCE: TokenUsage = { inputTokens: 1000, outputTokens: 60, cacheWriteTokens: 0, cacheReadTokens: 0 };
-// Rough chars-per-token, used only when token counting is unavailable. Low on purpose: code tokenizes densely,
-// and an estimate that is too low would under-hold credits.
-const CHARS_PER_TOKEN = 2.5;
-
 type Status = "done" | "partial" | "error" | "cancelled";
 
-const DECLINED_MESSAGE =
+export const DECLINED_MESSAGE =
   "I can't fulfill this request. Genesis only builds and edits apps that show your HighLevel data, and it can't help with harmful or unrelated requests. Describe a change to your app and I'll take it from there.";
-
-/** Exact input tokens of a request (free API call), or a conservative estimate when counting fails. */
-function countInput(client: Anthropic, p: Pick<Anthropic.MessageCountTokensParams, "model" | "system" | "tools" | "tool_choice" | "messages">): Promise<number> {
-  const params = { model: p.model, system: p.system, tools: p.tools, tool_choice: p.tool_choice, messages: p.messages };
-  return client.messages.countTokens(params)
-    .then((r) => r.input_tokens)
-    .catch(() => Math.ceil(JSON.stringify(params).length / CHARS_PER_TOKEN));
-}
 
 type Time = ReturnType<typeof stepTimer>["time"];
 
@@ -440,6 +431,19 @@ export const generate = onRequest(
       snapshotId,
       summary: summaryText,
     }, credits.charged);
+    await recordBuild(uid, generationId, {
+      projectId: pid, mode: "single", appName: trace.projectName, request: prompt, href: `/p/${pid}`, credits: credits.charged,
+      outcome: status === "done" ? "updated" : status === "partial" ? "partial" : status === "cancelled" ? "stopped" : "failed",
+    });
+    // A stopped build was the user's own doing; every other ending is worth telling them about, wherever they are.
+    if (status !== "cancelled") {
+      await notify(uid, {
+        kind: status === "done" ? "build_done" : status === "partial" ? "build_partial" : "build_failed",
+        title: status === "done" ? `${trace.projectName} is updated` : status === "partial" ? `${trace.projectName} was updated with problems` : `${trace.projectName} couldn't be updated`,
+        body: status === "done" ? summaryText ?? "Your changes are ready." : failure?.message ?? "",
+        href: `/p/${pid}`, projectId: pid, generationId,
+      });
+    }
     if (status === "cancelled") {
       send("cancelled", { generationId, snapshotId, files: applied, unfinished: unclosed, credits });
     } else if (failure) send("error", { ...failure, partial: applied.length > 0, credits });
